@@ -73,8 +73,18 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
   const entries: RegistryEntry[] = [];
   for (const a of config.agents) {
     if (!a.enabled) continue;
+    const base_url = expandEnvRefs(a.base_url);
+    if (!base_url) {
+      // The config pointed at a `${VAR}` that isn't set. In prod this is
+      // almost always a mis-wired Vercel env var — fail loud rather than
+      // silently fall back to an empty URL and break every tool call.
+      console.error(
+        `[registry] agent "${a.key}" base_url resolved to empty after env expansion ("${a.base_url}"); skipping.`,
+      );
+      continue;
+    }
     try {
-      const entry = await loadAgent(a.key, a.base_url);
+      const entry = await loadAgent(a.key, base_url);
       entries.push(entry);
     } catch (err) {
       console.error(`[registry] failed to load agent "${a.key}":`, err);
@@ -170,6 +180,34 @@ async function loadAgent(key: string, base_url: string): Promise<RegistryEntry> 
     health_score: 1.0, // optimistic — first probe corrects
     manifest_loaded_at: Date.now(),
   };
+}
+
+/**
+ * Resolve `${VAR_NAME}` placeholders in a string against `process.env`.
+ *
+ * Used so the committed registry config can point at environment-
+ * dependent URLs (Vercel preview vs. prod, local dev vs. CI) without
+ * per-environment JSON files. Missing vars resolve to the empty string
+ * — the loader's caller turns that into a skip + loud log, so a typo
+ * in a Vercel env var surfaces as "agent X skipped" rather than as
+ * mysterious downstream 500s.
+ *
+ * Intentionally narrow: only `${IDENTIFIER}` is substituted, no shell
+ * fallbacks (`${FOO:-bar}`), no nested refs, no command substitution.
+ * If you want fallbacks, precompute the value in CI.
+ */
+function expandEnvRefs(input: string): string {
+  if (typeof input !== "string" || input.length === 0) return input;
+  return input.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/g, (match, name: string) => {
+    const v = process.env[name];
+    if (v === undefined || v === "") {
+      console.warn(
+        `[registry] env var ${name} referenced by registry config is unset; ${match} → "".`,
+      );
+      return "";
+    }
+    return v;
+  });
 }
 
 async function fetchWithTimeout(url: string, ms: number): Promise<Response> {

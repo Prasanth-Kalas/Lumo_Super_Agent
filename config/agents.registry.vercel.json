@@ -1,0 +1,19 @@
+{
+  "_comment": "Vercel overlay — set LUMO_REGISTRY_PATH=config/agents.registry.vercel.json on the Vercel project. base_url fields are templated; lib/agent-registry.ts → expandEnvRefs() substitutes ${VAR} against process.env at boot. Missing vars surface as '[registry] env var X unset' + skip, not a silent empty URL.",
+  "env": "vercel",
+  "agents": [
+    {
+      "key": "food",
+      "enabled": true,
+      "base_url": "${LUMO_FOOD_AGENT_URL}",
+      "version": "0.1.0"
+    },
+    {
+      "key": "flight",
+      "enabled": true,
+      "base_url": "${LUMO_FLIGHT_AGENT_URL}",
+      "version": "0.1.0",
+      "_notes": "Flip enabled=false if you need to ship the shell without flight (e.g. during Duffel Seller-of-Travel review). The shell boots, the flight tools drop out of the system prompt, food keeps working."
+    }
+  ]
+}

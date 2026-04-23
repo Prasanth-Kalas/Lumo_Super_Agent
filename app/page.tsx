@@ -3,15 +3,29 @@
 /**
  * The Lumo shell home screen. One chat thread, one mic button, one
  * confirmation card when the orchestrator emits a structured summary.
- * Voice is stubbed for v0 — wired up against the Realtime API in the
- * next PR.
+ *
+ * Two confirmation surfaces:
+ *   - ItineraryConfirmationCard  — single-leg (flight only)
+ *   - TripConfirmationCard       — compound (flight + hotel + dinner)
+ *
+ * The trip card doubles as the dispatch-status surface: once the user
+ * confirms, the shell streams per-leg `leg_status` frames and this
+ * component threads them back into the card via `legStatuses`.
+ *
+ * Voice is stubbed for v0 — wired up against the Realtime API in a
+ * follow-up PR.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ItineraryConfirmationCard,
   type ItineraryPayload,
 } from "@/components/ItineraryConfirmationCard";
+import {
+  TripConfirmationCard,
+  type TripPayload,
+  type LegDispatchStatus,
+} from "@/components/TripConfirmationCard";
 
 /**
  * Local mirror of the shell's ConfirmationSummary — we re-declare it
@@ -20,7 +34,11 @@ import {
  * packages/agent-sdk/src/confirmation.ts :: ConfirmationSummary.
  */
 interface UISummary {
-  kind: "structured-cart" | "structured-itinerary" | "structured-booking";
+  kind:
+    | "structured-cart"
+    | "structured-itinerary"
+    | "structured-booking"
+    | "structured-trip";
   payload: unknown;
   hash: string;
   session_id: string;
@@ -35,17 +53,47 @@ interface UIMessage {
   summary?: UISummary | null;
 }
 
+/**
+ * Starter prompt suggestions on the empty state. Chosen to cover the
+ * three specialist surfaces we currently ship (flight / food / hotel).
+ * Kept in-file because they're copy, not config.
+ */
+const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
+  {
+    label: "Flight to Vegas",
+    prompt: "Find me a flight to Las Vegas next Friday for under $300.",
+  },
+  {
+    label: "Order dinner",
+    prompt: "Order a pepperoni pizza and a Caesar salad from the closest place.",
+  },
+  {
+    label: "Trip to Austin",
+    prompt:
+      "Plan a trip to Austin next weekend: flight from SFO, a hotel downtown, and dinner Friday night.",
+  },
+];
+
 export default function Home() {
   const [messages, setMessages] = useState<UIMessage[]>([
     {
       id: "hello",
       role: "assistant",
       content:
-        "Hi — I'm Lumo. I can order food, book flights, and more as we add agents. What do you need?",
+        "Hi — I'm Lumo. I can order food, book flights, book hotels, and string them together into one trip. What do you need?",
     },
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  /**
+   * Per-assistant-message dispatch status, keyed by the assistant
+   * message id → leg order → status. The orchestrator emits
+   * `leg_status` SSE frames once the trip is confirmed; we fold them
+   * in under the id of the message that carried the trip summary.
+   */
+  const [legStatusesByMsg, setLegStatusesByMsg] = useState<
+    Record<string, Record<number, LegDispatchStatus>>
+  >({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string>(
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -59,6 +107,23 @@ export default function Home() {
       behavior: "smooth",
     });
   }, [messages]);
+
+  /**
+   * Find the most recent assistant message that carries a trip
+   * summary, so `leg_status` frames emitted later in the thread can
+   * be folded into the correct card. We look backward from `idx` —
+   * the message index at the time the frame arrived — to avoid
+   * attaching to a newer trip the user starts mid-dispatch.
+   */
+  function latestTripMessageId(atIdx: number, from: UIMessage[]): string | null {
+    for (let i = atIdx; i >= 0; i--) {
+      const m = from[i];
+      if (m && m.role === "assistant" && m.summary?.kind === "structured-trip") {
+        return m.id;
+      }
+    }
+    return null;
+  }
 
   // Send `text` as a new user message. Appends it to the thread and
   // POSTs the full history (with summaries attached) to /api/chat.
@@ -126,6 +191,31 @@ export default function Home() {
             assistantText += String(frame.value ?? "");
           } else if (frame.type === "summary") {
             assistantSummary = frame.value as UISummary;
+          } else if (frame.type === "leg_status") {
+            // Compound-booking dispatch update from the orchestrator.
+            // Shape: { order: number; status: LegDispatchStatus }.
+            const v = frame.value as {
+              order?: number;
+              status?: LegDispatchStatus;
+            };
+            if (
+              typeof v?.order === "number" &&
+              typeof v?.status === "string"
+            ) {
+              setMessages((m) => {
+                const idx = m.length - 1;
+                const tripId = latestTripMessageId(idx, m);
+                if (!tripId) return m;
+                setLegStatusesByMsg((prev) => ({
+                  ...prev,
+                  [tripId]: {
+                    ...(prev[tripId] ?? {}),
+                    [v.order as number]: v.status as LegDispatchStatus,
+                  },
+                }));
+                return m;
+              });
+            }
           } else if (frame.type === "tool") {
             // Debug channel; UI doesn't surface tool calls yet.
             // Future: inline "Lumo asked the flight agent…" breadcrumbs.
@@ -201,25 +291,39 @@ export default function Home() {
     return { exists: false, kind: null };
   }
 
+  // True when the thread is effectively empty — just the greeting, no
+  // user turn yet. Drives the hero/suggestions block.
+  const isEmpty = useMemo(() => {
+    return (
+      messages.length === 1 &&
+      messages[0]?.role === "assistant" &&
+      messages[0]?.id === "hello"
+    );
+  }, [messages]);
+
   return (
     <main className="flex h-dvh flex-col mx-auto w-full max-w-2xl">
-      <header className="flex items-center justify-between px-5 py-4">
+      <header className="flex items-center justify-between px-5 py-4 border-b border-black/5">
         <div className="flex items-center gap-2">
           <div className="h-7 w-7 rounded-full bg-lumo-accent" />
-          <span className="font-semibold tracking-tight">Lumo</span>
+          <span className="font-semibold tracking-tight text-lumo-ink">Lumo</span>
         </div>
         <span className="text-xs text-lumo-muted">one app. any task.</span>
       </header>
 
       <div
         ref={scrollRef}
-        className="thread flex-1 overflow-y-auto px-5 pb-4 space-y-3"
+        className="thread flex-1 overflow-y-auto px-5 pt-4 pb-4 space-y-3"
       >
         {messages.map((m) => {
           const isItinerary =
             m.role === "assistant" &&
             m.summary?.kind === "structured-itinerary";
-          const decided = isItinerary ? userMessageExistsAfter(m.id) : null;
+          const isTrip =
+            m.role === "assistant" && m.summary?.kind === "structured-trip";
+          const decided =
+            isItinerary || isTrip ? userMessageExistsAfter(m.id) : null;
+          const tripStatuses = isTrip ? legStatusesByMsg[m.id] : undefined;
 
           return (
             <div key={m.id} className="space-y-2">
@@ -227,8 +331,8 @@ export default function Home() {
                 <div
                   className={
                     m.role === "user"
-                      ? "ml-auto max-w-[85%] rounded-2xl bg-lumo-ink text-white px-4 py-2 whitespace-pre-wrap"
-                      : "mr-auto max-w-[85%] rounded-2xl bg-white border border-black/5 px-4 py-2 whitespace-pre-wrap"
+                      ? "ml-auto max-w-[85%] rounded-2xl bg-lumo-ink text-white px-4 py-2 whitespace-pre-wrap shadow-sm"
+                      : "mr-auto max-w-[85%] rounded-2xl bg-white border border-black/5 px-4 py-2 whitespace-pre-wrap shadow-sm"
                   }
                 >
                   {m.content}
@@ -244,17 +348,65 @@ export default function Home() {
                   decidedLabel={decided?.kind ?? null}
                 />
               ) : null}
+
+              {isTrip && m.summary ? (
+                <TripConfirmationCard
+                  payload={m.summary.payload as TripPayload}
+                  onConfirm={() => void sendText("Yes, book the trip.")}
+                  onCancel={() => void sendText("Cancel — don't book that.")}
+                  disabled={busy || !!decided?.exists}
+                  decidedLabel={decided?.kind ?? null}
+                  legStatuses={tripStatuses}
+                />
+              ) : null}
             </div>
           );
         })}
+
+        {/* Empty-state suggestions. Visible when no user turn has happened
+            yet — disappears the moment the first message goes out. */}
+        {isEmpty && (
+          <div className="pt-2 space-y-2">
+            <div className="text-[11px] uppercase tracking-widest text-lumo-muted px-1">
+              Try
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  onClick={() => void sendText(s.prompt)}
+                  className="text-sm px-3 py-1.5 rounded-full bg-white border border-black/10 text-lumo-ink hover:bg-lumo-paper hover:border-black/20 transition-colors"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {busy && (
-          <div className="mr-auto max-w-[85%] rounded-2xl bg-white border border-black/5 px-4 py-2 text-lumo-muted">
+          <div
+            className="mr-auto max-w-[85%] rounded-2xl bg-white border border-black/5 px-4 py-2 text-lumo-muted shadow-sm inline-flex items-center gap-2"
+            aria-live="polite"
+          >
+            <span className="inline-flex gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-lumo-muted animate-pulse" />
+              <span
+                className="h-1.5 w-1.5 rounded-full bg-lumo-muted animate-pulse"
+                style={{ animationDelay: "150ms" }}
+              />
+              <span
+                className="h-1.5 w-1.5 rounded-full bg-lumo-muted animate-pulse"
+                style={{ animationDelay: "300ms" }}
+              />
+            </span>
             Lumo is thinking…
           </div>
         )}
       </div>
 
-      <div className="border-t border-black/5 p-3 flex items-end gap-2">
+      <div className="border-t border-black/5 p-3 flex items-end gap-2 bg-white/60 backdrop-blur">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -273,7 +425,7 @@ export default function Home() {
           type="button"
           aria-label="Voice"
           title="Voice (coming soon)"
-          className="h-11 w-11 rounded-full bg-white border border-black/10 flex items-center justify-center hover:bg-black/5"
+          className="h-11 w-11 rounded-full bg-white border border-black/10 flex items-center justify-center hover:bg-black/5 disabled:opacity-50"
           disabled
         >
           <span className="text-lg">🎙</span>
@@ -282,7 +434,7 @@ export default function Home() {
           type="button"
           onClick={send}
           disabled={busy || !input.trim()}
-          className="h-11 px-4 rounded-full bg-lumo-ink text-white disabled:opacity-40"
+          className="h-11 px-5 rounded-full bg-lumo-ink text-white font-medium hover:opacity-95 disabled:opacity-40 transition-opacity"
         >
           Send
         </button>

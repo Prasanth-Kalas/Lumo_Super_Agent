@@ -82,3 +82,34 @@ dev, swap to git URL or registry pin for CI/prod. See the SDK repo's README.
 - **Circuit breaker.** Consecutive failures trip the per-agent breaker;
   further calls return `upstream_error` without touching the agent, for N
   seconds.
+
+## Deploy to Vercel
+
+Full runbook lives at [`../DEPLOYMENT.md`](../DEPLOYMENT.md). The
+short version, for this repo only:
+
+1. **Swap the SDK dep.** In `package.json`, replace
+   `"@lumo/agent-sdk": "file:../Lumo_Agent_SDK"` with
+   `"@lumo/agent-sdk": "git+https://github.com/Prasanth-Kalas/Lumo_Agent_SDK.git#v0.2.0"`.
+   Vercel has no sibling folder to resolve `file:../`.
+2. **Import on Vercel.** Framework preset: Next.js. `vercel.json` in
+   this repo pins `app/api/chat/route.ts` to `maxDuration: 60` so the
+   SSE orchestrator doesn't get killed mid-tool-loop.
+3. **Set env vars.** Minimally:
+   - `ANTHROPIC_API_KEY` — from console.anthropic.com
+   - `LUMO_REGISTRY_PATH=config/agents.registry.vercel.json`
+   - `LUMO_FOOD_AGENT_URL=https://<your-food-project>.vercel.app`
+   - `LUMO_FLIGHT_AGENT_URL=https://<your-flight-project>.vercel.app`
+   - `LUMO_SHELL_PUBLIC_URL=https://<your-super-project>.vercel.app`
+
+   See `.env.example` for the full list.
+4. **Why the `${VAR}` registry overlay.** `config/agents.registry.vercel.json`
+   holds `${LUMO_FOOD_AGENT_URL}` / `${LUMO_FLIGHT_AGENT_URL}` placeholders,
+   resolved at boot by `expandEnvRefs()` in `lib/agent-registry.ts`. One
+   committed config, different URLs per preview / prod — no per-environment
+   JSON files.
+5. **Deploy agents first.** The shell probes each agent's
+   `/.well-known/agent.json` at boot. If the flight agent isn't deployed
+   yet, the shell boots without it and Claude is simply never offered
+   flight tools — graceful degradation, not a crash. But you still want
+   both agents live before you point users at the shell.
