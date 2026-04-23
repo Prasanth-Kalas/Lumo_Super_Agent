@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+  background: theme("colors.lumo.paper");
+  color: theme("colors.lumo.ink");
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Chat scrollbar — subtle */
+.thread::-webkit-scrollbar {
+  width: 6px;
+}
+.thread::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 999px;
+}

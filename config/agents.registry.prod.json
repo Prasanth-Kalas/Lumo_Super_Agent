@@ -1,0 +1,19 @@
+{
+  "_comment": "Production overlay — set LUMO_REGISTRY_PATH=/app/config/agents.registry.prod.json in the orchestrator deployment. Base URLs must point at the agent's public hostname (behind CloudFront/ALB). version pins MUST be exact in prod.",
+  "env": "prod",
+  "agents": [
+    {
+      "key": "food",
+      "enabled": true,
+      "base_url": "https://food.agents.lumo.rentals",
+      "version": "0.1.0"
+    },
+    {
+      "key": "flight",
+      "enabled": false,
+      "base_url": "https://flight.agents.lumo.rentals",
+      "version": "0.1.0",
+      "_notes": "Flip enabled=true after Duffel live mode + Seller of Travel compliance review."
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "./agents.registry.schema.json",
+  "_comment": "Source of truth for which sub-agents the Lumo shell loads. Each agent must expose /.well-known/agent.json + /openapi.json + health_url. Keep this file small and boring — config drift is the enemy.",
+  "env": "dev",
+  "agents": [
+    {
+      "key": "food",
+      "enabled": true,
+      "base_url": "http://localhost:3001",
+      "version": "^0.1.0",
+      "_notes": "Lumo-Food-Agent. Local dev port 3001. In prod set LUMO_REGISTRY_PATH to a prod-specific file or use env-overlay at CI time."
+    },
+    {
+      "key": "flight",
+      "enabled": true,
+      "base_url": "http://localhost:3002",
+      "version": "^0.1.0",
+      "_notes": "Lumo-Flight-Agent (new repo). Duffel-backed. Local dev port 3002."
+    }
+  ]
+}
