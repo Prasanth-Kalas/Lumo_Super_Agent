@@ -118,17 +118,15 @@ function formatTime(iso: string): string {
   }).format(d);
 }
 
-function durationBetween(a: string, b: string): string | null {
-  const from = new Date(a).getTime();
-  const to = new Date(b).getTime();
-  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return null;
-  const mins = Math.round((to - from) / 60000);
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m}m`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}m`;
-}
+// NOTE: intentionally no `durationBetween` helper here. Duffel returns
+// TZ-naive ISO timestamps, so subtracting `new Date(a) - new Date(b)` on
+// the client produces wildly wrong durations for cross-TZ flights (a
+// 3h 49m ORD→LAS flight rendered as "1h 49m"). Duration is already
+// visible on the preceding radio card (which uses Duffel's ISO-8601
+// `duration` field directly) and in the assistant's lead-in text, so we
+// omit it here rather than risk a misleading number on the money-gate
+// screen. If/when the canonical summary payload grows a `duration_iso`
+// field per segment (append-only, hash-compatible), we can surface it.
 
 export function ItineraryConfirmationCard({
   payload,
@@ -178,39 +176,35 @@ export function ItineraryConfirmationCard({
               </div>
             )}
             <ul className="space-y-2">
-              {slice.segments.map((seg, gi) => {
-                const dur = durationBetween(seg.departing_at, seg.arriving_at);
-                return (
-                  <li
-                    key={gi}
-                    className="grid grid-cols-[auto_1fr_auto] items-center gap-3"
-                  >
-                    <div className="h-8 w-8 rounded-full bg-lumo-paper flex items-center justify-center text-[11px] font-semibold text-lumo-ink">
-                      {seg.carrier}
+              {slice.segments.map((seg, gi) => (
+                <li
+                  key={gi}
+                  className="grid grid-cols-[auto_1fr_auto] items-center gap-3"
+                >
+                  <div className="h-8 w-8 rounded-full bg-lumo-paper flex items-center justify-center text-[11px] font-semibold text-lumo-ink">
+                    {seg.carrier}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm text-lumo-ink truncate">
+                      <span className="font-medium">
+                        {seg.origin} → {seg.destination}
+                      </span>
+                      <span className="text-lumo-muted">
+                        {"  ·  "}
+                        {carrierFor(seg.carrier)} {seg.carrier}
+                        {seg.flight_number}
+                      </span>
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-sm text-lumo-ink truncate">
-                        <span className="font-medium">
-                          {seg.origin} → {seg.destination}
-                        </span>
-                        <span className="text-lumo-muted">
-                          {"  ·  "}
-                          {carrierFor(seg.carrier)} {seg.carrier}
-                          {seg.flight_number}
-                        </span>
-                      </div>
-                      <div className="text-xs text-lumo-muted mt-0.5">
-                        {formatDate(seg.departing_at)} · {formatTime(seg.departing_at)} →{" "}
-                        {formatTime(seg.arriving_at)}
-                        {dur ? ` · ${dur}` : ""}
-                      </div>
+                    <div className="text-xs text-lumo-muted mt-0.5">
+                      {formatDate(seg.departing_at)} · {formatTime(seg.departing_at)} →{" "}
+                      {formatTime(seg.arriving_at)}
                     </div>
-                    <div className="text-xs text-lumo-muted tabular-nums">
-                      {/* Reserved for seat/fare class in a later PR. */}
-                    </div>
-                  </li>
-                );
-              })}
+                  </div>
+                  <div className="text-xs text-lumo-muted tabular-nums">
+                    {/* Reserved for seat/fare class in a later PR. */}
+                  </div>
+                </li>
+              ))}
             </ul>
           </div>
         ))}

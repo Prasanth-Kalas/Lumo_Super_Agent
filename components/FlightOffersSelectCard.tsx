@@ -64,10 +64,19 @@ function formatIsoDuration(iso: string): string {
 }
 
 function formatTime(iso: string): string {
-  // "2026-05-15T10:50:00" → "10:50"
-  const m = /T(\d{2}):(\d{2})/.exec(iso);
-  if (!m) return iso;
-  return `${m[1]}:${m[2]}`;
+  // "2026-05-15T10:50:00" → "10:50 AM" · "2026-05-15T00:00:00" → "12:00 AM"
+  // Uses Intl so the radio card matches ItineraryConfirmationCard's
+  // time format end-to-end (search → price → confirm). Falls back to
+  // a regex slice if the ISO is unparseable.
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) {
+    const m = /T(\d{2}):(\d{2})/.exec(iso);
+    return m ? `${m[1]}:${m[2]}` : iso;
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(d);
 }
 
 function formatDate(iso: string): string {
