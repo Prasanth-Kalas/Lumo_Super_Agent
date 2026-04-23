@@ -14,6 +14,13 @@
       "base_url": "https://flight.agents.lumo.rentals",
       "version": "0.1.0",
       "_notes": "Flip enabled=true after Duffel live mode + Seller of Travel compliance review."
+    },
+    {
+      "key": "restaurant",
+      "enabled": false,
+      "base_url": "https://restaurant.agents.lumo.rentals",
+      "version": "0.1.0",
+      "_notes": "Enabled=false until OpenTable affiliate approval. The stub works in dev; prod should not ship user-facing 'book a reservation' traffic against mock data. Flip to true once OPENTABLE_PARTNER_ID+OPENTABLE_API_KEY are set on the restaurant agent's prod env and opentable-real.ts is fully wired."
     }
   ]
 }

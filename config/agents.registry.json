@@ -16,6 +16,13 @@
       "base_url": "http://localhost:3002",
       "version": "^0.1.0",
       "_notes": "Lumo-Flight-Agent (new repo). Duffel-backed. Local dev port 3002."
+    },
+    {
+      "key": "restaurant",
+      "enabled": true,
+      "base_url": "http://localhost:3003",
+      "version": "^0.1.0",
+      "_notes": "Lumo-Restaurant-Agent (new repo). OpenTable mock-first — partner API is gated, stub handles the whole reservation loop until OPENTABLE_PARTNER_ID+OPENTABLE_API_KEY are set. Local dev port 3003."
     }
   ]
 }

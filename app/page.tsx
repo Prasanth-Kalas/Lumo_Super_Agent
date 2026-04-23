@@ -48,6 +48,14 @@ import {
   FlightOffersSelectCard,
   type FlightOffersSelection,
 } from "@/components/FlightOffersSelectCard";
+import {
+  TimeSlotsSelectCard,
+  type TimeSlotsSelection,
+} from "@/components/TimeSlotsSelectCard";
+import {
+  ReservationConfirmationCard,
+  type ReservationPayload,
+} from "@/components/ReservationConfirmationCard";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 
 /**
@@ -61,7 +69,8 @@ interface UISummary {
     | "structured-cart"
     | "structured-itinerary"
     | "structured-booking"
-    | "structured-trip";
+    | "structured-trip"
+    | "structured-reservation";
   payload: unknown;
   hash: string;
   session_id: string;
@@ -75,7 +84,7 @@ interface UISummary {
  * checkboxes, flight offer radios). Deduped per kind on the server.
  */
 interface UISelection {
-  kind: "food_menu" | "flight_offers";
+  kind: "food_menu" | "flight_offers" | "time_slots";
   payload: unknown;
 }
 
@@ -415,8 +424,13 @@ export default function Home() {
             m.summary?.kind === "structured-itinerary";
           const isTrip =
             m.role === "assistant" && m.summary?.kind === "structured-trip";
+          const isReservation =
+            m.role === "assistant" &&
+            m.summary?.kind === "structured-reservation";
           const decided =
-            isItinerary || isTrip ? userMessageExistsAfter(m.id) : null;
+            isItinerary || isTrip || isReservation
+              ? userMessageExistsAfter(m.id)
+              : null;
           const tripStatuses = isTrip ? legStatusesByMsg[m.id] : undefined;
           const isUser = m.role === "user";
 
@@ -465,6 +479,16 @@ export default function Home() {
                 />
               ) : null}
 
+              {isReservation && m.summary ? (
+                <ReservationConfirmationCard
+                  payload={m.summary.payload as ReservationPayload}
+                  onConfirm={() => void sendText("Yes, book it.")}
+                  onCancel={() => void sendText("Cancel — don't book that.")}
+                  disabled={busy || !!decided?.exists}
+                  decidedLabel={decided?.kind ?? null}
+                />
+              ) : null}
+
               {/* ─── Interactive selection cards ──────────────────
                   Rendered when the orchestrator emits a `selection`
                   frame for a discovery tool (food menu / flight
@@ -491,6 +515,17 @@ export default function Home() {
                           <FlightOffersSelectCard
                             key={`${m.id}-flight-offers`}
                             payload={sel.payload as FlightOffersSelection}
+                            onSubmit={(text) => void sendText(text)}
+                            disabled={busy}
+                            decidedLabel={selectionDecided.kind}
+                          />
+                        );
+                      }
+                      if (sel.kind === "time_slots") {
+                        return (
+                          <TimeSlotsSelectCard
+                            key={`${m.id}-time-slots`}
+                            payload={sel.payload as TimeSlotsSelection}
                             onSubmit={(text) => void sendText(text)}
                             disabled={busy}
                             decidedLabel={selectionDecided.kind}

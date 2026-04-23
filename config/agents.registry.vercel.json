@@ -14,6 +14,13 @@
       "base_url": "${LUMO_FLIGHT_AGENT_URL}",
       "version": "0.1.0",
       "_notes": "Flip enabled=false if you need to ship the shell without flight (e.g. during Duffel Seller-of-Travel review). The shell boots, the flight tools drop out of the system prompt, food keeps working."
+    },
+    {
+      "key": "restaurant",
+      "enabled": true,
+      "base_url": "${LUMO_RESTAURANT_AGENT_URL}",
+      "version": "0.1.0",
+      "_notes": "Restaurant Agent runs mock-first until OpenTable partner onboarding lands. Set LUMO_RESTAURANT_AGENT_URL on the Vercel project to the deployed agent host; OPENTABLE_PARTNER_ID + OPENTABLE_API_KEY live on the restaurant agent's project, not here."
     }
   ]
 }

@@ -57,7 +57,7 @@ export interface OrchestratorInput {
  * "this tool result should be rendered as selection kind X".
  */
 export interface InteractiveSelection {
-  kind: "food_menu" | "flight_offers";
+  kind: "food_menu" | "flight_offers" | "time_slots";
   /** The raw (or lightly-reshaped) tool result payload. */
   payload: unknown;
 }
@@ -266,7 +266,8 @@ export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTur
 function isInteractiveDiscoveryTool(toolName: string): boolean {
   return (
     toolName === "food_get_restaurant_menu" ||
-    toolName === "flight_search_offers"
+    toolName === "flight_search_offers" ||
+    toolName === "restaurant_check_availability"
   );
 }
 
@@ -275,6 +276,7 @@ function selectionKindForTool(
 ): InteractiveSelection["kind"] | null {
   if (toolName === "food_get_restaurant_menu") return "food_menu";
   if (toolName === "flight_search_offers") return "flight_offers";
+  if (toolName === "restaurant_check_availability") return "time_slots";
   return null;
 }
 

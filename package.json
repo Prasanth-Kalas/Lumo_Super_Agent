@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.3",
-    "@lumo/agent-sdk": "git+https://github.com/Prasanth-Kalas/Lumo_Agent_SDK.git#1831619f72eee7e683ddaccc0f536cd3448e6fba",
+    "@lumo/agent-sdk": "git+https://github.com/Prasanth-Kalas/Lumo_Agent_SDK.git#cc90f7e5e2ba08729e1bff65e12d31b7b5f356b1",
     "@tailwindcss/typography": "^0.5.19",
     "ai": "^3.4.33",
     "clsx": "^2.1.1",
