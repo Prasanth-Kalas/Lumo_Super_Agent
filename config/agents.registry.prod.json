@@ -21,6 +21,13 @@
       "base_url": "https://restaurant.agents.lumo.rentals",
       "version": "0.1.0",
       "_notes": "Enabled=false until OpenTable affiliate approval. The stub works in dev; prod should not ship user-facing 'book a reservation' traffic against mock data. Flip to true once OPENTABLE_PARTNER_ID+OPENTABLE_API_KEY are set on the restaurant agent's prod env and opentable-real.ts is fully wired."
+    },
+    {
+      "key": "hotel",
+      "enabled": false,
+      "base_url": "https://hotel.agents.lumo.rentals",
+      "version": "0.1.0",
+      "_notes": "Enabled=false on prod until amadeus-real.ts is implemented and promoted from test.api.amadeus.com to api.amadeus.com. The stub is fine in dev/vercel preview; prod should not ship real 'book a hotel' traffic against an in-memory catalog. Flip to true once AMADEUS_CLIENT_ID+AMADEUS_CLIENT_SECRET are set on the hotel agent's prod env AND the real client carries search/availability/create/cancel."
     }
   ]
 }

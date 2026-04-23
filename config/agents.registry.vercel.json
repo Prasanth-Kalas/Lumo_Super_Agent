@@ -21,6 +21,13 @@
       "base_url": "${LUMO_RESTAURANT_AGENT_URL}",
       "version": "0.1.0",
       "_notes": "Restaurant Agent runs mock-first until OpenTable partner onboarding lands. Set LUMO_RESTAURANT_AGENT_URL on the Vercel project to the deployed agent host; OPENTABLE_PARTNER_ID + OPENTABLE_API_KEY live on the restaurant agent's project, not here."
+    },
+    {
+      "key": "hotel",
+      "enabled": true,
+      "base_url": "${LUMO_HOTEL_AGENT_URL}",
+      "version": "0.1.0",
+      "_notes": "Hotel Agent runs mock-first. Amadeus ships a self-serve test API so partner gating is not a blocker — once AMADEUS_CLIENT_ID + AMADEUS_CLIENT_SECRET land on the hotel agent's project, the façade flips reads to the real client without code changes here. Set LUMO_HOTEL_AGENT_URL on the Vercel project to the deployed agent host."
     }
   ]
 }
