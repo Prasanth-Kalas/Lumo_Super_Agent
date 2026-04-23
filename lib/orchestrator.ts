@@ -82,15 +82,18 @@ export interface OrchestratorTurn {
 }
 
 const MAX_TOOL_LOOP = 6;
-// Opus 4.6 is the orchestrator brain. We chose Opus over Sonnet for the
-// Super Agent specifically because compound-booking decomposition (one user
-// intent → N specialist legs with DAG dependencies → single-confirm +
-// Saga rollback) has a longer critical reasoning path than single-leg
-// bookings. The per-turn token cost is higher; the per-intent error rate
-// and recovery cost are lower. Specialist agents that run their own LLM
-// (e.g. Food Agent's /api/chat) are free to pick Sonnet or Haiku for their
-// own in-house flows.
-const MODEL = "claude-opus-4-6";
+// Sonnet 4.6 is the orchestrator brain. Originally ran on Opus 4.6 for
+// compound-booking decomposition (one user intent → N specialist legs
+// with DAG dependencies → single-confirm + Saga rollback), but Sonnet
+// 4.6 hits parity on the current tool-routing + selection/confirmation
+// workloads at meaningfully lower latency and per-turn cost, which
+// matters for a chat-first product where time-to-first-token is the
+// north-star UX metric. If compound-orchestration (#29) starts to regress
+// on rollback or multi-leg sequencing during eval runs, revisit Opus for
+// the orchestrator turn specifically. Specialist agents that run their
+// own LLM (e.g. Food Agent's /api/chat) continue to pick Sonnet or Haiku
+// for their own in-house flows.
+const MODEL = "claude-sonnet-4-6";
 
 export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTurn> {
   const registry = await ensureRegistry();
