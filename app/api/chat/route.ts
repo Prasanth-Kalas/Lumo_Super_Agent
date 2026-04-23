@@ -2,8 +2,13 @@
  * POST /api/chat — streaming orchestrator endpoint.
  *
  * Body: { session_id, messages: ChatMessage[], device_kind?, region? }
- * Response: text/event-stream (SSE) emitting { type: "text", value } and
- *           { type: "tool", value } frames; terminates with a { type: "done" }.
+ * Response: text/event-stream (SSE) emitting frames of these types:
+ *   - { type: "text",      value: string }
+ *   - { type: "tool",      value: ToolCallTrace }             (debug only)
+ *   - { type: "selection", value: { kind, payload } }         (rich UI)
+ *   - { type: "summary",   value: ConfirmationSummary }       (money gate)
+ *   - { type: "error",     value: { message } }
+ *   Terminates with { type: "done" }.
  *
  * Auth is stubbed — wire Clerk in a follow-up PR.
  */
@@ -64,6 +69,9 @@ export async function POST(req: NextRequest): Promise<Response> {
         send({ type: "text", value: turn.assistant_text });
         for (const tc of turn.tool_calls) {
           send({ type: "tool", value: tc });
+        }
+        for (const s of turn.selections) {
+          send({ type: "selection", value: s });
         }
         if (turn.summary) send({ type: "summary", value: turn.summary });
         send({ type: "done" });

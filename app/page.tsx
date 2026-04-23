@@ -40,6 +40,14 @@ import {
   type TripPayload,
   type LegDispatchStatus,
 } from "@/components/TripConfirmationCard";
+import {
+  FoodMenuSelectCard,
+  type FoodMenuSelection,
+} from "@/components/FoodMenuSelectCard";
+import {
+  FlightOffersSelectCard,
+  type FlightOffersSelection,
+} from "@/components/FlightOffersSelectCard";
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 
 /**
@@ -61,11 +69,22 @@ interface UISummary {
   rendered_at: string;
 }
 
+/**
+ * Interactive-selection frame emitted by the orchestrator for
+ * discovery tools whose results render as rich UI (food menu
+ * checkboxes, flight offer radios). Deduped per kind on the server.
+ */
+interface UISelection {
+  kind: "food_menu" | "flight_offers";
+  payload: unknown;
+}
+
 interface UIMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   summary?: UISummary | null;
+  selections?: UISelection[];
 }
 
 /**
@@ -205,6 +224,7 @@ export default function Home() {
       const decoder = new TextDecoder();
       let assistantText = "";
       let assistantSummary: UISummary | null = null;
+      let assistantSelections: UISelection[] = [];
       let buf = "";
 
       // We stream into a single assistant message whose id is derived
@@ -231,6 +251,18 @@ export default function Home() {
             assistantText += String(frame.value ?? "");
           } else if (frame.type === "summary") {
             assistantSummary = frame.value as UISummary;
+          } else if (frame.type === "selection") {
+            // Discovery tool output that should render as rich UI
+            // (checkbox menu / radio offers). Dedupe by kind — last
+            // emit wins — so the card always reflects the most recent
+            // tool call of that kind in this turn.
+            const s = frame.value as UISelection;
+            if (s && typeof s.kind === "string") {
+              assistantSelections = [
+                ...assistantSelections.filter((x) => x.kind !== s.kind),
+                s,
+              ];
+            }
           } else if (frame.type === "leg_status") {
             // Compound-booking dispatch update from the orchestrator.
             // Shape: { order: number; status: LegDispatchStatus }.
@@ -277,6 +309,9 @@ export default function Home() {
                 role: "assistant",
                 content: assistantText,
                 summary: assistantSummary,
+                selections: assistantSelections.length
+                  ? assistantSelections
+                  : undefined,
               },
             ];
           });
@@ -429,6 +464,43 @@ export default function Home() {
                   legStatuses={tripStatuses}
                 />
               ) : null}
+
+              {/* ─── Interactive selection cards ──────────────────
+                  Rendered when the orchestrator emits a `selection`
+                  frame for a discovery tool (food menu / flight
+                  offers). Freezes the same way confirmation cards do
+                  — the moment a later user turn exists, the card
+                  locks in and shows the decision label. */}
+              {m.role === "assistant" && m.selections?.length
+                ? (() => {
+                    const selectionDecided = userMessageExistsAfter(m.id);
+                    return m.selections.map((sel) => {
+                      if (sel.kind === "food_menu") {
+                        return (
+                          <FoodMenuSelectCard
+                            key={`${m.id}-food`}
+                            payload={sel.payload as FoodMenuSelection}
+                            onSubmit={(text) => void sendText(text)}
+                            disabled={busy}
+                            decidedLabel={selectionDecided.kind}
+                          />
+                        );
+                      }
+                      if (sel.kind === "flight_offers") {
+                        return (
+                          <FlightOffersSelectCard
+                            key={`${m.id}-flight-offers`}
+                            payload={sel.payload as FlightOffersSelection}
+                            onSubmit={(text) => void sendText(text)}
+                            disabled={busy}
+                            decidedLabel={selectionDecided.kind}
+                          />
+                        );
+                      }
+                      return null;
+                    });
+                  })()
+                : null}
             </div>
           );
         })}

@@ -44,6 +44,24 @@ export interface OrchestratorInput {
   user_pii: Record<string, unknown>;
 }
 
+/**
+ * An "interactive selection" emitted for tool results that should render
+ * inline selection UI (food menu with checkboxes, flight offers with
+ * radio). This is a separate concept from `summary`: a summary gates a
+ * money-moving confirmation; a selection narrows candidates that the
+ * orchestrator is about to feed into the next tool call.
+ *
+ * Shape intentionally stays loose at this boundary — the chat shell's
+ * client-side components are the typed surface (FoodMenuSelectCard /
+ * FlightOffersSelectCard). The orchestrator's job is just to mark
+ * "this tool result should be rendered as selection kind X".
+ */
+export interface InteractiveSelection {
+  kind: "food_menu" | "flight_offers";
+  /** The raw (or lightly-reshaped) tool result payload. */
+  payload: unknown;
+}
+
 export interface OrchestratorTurn {
   assistant_text: string;
   tool_calls: Array<{
@@ -55,6 +73,12 @@ export interface OrchestratorTurn {
   }>;
   /** The summary we rendered this turn, if any (to persist for next turn's gate). */
   summary: ConfirmationSummary | null;
+  /**
+   * Interactive selections surfaced this turn. At most one per kind —
+   * if the LLM called `food_get_restaurant_menu` twice in the same
+   * turn (unusual), the last one wins.
+   */
+  selections: InteractiveSelection[];
 }
 
 const MAX_TOOL_LOOP = 6;
@@ -94,6 +118,7 @@ export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTur
   }));
 
   const toolCalls: OrchestratorTurn["tool_calls"] = [];
+  const selections: InteractiveSelection[] = [];
   let assistantText = "";
   let renderedSummary: ConfirmationSummary | null = null;
   let loopAssistantMessages: Anthropic.MessageParam[] = [];
@@ -190,6 +215,29 @@ export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTur
         content: JSON.stringify(resultForModel),
         is_error: !outcome.ok,
       });
+
+      // ─── Interactive-selection surfacing ───────────────────────────
+      // A small set of "discovery" tools produce results that the user
+      // should be able to pick from in rich UI (food menu items → cart
+      // lines, flight offers → pricing gate). We don't gate anything
+      // here — the model is free to keep reasoning — but we capture
+      // the payload so the SSE layer can emit a `selection` frame and
+      // the shell can render the right card inline in the message.
+      //
+      // De-duped per kind: last writer wins if the model somehow calls
+      // the same discovery tool twice in one turn.
+      if (outcome.ok && isInteractiveDiscoveryTool(tu.name)) {
+        const kind = selectionKindForTool(tu.name);
+        if (kind) {
+          const idx = selections.findIndex((s) => s.kind === kind);
+          const entry: InteractiveSelection = {
+            kind,
+            payload: outcome.result,
+          };
+          if (idx >= 0) selections[idx] = entry;
+          else selections.push(entry);
+        }
+      }
     }
 
     loopAssistantMessages.push(toolResults);
@@ -199,7 +247,32 @@ export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTur
     assistant_text: assistantText.trim(),
     tool_calls: toolCalls,
     summary: renderedSummary,
+    selections,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Tool → selection-kind mapping
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Interactive-discovery tools are read-only tools whose results
+ * benefit from rich selection UI. Keep this list tight — adding a
+ * new kind requires a matching component in the shell.
+ */
+function isInteractiveDiscoveryTool(toolName: string): boolean {
+  return (
+    toolName === "food_get_restaurant_menu" ||
+    toolName === "flight_search_offers"
+  );
+}
+
+function selectionKindForTool(
+  toolName: string,
+): InteractiveSelection["kind"] | null {
+  if (toolName === "food_get_restaurant_menu") return "food_menu";
+  if (toolName === "flight_search_offers") return "flight_offers";
+  return null;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
