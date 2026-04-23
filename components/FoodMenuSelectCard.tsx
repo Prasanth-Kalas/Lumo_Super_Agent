@@ -5,10 +5,8 @@
  *
  * Multi-select menu card rendered inline in the Super Agent chat when
  * the orchestrator calls `food_get_restaurant_menu`. Mirrors the same
- * pattern used by the Food Agent's standalone web app
- * (`Lumo_Food_Agent_Web/components/ToolResultRenderer.tsx :: MenuCard`)
- * but restyled with the Super Agent's design tokens (lumo-accent /
- * lumo-ink / lumo-surface / lumo-hairline).
+ * pattern used by the Food Agent's standalone web app but restyled
+ * with the Super Agent's Linear/Vercel dark-first tokens.
  *
  * Interaction model
  * ─────────────────
@@ -16,15 +14,12 @@
  *   the checkbox) flips it to `qty = 1`. Tapping again on an already-
  *   selected row morphs the checkbox into a compact `[− N +]` stepper
  *   so multiple units of the same item are trivial to add.
- * - A sticky footer CTA shows running selection count + total and,
- *   on tap, emits a single natural-language turn back into the chat
- *   stream: `"Add to cart: 2× Large Pepperoni, 1× Garlic Knots."`.
+ * - A footer CTA shows running selection count + total and, on tap,
+ *   emits a single natural-language turn back into the chat stream.
  *   The orchestrator already has the menu in context from the
  *   preceding `food_get_restaurant_menu` call, so name → item_id
  *   resolution is reliable.
- * - After emit, local qty resets. The cart summary card that follows
- *   supersedes this one anyway, so the selection state doesn't need
- *   to persist in the thread.
+ * - After emit, local qty resets.
  */
 
 import { useState } from "react";
@@ -34,9 +29,8 @@ export interface FoodMenuSelection {
   restaurant_name: string;
   is_open?: boolean;
   /**
-   * Canonical field from `food_get_restaurant_menu`. We alias to
-   * `items` internally for local-variable ergonomics, but the wire
-   * shape uses `menu`.
+   * Canonical field from `food_get_restaurant_menu`. The wire shape
+   * uses `menu`; we alias to `items` internally for ergonomics.
    */
   menu: Array<{
     item_id: string;
@@ -99,63 +93,73 @@ export function FoodMenuSelectCard({
   const frozen = !!decidedLabel || !!disabled;
 
   return (
-    <div className="mr-auto max-w-[92%] ml-[34px] animate-fade-up rounded-2xl bg-lumo-surface border border-lumo-hairline shadow-card overflow-hidden">
-      {/* Header strip */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-lumo-hairline bg-gradient-to-r from-lumo-accent/8 to-transparent">
+    <div className="w-full max-w-[600px] animate-fade-up rounded-xl bg-lumo-surface border border-lumo-hair overflow-hidden">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 px-4 pt-3.5 pb-3 border-b border-lumo-hair">
         <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-wider text-lumo-muted font-semibold">
-            Menu — pick what you'd like
+          <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium">
+            Menu
           </div>
-          <div className="truncate text-[15px] font-semibold text-lumo-ink">
+          <div className="mt-1 truncate text-[14px] font-medium text-lumo-fg">
             {payload.restaurant_name}
           </div>
         </div>
         {payload.is_open === false ? (
-          <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200">
+          <span className="shrink-0 inline-flex items-center gap-1.5 text-[10.5px] font-medium px-2 py-1 rounded-md bg-lumo-elevated text-lumo-err border border-lumo-hair">
+            <span className="h-1.5 w-1.5 rounded-full bg-lumo-err" aria-hidden />
             Closed
           </span>
         ) : (
-          <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <span className="shrink-0 inline-flex items-center gap-1.5 text-[10.5px] font-medium px-2 py-1 rounded-md bg-lumo-elevated text-lumo-ok border border-lumo-hair">
+            <span className="h-1.5 w-1.5 rounded-full bg-lumo-ok" aria-hidden />
             Open
           </span>
         )}
       </div>
 
       {/* Rows */}
-      <ul className="divide-y divide-lumo-hairline max-h-[420px] overflow-y-auto">
+      <ul className="divide-y divide-lumo-hair max-h-[420px] overflow-y-auto">
         {items.map((it) => {
           const n = qty[it.item_id] ?? 0;
           const checked = n > 0;
           return (
             <li
               key={it.item_id}
-              className={`flex items-center gap-3 px-4 py-3 transition-colors ${
-                checked ? "bg-lumo-accent/5" : "hover:bg-black/2.5"
+              className={`flex items-center gap-3 px-4 py-3 transition-colors relative ${
+                checked ? "bg-lumo-elevated" : "hover:bg-lumo-elevated/60"
               }`}
             >
+              {/* Accent left-bar when selected */}
+              <span
+                aria-hidden
+                className={`absolute left-0 top-0 bottom-0 w-[2px] transition-colors ${
+                  checked ? "bg-lumo-accent" : "bg-transparent"
+                }`}
+              />
+
               {/* Left control: checkbox or stepper */}
               {checked ? (
-                <div className="inline-flex h-[26px] shrink-0 items-center rounded-full border border-lumo-accent/40 bg-white px-0.5 shadow-[0_1px_3px_rgba(255,107,44,0.15)]">
+                <div className="inline-flex h-[24px] shrink-0 items-center rounded-md border border-lumo-edge bg-lumo-inset">
                   <button
                     type="button"
                     onClick={() => dec(it.item_id)}
                     aria-label={`Remove one ${it.name}`}
                     disabled={frozen}
-                    className="flex h-[24px] w-[24px] items-center justify-center rounded-full text-lumo-ink transition hover:bg-lumo-accent/10 disabled:opacity-50"
+                    className="flex h-[22px] w-[22px] items-center justify-center rounded-md text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition disabled:opacity-50"
                   >
                     <svg
                       viewBox="0 0 14 14"
-                      width="12"
-                      height="12"
+                      width="10"
+                      height="10"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                     >
                       <path d="M3 7h8" />
                     </svg>
                   </button>
-                  <span className="min-w-[16px] px-0.5 text-center text-[12px] font-bold text-lumo-accentDeep tabular-nums">
+                  <span className="min-w-[18px] px-1 text-center text-[11.5px] font-medium text-lumo-fg num">
                     {n}
                   </span>
                   <button
@@ -163,15 +167,15 @@ export function FoodMenuSelectCard({
                     onClick={() => inc(it.item_id)}
                     aria-label={`Add another ${it.name}`}
                     disabled={frozen}
-                    className="flex h-[24px] w-[24px] items-center justify-center rounded-full text-lumo-ink transition hover:bg-lumo-accent/10 disabled:opacity-50"
+                    className="flex h-[22px] w-[22px] items-center justify-center rounded-md text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition disabled:opacity-50"
                   >
                     <svg
                       viewBox="0 0 14 14"
-                      width="12"
-                      height="12"
+                      width="10"
+                      height="10"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="1.8"
                       strokeLinecap="round"
                     >
                       <path d="M7 3v8M3 7h8" />
@@ -186,7 +190,7 @@ export function FoodMenuSelectCard({
                   aria-label={`Add ${it.name}`}
                   onClick={() => inc(it.item_id)}
                   disabled={frozen}
-                  className="h-[24px] w-[24px] shrink-0 rounded-md border-[1.5px] border-lumo-hairline bg-white transition hover:border-lumo-accent/60 focus:border-lumo-accent focus:outline-none disabled:opacity-50"
+                  className="h-[18px] w-[18px] shrink-0 rounded-[4px] border border-lumo-edge bg-lumo-inset transition hover:border-lumo-fg-mid focus:border-lumo-accent focus:outline-none disabled:opacity-50"
                 />
               )}
 
@@ -199,17 +203,17 @@ export function FoodMenuSelectCard({
                 disabled={frozen}
                 className="min-w-0 flex-1 text-left disabled:opacity-70"
               >
-                <div className="truncate text-[14px] font-medium text-lumo-ink">
+                <div className="truncate text-[13.5px] font-medium text-lumo-fg">
                   {it.name}
                 </div>
                 {it.description ? (
-                  <div className="mt-0.5 line-clamp-2 text-[12px] text-lumo-muted">
+                  <div className="mt-0.5 line-clamp-2 text-[12px] text-lumo-fg-mid">
                     {it.description}
                   </div>
                 ) : null}
               </button>
 
-              <div className="shrink-0 text-[14px] font-semibold text-lumo-ink tabular-nums">
+              <div className="shrink-0 text-[13.5px] font-medium text-lumo-fg num">
                 {formatPrice(it.unit_price_cents)}
               </div>
             </li>
@@ -217,14 +221,14 @@ export function FoodMenuSelectCard({
         })}
       </ul>
 
-      {/* Sticky footer */}
-      <div className="border-t border-lumo-hairline bg-white/60 px-4 py-3 backdrop-blur-sm">
+      {/* Footer */}
+      <div className="border-t border-lumo-hair px-3 py-2.5">
         {decidedLabel === "confirmed" ? (
-          <div className="text-[12.5px] text-emerald-700 text-center font-medium">
+          <div className="text-[12px] text-lumo-ok text-center font-medium py-1">
             Selection submitted · building your cart
           </div>
         ) : decidedLabel === "cancelled" ? (
-          <div className="text-[12.5px] text-lumo-muted text-center">
+          <div className="text-[12px] text-lumo-fg-mid text-center py-1">
             Cancelled
           </div>
         ) : (
@@ -232,11 +236,17 @@ export function FoodMenuSelectCard({
             type="button"
             onClick={submit}
             disabled={count === 0 || frozen}
-            className="w-full rounded-full bg-lumo-accent px-5 py-2.5 text-[14px] font-semibold text-white shadow-[0_6px_14px_-6px_rgba(255,107,44,0.7)] hover:bg-lumo-accentDeep disabled:bg-black/10 disabled:text-lumo-muted disabled:shadow-none transition-all"
+            className="w-full h-9 rounded-lg text-[13px] font-medium transition-colors bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low disabled:cursor-not-allowed"
           >
-            {count === 0
-              ? "Tap items to add"
-              : `Add ${count} item${count === 1 ? "" : "s"} · ${formatPrice(total)}`}
+            {count === 0 ? (
+              "Tap items to add"
+            ) : (
+              <>
+                Add {count} item{count === 1 ? "" : "s"}{" "}
+                <span className="text-lumo-fg-mid mx-1">·</span>{" "}
+                <span className="num">{formatPrice(total)}</span>
+              </>
+            )}
           </button>
         )}
       </div>

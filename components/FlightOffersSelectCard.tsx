@@ -11,17 +11,17 @@
  * Interaction model
  * ─────────────────
  * - Exactly one offer can be selected at a time (radio semantics).
- *   The selected row gets a bright accent ring and the primary CTA
- *   becomes active.
+ *   The selected row gets an accent-tinted left border and the primary
+ *   CTA becomes active.
  * - Submitting emits a single natural-language turn back into the
  *   chat stream, carrying the exact `offer_id` so the orchestrator
- *   can forward it to `flight_price_offer` without ambiguity:
- *     "Go with offer off_0000B5aXPsQikldcXxRope — the 10:50 Iberia
- *      direct for $48.09."
- *   The offer_id is the precise handle; the narrative bit is just
- *   for the user's readable log.
+ *   can forward it to `flight_price_offer` without ambiguity.
  * - After the orchestrator prices the chosen offer, the existing
  *   `ItineraryConfirmationCard` takes over for the money-gate step.
+ *
+ * Visual system — Linear/Vercel dark-first: single deliberate
+ * hairline shadow, 10px card radius, `tabular-nums` on every number,
+ * no emoji, single restrained accent.
  */
 
 import { useState } from "react";
@@ -55,7 +55,6 @@ function formatMoney(amount: string, currency: string): string {
 }
 
 function formatIsoDuration(iso: string): string {
-  // "PT1H18M" → "1h 18m" · "PT45M" → "45m" · "PT2H" → "2h"
   const m = /^PT(?:(\d+)H)?(?:(\d+)M)?/.exec(iso);
   if (!m) return iso;
   const h = m[1] ? `${m[1]}h` : "";
@@ -64,10 +63,6 @@ function formatIsoDuration(iso: string): string {
 }
 
 function formatTime(iso: string): string {
-  // "2026-05-15T10:50:00" → "10:50 AM" · "2026-05-15T00:00:00" → "12:00 AM"
-  // Uses Intl so the radio card matches ItineraryConfirmationCard's
-  // time format end-to-end (search → price → confirm). Falls back to
-  // a regex slice if the ISO is unparseable.
   const d = new Date(iso);
   if (isNaN(d.getTime())) {
     const m = /T(\d{2}):(\d{2})/.exec(iso);
@@ -80,7 +75,6 @@ function formatTime(iso: string): string {
 }
 
 function formatDate(iso: string): string {
-  // "2026-05-15T10:50:00" → "Fri, May 15"
   const d = new Date(iso);
   if (isNaN(d.getTime())) return iso.slice(0, 10);
   return d.toLocaleDateString("en-US", {
@@ -119,22 +113,21 @@ export function FlightOffersSelectCard({
   if (!payload.offers?.length) return null;
 
   return (
-    <div className="mr-auto max-w-[92%] ml-[34px] animate-fade-up rounded-2xl bg-lumo-surface border border-lumo-hairline shadow-card overflow-hidden">
-      {/* Header strip */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-lumo-hairline bg-gradient-to-r from-lumo-accent/8 to-transparent">
-        <div>
-          <div className="text-[11px] uppercase tracking-wider text-lumo-muted font-semibold">
-            Flight options — pick one
-          </div>
-          <div className="text-[15px] font-semibold text-lumo-ink">
-            {payload.offers.length} offer{payload.offers.length === 1 ? "" : "s"} found
-          </div>
+    <div className="w-full max-w-[600px] animate-fade-up rounded-xl bg-lumo-surface border border-lumo-hair overflow-hidden">
+      {/* Header — muted micro-label, neutral weight body */}
+      <div className="px-4 pt-3.5 pb-3 border-b border-lumo-hair">
+        <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium">
+          Flight options
+        </div>
+        <div className="mt-1 text-[14px] font-medium text-lumo-fg">
+          {payload.offers.length} offer{payload.offers.length === 1 ? "" : "s"}{" "}
+          <span className="text-lumo-fg-mid font-normal">· pick one</span>
         </div>
       </div>
 
       {/* Offer rows */}
       <ul
-        className="divide-y divide-lumo-hairline max-h-[480px] overflow-y-auto"
+        className="divide-y divide-lumo-hair max-h-[480px] overflow-y-auto"
         role="radiogroup"
         aria-label="Flight offers"
       >
@@ -156,23 +149,31 @@ export function FlightOffersSelectCard({
                 aria-checked={selected}
                 onClick={() => !frozen && setSelectedId(o.offer_id)}
                 disabled={frozen}
-                className={`w-full text-left flex items-start gap-3 px-4 py-3.5 transition-colors ${
+                className={`w-full text-left flex items-start gap-3 px-4 py-3.5 transition-colors relative ${
                   selected
-                    ? "bg-lumo-accent/5 ring-2 ring-inset ring-lumo-accent/40"
-                    : "hover:bg-black/2.5"
+                    ? "bg-lumo-elevated"
+                    : "hover:bg-lumo-elevated/60"
                 } disabled:opacity-70`}
               >
+                {/* Selection indicator — thin accent bar on the left edge */}
+                <span
+                  aria-hidden
+                  className={`absolute left-0 top-0 bottom-0 w-[2px] transition-colors ${
+                    selected ? "bg-lumo-accent" : "bg-transparent"
+                  }`}
+                />
+
                 {/* Radio dot */}
-                <div className="mt-1 shrink-0">
+                <div className="mt-[3px] shrink-0">
                   <span
-                    className={`block h-[20px] w-[20px] rounded-full border-[1.5px] transition-all ${
+                    className={`block h-[16px] w-[16px] rounded-full border transition-colors ${
                       selected
-                        ? "border-lumo-accent bg-white"
-                        : "border-lumo-hairline bg-white"
+                        ? "border-lumo-accent"
+                        : "border-lumo-edge"
                     }`}
                   >
                     <span
-                      className={`block m-[3px] h-[11px] w-[11px] rounded-full transition-all ${
+                      className={`block m-[3px] h-[8px] w-[8px] rounded-full transition-transform ${
                         selected ? "bg-lumo-accent scale-100" : "bg-transparent scale-0"
                       }`}
                     />
@@ -182,34 +183,35 @@ export function FlightOffersSelectCard({
                 {/* Body */}
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-[15px] font-semibold text-lumo-ink tabular-nums">
+                    <span className="text-[14px] font-medium text-lumo-fg num">
                       {formatTime(firstSeg.departing_at)}
                     </span>
-                    <span className="text-[12px] text-lumo-muted">
+                    <span className="text-[11.5px] text-lumo-fg-mid font-mono">
                       {firstSlice.origin.iata_code}
                     </span>
-                    <span className="text-lumo-muted">→</span>
-                    <span className="text-[15px] font-semibold text-lumo-ink tabular-nums">
+                    <span className="text-lumo-fg-low">→</span>
+                    <span className="text-[14px] font-medium text-lumo-fg num">
                       {formatTime(lastSeg.arriving_at)}
                     </span>
-                    <span className="text-[12px] text-lumo-muted">
+                    <span className="text-[11.5px] text-lumo-fg-mid font-mono">
                       {firstSlice.destination.iata_code}
                     </span>
                   </div>
 
-                  <div className="text-[12.5px] text-lumo-muted">
-                    {formatDate(firstSeg.departing_at)} · {o.owner.name} {flightNumbers} ·{" "}
-                    {formatIsoDuration(firstSlice.duration)}
+                  <div className="text-[12px] text-lumo-fg-mid">
+                    {formatDate(firstSeg.departing_at)} · {o.owner.name}{" "}
+                    <span className="font-mono num">{flightNumbers}</span> ·{" "}
+                    <span className="num">{formatIsoDuration(firstSlice.duration)}</span>
                     {stops === 0 ? " · nonstop" : ` · ${stops} stop${stops === 1 ? "" : "s"}`}
                   </div>
                 </div>
 
                 {/* Price */}
                 <div className="shrink-0 text-right">
-                  <div className="text-[15px] font-semibold text-lumo-ink tabular-nums">
+                  <div className="text-[14px] font-medium text-lumo-fg num">
                     {formatMoney(o.total_amount, o.total_currency)}
                   </div>
-                  <div className="text-[10.5px] text-lumo-muted uppercase tracking-wider">
+                  <div className="text-[10px] text-lumo-fg-low uppercase tracking-[0.1em] mt-0.5">
                     total
                   </div>
                 </div>
@@ -220,13 +222,13 @@ export function FlightOffersSelectCard({
       </ul>
 
       {/* Footer CTA */}
-      <div className="border-t border-lumo-hairline bg-white/60 px-4 py-3 backdrop-blur-sm">
+      <div className="border-t border-lumo-hair px-3 py-2.5">
         {decidedLabel === "confirmed" ? (
-          <div className="text-[12.5px] text-emerald-700 text-center font-medium">
+          <div className="text-[12px] text-lumo-ok text-center font-medium py-1">
             Selected · pricing up for confirmation
           </div>
         ) : decidedLabel === "cancelled" ? (
-          <div className="text-[12.5px] text-lumo-muted text-center">
+          <div className="text-[12px] text-lumo-fg-mid text-center py-1">
             Cancelled
           </div>
         ) : (
@@ -234,7 +236,7 @@ export function FlightOffersSelectCard({
             type="button"
             onClick={submit}
             disabled={!selectedId || frozen}
-            className="w-full rounded-full bg-lumo-accent px-5 py-2.5 text-[14px] font-semibold text-white shadow-[0_6px_14px_-6px_rgba(255,107,44,0.7)] hover:bg-lumo-accentDeep disabled:bg-black/10 disabled:text-lumo-muted disabled:shadow-none transition-all"
+            className="w-full h-9 rounded-lg text-[13px] font-medium transition-colors bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low disabled:cursor-not-allowed"
           >
             {selectedId ? "Continue with this flight" : "Select a flight to continue"}
           </button>

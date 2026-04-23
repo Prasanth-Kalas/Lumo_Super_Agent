@@ -3,16 +3,20 @@
 /**
  * ItineraryConfirmationCard
  *
- * Rendered in-thread when the orchestrator receives a `structured-itinerary`
- * summary frame from the shell. The payload shape is the canonical
- * summary the Flight Agent hashes (see
+ * Rendered in-thread when the orchestrator receives a
+ * `structured-itinerary` summary frame from the shell. The payload
+ * shape is the canonical summary the Flight Agent hashes (see
  * apps/flight-agent/lib/duffel-stub.ts :: canonicalItinerarySummary).
- * This component is display-only — it MUST NOT mutate or re-shape the
- * payload, or the hash check in the shell will fail.
+ * This component is display-only — it MUST NOT mutate or re-shape
+ * the payload, or the hash check in the shell will fail.
  *
- * Confirm / Cancel fire callbacks the parent uses to send the next user
- * message. The parent is responsible for locking the card after a
- * decision; we surface `disabled` as the single lever for that.
+ * Confirm / Cancel fire callbacks the parent uses to send the next
+ * user message. The parent is responsible for locking the card after
+ * a decision; we surface `disabled` as the single lever for that.
+ *
+ * Visual system — Linear/Vercel dark-first, parity with
+ * ReservationConfirmationCard so the two money-gate surfaces feel of
+ * a piece.
  */
 import { useMemo } from "react";
 
@@ -49,10 +53,8 @@ export interface ItineraryConfirmationCardProps {
   decidedLabel?: "confirmed" | "cancelled" | null;
 }
 
-// Minimal IATA → city name map. Used only for display — no behavior
-// depends on the mapping, so it's fine to be incomplete. Agents could
-// later surface city_name in the canonical payload, but keeping the
-// payload minimal preserves hash stability.
+// Minimal IATA → city map. Display-only; hash stability doesn't
+// depend on this being complete.
 const CITY_BY_IATA: Record<string, string> = {
   SFO: "San Francisco",
   LAS: "Las Vegas",
@@ -92,7 +94,7 @@ function formatMoney(amount: string, currency: string): string {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
-      maximumFractionDigits: 0, // airfare rounds to dollar for header display
+      maximumFractionDigits: 0,
     }).format(n);
   } catch {
     return `${amount} ${currency}`;
@@ -118,15 +120,10 @@ function formatTime(iso: string): string {
   }).format(d);
 }
 
-// NOTE: intentionally no `durationBetween` helper here. Duffel returns
-// TZ-naive ISO timestamps, so subtracting `new Date(a) - new Date(b)` on
-// the client produces wildly wrong durations for cross-TZ flights (a
-// 3h 49m ORD→LAS flight rendered as "1h 49m"). Duration is already
-// visible on the preceding radio card (which uses Duffel's ISO-8601
-// `duration` field directly) and in the assistant's lead-in text, so we
-// omit it here rather than risk a misleading number on the money-gate
-// screen. If/when the canonical summary payload grows a `duration_iso`
-// field per segment (append-only, hash-compatible), we can surface it.
+// NOTE: intentionally no `durationBetween` helper — Duffel returns
+// TZ-naive timestamps and subtraction on the client produces wrong
+// durations for cross-TZ flights. Duration is already on the radio
+// card upstream.
 
 export function ItineraryConfirmationCard({
   payload,
@@ -144,64 +141,70 @@ export function ItineraryConfirmationCard({
     <div
       role="group"
       aria-label="Flight booking confirmation"
-      className="mr-auto max-w-[92%] w-full rounded-2xl border border-black/10 bg-white shadow-sm overflow-hidden"
+      className="w-full max-w-[600px] rounded-xl border border-lumo-hair bg-lumo-surface overflow-hidden animate-fade-up"
     >
-      {/* Header: the big, obvious "what you're about to pay" bar. */}
-      <div className="flex items-baseline justify-between gap-3 px-5 pt-4 pb-2">
-        <div>
-          <div className="text-[11px] uppercase tracking-widest text-lumo-muted">
+      {/* Header: trip route + total */}
+      <div className="flex items-start justify-between gap-4 px-5 pt-4 pb-3.5 border-b border-lumo-hair">
+        <div className="min-w-0">
+          <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium">
             Confirm booking
           </div>
-          <div className="text-base font-semibold tracking-tight text-lumo-ink">
+          <div className="mt-1 text-[15px] font-semibold tracking-[-0.005em] text-lumo-fg truncate">
             {payload.slices
               .map((s) => `${cityFor(s.origin)} → ${cityFor(s.destination)}`)
               .join("  ·  ")}
           </div>
         </div>
-        <div className="text-right">
-          <div className="text-[11px] uppercase tracking-widest text-lumo-muted">Total</div>
-          <div className="text-2xl font-semibold tracking-tight text-lumo-ink">
+        <div className="text-right shrink-0">
+          <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium">
+            Total
+          </div>
+          <div className="mt-1 text-[22px] font-semibold tracking-[-0.02em] text-lumo-fg num">
             {totalLabel}
           </div>
         </div>
       </div>
 
-      {/* Slices & segments. One row per segment — same density as a real OTA. */}
-      <div className="px-5 py-3 divide-y divide-black/5">
+      {/* Slices & segments. One row per segment. */}
+      <div className="px-5 py-4 divide-y divide-lumo-hair">
         {payload.slices.map((slice, si) => (
           <div key={si} className="py-3 first:pt-0 last:pb-0">
             {payload.slices.length > 1 && (
-              <div className="text-[11px] uppercase tracking-widest text-lumo-muted mb-2">
+              <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium mb-2.5">
                 {si === 0 ? "Outbound" : si === 1 ? "Return" : `Leg ${si + 1}`}
               </div>
             )}
-            <ul className="space-y-2">
+            <ul className="space-y-2.5">
               {slice.segments.map((seg, gi) => (
                 <li
                   key={gi}
-                  className="grid grid-cols-[auto_1fr_auto] items-center gap-3"
+                  className="grid grid-cols-[auto_1fr] items-center gap-3"
                 >
-                  <div className="h-8 w-8 rounded-full bg-lumo-paper flex items-center justify-center text-[11px] font-semibold text-lumo-ink">
+                  {/* Carrier chip — mono letters on inset square */}
+                  <div className="h-8 w-10 rounded-md bg-lumo-inset border border-lumo-hair flex items-center justify-center font-mono text-[10.5px] font-medium text-lumo-fg tracking-wider">
                     {seg.carrier}
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm text-lumo-ink truncate">
-                      <span className="font-medium">
+                    <div className="text-[13.5px] text-lumo-fg truncate">
+                      <span className="font-medium font-mono num">
                         {seg.origin} → {seg.destination}
                       </span>
-                      <span className="text-lumo-muted">
+                      <span className="text-lumo-fg-mid font-normal">
                         {"  ·  "}
-                        {carrierFor(seg.carrier)} {seg.carrier}
-                        {seg.flight_number}
+                        {carrierFor(seg.carrier)}{" "}
+                        <span className="font-mono num">
+                          {seg.carrier}
+                          {seg.flight_number}
+                        </span>
                       </span>
                     </div>
-                    <div className="text-xs text-lumo-muted mt-0.5">
-                      {formatDate(seg.departing_at)} · {formatTime(seg.departing_at)} →{" "}
+                    <div className="text-[12px] text-lumo-fg-mid mt-0.5 num">
+                      {formatDate(seg.departing_at)}{" "}
+                      <span className="text-lumo-fg-low">·</span>{" "}
+                      {formatTime(seg.departing_at)}{" "}
+                      <span className="text-lumo-fg-low">→</span>{" "}
                       {formatTime(seg.arriving_at)}
                     </div>
-                  </div>
-                  <div className="text-xs text-lumo-muted tabular-nums">
-                    {/* Reserved for seat/fare class in a later PR. */}
                   </div>
                 </li>
               ))}
@@ -210,27 +213,30 @@ export function ItineraryConfirmationCard({
         ))}
       </div>
 
-      {/* Footer: Cancel / Confirm OR a frozen-state label once decided. */}
-      <div className="px-5 py-3 border-t border-black/5 bg-lumo-paper/40 flex items-center justify-between gap-3">
-        <div className="text-[11px] text-lumo-muted truncate">
-          Offer <span className="font-mono">{payload.offer_id}</span>
+      {/* Footer */}
+      <div className="px-5 py-3 border-t border-lumo-hair flex items-center justify-between gap-3">
+        <div className="text-[11px] text-lumo-fg-low truncate">
+          Offer{" "}
+          <span className="font-mono text-lumo-fg-mid num">
+            {payload.offer_id}
+          </span>
         </div>
         {decidedLabel ? (
           <div
-            className={`text-xs font-medium ${
-              decidedLabel === "confirmed" ? "text-lumo-ink" : "text-lumo-muted"
+            className={`text-[12px] font-medium ${
+              decidedLabel === "confirmed" ? "text-lumo-ok" : "text-lumo-fg-mid"
             }`}
             aria-live="polite"
           >
             {decidedLabel === "confirmed" ? "Confirmed — booking…" : "Cancelled"}
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={onCancel}
               disabled={disabled}
-              className="h-9 px-3 rounded-full border border-black/10 text-sm text-lumo-ink hover:bg-black/5 disabled:opacity-40"
+              className="h-8 px-3 rounded-md text-[12.5px] font-medium text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors disabled:opacity-40"
             >
               Cancel
             </button>
@@ -238,7 +244,7 @@ export function ItineraryConfirmationCard({
               type="button"
               onClick={onConfirm}
               disabled={disabled}
-              className="h-9 px-4 rounded-full bg-lumo-ink text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
+              className="h-8 px-3.5 rounded-md text-[12.5px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors disabled:bg-lumo-elevated disabled:text-lumo-fg-low"
             >
               Confirm booking
             </button>

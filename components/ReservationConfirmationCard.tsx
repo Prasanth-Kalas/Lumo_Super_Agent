@@ -12,10 +12,15 @@
  * server will fail and return 409 confirmation_required.
  *
  * Confirm fires `Yes, book it.` → the orchestrator calls
- * `restaurant_create_reservation` with the summary_hash that the shell
- * computed. Cancel drops the hold. The parent is responsible for
- * locking the card once a decision has been made — we expose
+ * `restaurant_create_reservation` with the summary_hash that the
+ * shell computed. Cancel drops the hold. The parent is responsible
+ * for locking the card once a decision has been made — we expose
  * `disabled` and `decidedLabel` as the single levers for that.
+ *
+ * Visual system — Linear/Vercel dark-first: 10px radius, single
+ * hairline border, restrained accent reserved for the primary CTA
+ * hover and the selected-state left-bar, `tabular-nums` on every
+ * numeric readout.
  */
 
 import { useMemo } from "react";
@@ -97,29 +102,29 @@ export function ReservationConfirmationCard({
     <div
       role="group"
       aria-label="Reservation confirmation"
-      className="mr-auto max-w-[92%] w-full rounded-2xl border border-black/10 bg-white shadow-sm overflow-hidden"
+      className="w-full max-w-[600px] rounded-xl border border-lumo-hair bg-lumo-surface overflow-hidden animate-fade-up"
     >
       {/* Header: restaurant name + deposit (the two things the user
           most needs to eyeball before confirming). */}
-      <div className="flex items-baseline justify-between gap-3 px-5 pt-4 pb-2">
+      <div className="flex items-start justify-between gap-4 px-5 pt-4 pb-3.5 border-b border-lumo-hair">
         <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-widest text-lumo-muted">
+          <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium">
             Confirm reservation
           </div>
-          <div className="text-base font-semibold tracking-tight text-lumo-ink truncate">
+          <div className="mt-1 text-[15px] font-semibold tracking-[-0.005em] text-lumo-fg truncate">
             {payload.restaurant_name}
           </div>
           {locationLabel ? (
-            <div className="text-xs text-lumo-muted mt-0.5 truncate">
+            <div className="text-[12px] text-lumo-fg-mid mt-0.5 truncate">
               {locationLabel}
             </div>
           ) : null}
         </div>
         <div className="text-right shrink-0">
-          <div className="text-[11px] uppercase tracking-widest text-lumo-muted">
+          <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium">
             {depositLabel ? "Hold" : "Deposit"}
           </div>
-          <div className="text-2xl font-semibold tracking-tight text-lumo-ink">
+          <div className="mt-1 text-[22px] font-semibold tracking-[-0.02em] text-lumo-fg num">
             {depositLabel ?? "—"}
           </div>
         </div>
@@ -127,48 +132,53 @@ export function ReservationConfirmationCard({
 
       {/* Body: the reservation detail row. Kept minimal — the card is
           a gate, not a product page. */}
-      <div className="px-5 py-3 border-t border-black/5">
-        <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 items-baseline">
-          <div className="text-[11px] uppercase tracking-widest text-lumo-muted">
+      <div className="px-5 py-4">
+        <dl className="grid grid-cols-[88px_1fr] gap-x-4 gap-y-2.5">
+          <dt className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium pt-0.5">
             When
-          </div>
-          <div className="text-sm text-lumo-ink">
-            {formatDate(payload.seated_at)} · {formatTime(payload.seated_at)}
-          </div>
+          </dt>
+          <dd className="text-[13.5px] text-lumo-fg num">
+            {formatDate(payload.seated_at)}{" "}
+            <span className="text-lumo-fg-mid">·</span>{" "}
+            {formatTime(payload.seated_at)}
+          </dd>
 
-          <div className="text-[11px] uppercase tracking-widest text-lumo-muted">
+          <dt className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium pt-0.5">
             Party
-          </div>
-          <div className="text-sm text-lumo-ink">
-            {payload.party_size}{" "}
-            <span className="text-lumo-muted">
+          </dt>
+          <dd className="text-[13.5px] text-lumo-fg">
+            <span className="num">{payload.party_size}</span>{" "}
+            <span className="text-lumo-fg-mid">
               guest{payload.party_size === 1 ? "" : "s"}
             </span>
-          </div>
+          </dd>
 
           {depositLabel ? (
             <>
-              <div className="text-[11px] uppercase tracking-widest text-lumo-muted">
+              <dt className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium pt-0.5">
                 Hold note
-              </div>
-              <div className="text-sm text-lumo-ink">
+              </dt>
+              <dd className="text-[12.5px] text-lumo-fg-mid leading-relaxed">
                 Authorized at booking. Applied toward the bill or refunded
                 on arrival per house policy.
-              </div>
+              </dd>
             </>
           ) : null}
-        </div>
+        </dl>
       </div>
 
-      {/* Footer: Cancel / Confirm OR a frozen-state label once decided. */}
-      <div className="px-5 py-3 border-t border-black/5 bg-lumo-paper/40 flex items-center justify-between gap-3">
-        <div className="text-[11px] text-lumo-muted truncate">
-          Slot <span className="font-mono">{payload.slot_id}</span>
+      {/* Footer */}
+      <div className="px-5 py-3 border-t border-lumo-hair flex items-center justify-between gap-3">
+        <div className="text-[11px] text-lumo-fg-low truncate">
+          Slot{" "}
+          <span className="font-mono text-lumo-fg-mid num">
+            {payload.slot_id}
+          </span>
         </div>
         {decidedLabel ? (
           <div
-            className={`text-xs font-medium ${
-              decidedLabel === "confirmed" ? "text-lumo-ink" : "text-lumo-muted"
+            className={`text-[12px] font-medium ${
+              decidedLabel === "confirmed" ? "text-lumo-ok" : "text-lumo-fg-mid"
             }`}
             aria-live="polite"
           >
@@ -177,12 +187,12 @@ export function ReservationConfirmationCard({
               : "Cancelled"}
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={onCancel}
               disabled={disabled}
-              className="h-9 px-3 rounded-full border border-black/10 text-sm text-lumo-ink hover:bg-black/5 disabled:opacity-40"
+              className="h-8 px-3 rounded-md text-[12.5px] font-medium text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors disabled:opacity-40"
             >
               Cancel
             </button>
@@ -190,7 +200,7 @@ export function ReservationConfirmationCard({
               type="button"
               onClick={onConfirm}
               disabled={disabled}
-              className="h-9 px-4 rounded-full bg-lumo-ink text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
+              className="h-8 px-3.5 rounded-md text-[12.5px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors disabled:bg-lumo-elevated disabled:text-lumo-fg-low"
             >
               Confirm reservation
             </button>

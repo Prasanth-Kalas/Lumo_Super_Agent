@@ -1,60 +1,91 @@
 import type { Config } from "tailwindcss";
 import typography from "@tailwindcss/typography";
 
+/**
+ * Lumo Tailwind config — every color is a CSS var, so the light/dark
+ * toggle flips the entire product without re-rendering a single node.
+ *
+ * The `lumo.*` namespace maps onto semantic tokens (bg / surface /
+ * elevated / hair / edge / fg / fg-high / fg-mid / fg-low / accent).
+ * Existing classes like `bg-lumo-surface`, `text-lumo-ink`,
+ * `border-lumo-hairline` keep working — they resolve to the CSS var
+ * under the hood. The old keys (`ink`, `paper`, `muted`, `hairline`,
+ * `accent`, `accentDeep`) remain as aliases pointing at the new
+ * tokens, so no component has to change at once.
+ */
 const config: Config = {
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
   ],
+  darkMode: ["class", '[data-theme="dark"]'],
   theme: {
     extend: {
       colors: {
         lumo: {
-          ink: "#0B0E14",
-          // Warm off-white paper + a slightly lifted surface the chat
-          // bubbles sit on. Two tones matter — one flat background can't
-          // carry depth without shadows, and shadows look heavy on chat.
-          paper: "#F7F7F5",
-          surface: "#FFFFFF",
-          accent: "#FF6B2C",
-          // Tuned-up secondary accent for hover states + "live" dots.
-          accentDeep: "#E85A1B",
-          muted: "#8A8F99",
-          // Hairline border used on cards — darker than default border-black/5
-          // so edges read cleanly on warm paper without feeling heavy.
-          hairline: "rgba(11, 14, 20, 0.08)",
+          // New semantic surface tokens
+          bg:        "var(--lumo-bg)",
+          surface:   "var(--lumo-surface)",
+          elevated:  "var(--lumo-elevated)",
+          inset:     "var(--lumo-inset)",
+          hair:      "var(--lumo-hair)",
+          edge:      "var(--lumo-edge)",
+          fg:        "var(--lumo-fg)",
+          "fg-high": "var(--lumo-fg-high)",
+          "fg-mid":  "var(--lumo-fg-mid)",
+          "fg-low":  "var(--lumo-fg-low)",
+          accent:    "var(--lumo-accent)",
+          "accent-dim": "var(--lumo-accent-dim)",
+          "accent-ink": "var(--lumo-accent-ink)",
+          ok:        "var(--lumo-ok)",
+          warn:      "var(--lumo-warn)",
+          err:       "var(--lumo-err)",
+
+          // Back-compat aliases — the existing cards use these names.
+          ink:        "var(--lumo-fg)",
+          paper:      "var(--lumo-bg)",
+          muted:      "var(--lumo-fg-mid)",
+          hairline:   "var(--lumo-hair)",
+          accentDeep: "var(--lumo-accent-dim)",
         },
       },
       fontFamily: {
-        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        sans:    ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
         display: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
+        mono:    ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      borderRadius: {
+        // Restrained radius scale — rounded-3xl is never used.
+        sm:    "4px",
+        DEFAULT: "6px",
+        md:    "6px",
+        lg:    "8px",
+        xl:    "10px",
+        "2xl": "12px",
       },
       boxShadow: {
-        // Lumo cards sit on paper — default md shadows look too ambient.
-        // This is a tight, offset-down shadow that reads as "lifted but
-        // not floating".
-        card: "0 1px 2px rgba(11,14,20,0.04), 0 8px 24px -12px rgba(11,14,20,0.10)",
-        // A deeper shadow for the active confirmation card so the eye
-        // lands there first.
-        cardHero: "0 1px 3px rgba(11,14,20,0.06), 0 24px 48px -20px rgba(11,14,20,0.18)",
+        // Single lift — 1px hairline + a soft diffusion. No ambient fog.
+        card:          "var(--lumo-shadow)",
+        cardHero:      "var(--lumo-shadow)",
+        ring:          "0 0 0 1px var(--lumo-edge)",
+        "ring-accent": "0 0 0 1px var(--lumo-accent)",
       },
       keyframes: {
         "fade-up": {
-          "0%": { opacity: "0", transform: "translateY(6px)" },
+          "0%":   { opacity: "0", transform: "translateY(4px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
         "dot-bounce": {
-          "0%, 80%, 100%": { transform: "translateY(0)", opacity: "0.5" },
-          "40%": { transform: "translateY(-3px)", opacity: "1" },
+          "0%, 80%, 100%": { opacity: "0.35" },
+          "40%":           { opacity: "1" },
         },
       },
       animation: {
-        "fade-up": "fade-up 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both",
-        "dot-1": "dot-bounce 1.1s ease-in-out infinite",
-        "dot-2": "dot-bounce 1.1s ease-in-out 150ms infinite",
-        "dot-3": "dot-bounce 1.1s ease-in-out 300ms infinite",
+        "fade-up": "fade-up 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both",
+        "dot-1":   "dot-bounce 1.2s ease-in-out infinite",
+        "dot-2":   "dot-bounce 1.2s ease-in-out 160ms infinite",
+        "dot-3":   "dot-bounce 1.2s ease-in-out 320ms infinite",
       },
     },
   },

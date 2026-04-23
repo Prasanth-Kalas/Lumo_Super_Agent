@@ -6,8 +6,8 @@
  * Rendered in-thread when the orchestrator emits a `structured-trip`
  * summary frame — i.e. the user's ask spans multiple specialists and
  * we've assembled a compound TripSummary envelope. The card is the
- * single affirmation surface for every leg at once; the user hits one
- * Confirm and the shell dispatches bookings in dependency order.
+ * single affirmation surface for every leg at once; the user hits
+ * one Confirm and the shell dispatches bookings in dependency order.
  *
  * Shape of the payload mirrors @lumo/agent-sdk's TripSummaryPayload.
  * We re-declare the types locally so the client bundle does not pull
@@ -19,29 +19,33 @@
  *   1. **Pre-confirm** — no legStatuses passed. Show per-leg preview
  *      rows with their money amounts, single trip total, Confirm/Cancel.
  *
- *   2. **Post-confirm / dispatching** — legStatuses map keyed by order
- *      is passed by the page. Each leg row swaps its money line for a
- *      status pill (pending • booking… • booked • failed • rolled back).
- *      Confirm/Cancel collapse to a dispatch-state label.
+ *   2. **Post-confirm / dispatching** — legStatuses map keyed by
+ *      order is passed by the page. Each leg row swaps its money
+ *      line for a status pill (pending / booking… / booked / failed /
+ *      rolled back). Confirm/Cancel collapse to a dispatch-state
+ *      label.
  *
  * Holding both modes in one component avoids the flicker and layout
  * shift you'd get swapping between two separate cards. The visual
  * container stays put; only the status column animates.
  *
- * Display-only. Never mutates the payload — the compound hash the shell
- * gate checks is computed over this exact object.
+ * Display-only. Never mutates the payload — the compound hash the
+ * shell gate checks is computed over this exact object.
+ *
+ * Visual system — Linear/Vercel dark-first. Agent glyphs are
+ * monoline SVG marks (no emoji) so the card reads as a professional
+ * product surface, not a consumer app.
  */
 
-import { useMemo } from "react";
+import { useMemo, type ReactElement } from "react";
 
-// ──────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────
 // Types — mirror @lumo/agent-sdk/src/trips.ts (client-bundle-safe)
-// ──────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────
 
 /**
- * The per-leg kinds supported today. A TripLegRef.summary.kind is one of
- * these — each gets its own compact sub-renderer below. Anything else
- * falls back to a generic "booking" row with just total + tool name.
+ * The per-leg kinds supported today. A TripLegRef.summary.kind is
+ * one of these — each gets its own compact sub-renderer below.
  */
 type LegSummaryKind =
   | "structured-itinerary" // flight agent
@@ -73,8 +77,7 @@ export interface TripPayload {
 
 /**
  * Execution status for a leg. Matches
- * lib/trip-state.ts :: LegExecutionStatus — kept as a string union here
- * so the card stays free of the server-side state module.
+ * lib/trip-state.ts :: LegExecutionStatus.
  */
 export type LegDispatchStatus =
   | "pending"
@@ -94,16 +97,14 @@ export interface TripConfirmationCardProps {
   decidedLabel?: "confirmed" | "cancelled" | null;
   /**
    * Per-leg dispatch status keyed by TripLegRef.order. Passing this
-   * switches the card into dispatching/post-confirm mode (status pills
-   * per leg, footer shows aggregate state). Omit for pre-confirm.
+   * switches the card into dispatching/post-confirm mode.
    */
   legStatuses?: Record<number, LegDispatchStatus>;
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Small formatters — same set the itinerary card uses, kept local so the
-// two components stay independently deployable if we later split bundles.
-// ──────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────
+// Formatters
+// ──────────────────────────────────────────────────────────────────
 
 function formatMoney(amount: string, currency: string): string {
   const n = Number(amount);
@@ -151,16 +152,115 @@ function formatTime(iso: string): string {
   }).format(d);
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Per-leg sub-renderers — one per summary kind
-// ──────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────
+// Agent glyphs — monoline SVG marks, `currentColor` so they inherit
+// the row's text color. No emoji anywhere.
+// ──────────────────────────────────────────────────────────────────
 
-/**
- * Flight leg: show first/last airport in the trip's slices plus the
- * outbound date. Keeps the summary card dense; the full itinerary is
- * already visible in the itinerary card if the user asked for it, or
- * can be expanded on click (later PR).
- */
+function FlightGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M2.5 9.5l11-4.5-1.5 4L5 11l-1 2-1-1 1-2-1.5-.5z" />
+    </svg>
+  );
+}
+
+function FoodGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {/* Fork */}
+      <path d="M5 2v4M5 6a2 2 0 0 0 2-2V2M5 6v8" />
+      {/* Knife */}
+      <path d="M11 2c1 2 1 4 0 6v6" />
+    </svg>
+  );
+}
+
+function HotelGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M2 14V5h12v9M2 9h12M5 9V6M8 9V6M11 9V6" />
+    </svg>
+  );
+}
+
+function CarGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M2.5 10V8l1.5-3h8l1.5 3v2M2.5 10v2M13.5 10v2M2.5 10h11" />
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="11" cy="12" r="1" />
+    </svg>
+  );
+}
+
+function DotGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden>
+      <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function agentLabel(agent_id: string): {
+  short: string;
+  Glyph: () => ReactElement;
+} {
+  const id = agent_id.toLowerCase();
+  if (id.includes("flight")) return { short: "Flight", Glyph: FlightGlyph };
+  if (id.includes("food") || id.includes("restaurant"))
+    return { short: "Food", Glyph: FoodGlyph };
+  if (id.includes("hotel") || id.includes("stay"))
+    return { short: "Hotel", Glyph: HotelGlyph };
+  if (id.includes("car") || id.includes("ride"))
+    return { short: "Car", Glyph: CarGlyph };
+  return { short: agent_id, Glyph: DotGlyph };
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Per-leg sub-renderers — one per summary kind
+// ──────────────────────────────────────────────────────────────────
+
 function FlightLegRow({ payload }: { payload: unknown }) {
   const p = payload as {
     slices?: Array<{
@@ -171,7 +271,7 @@ function FlightLegRow({ payload }: { payload: unknown }) {
   };
   const slices = Array.isArray(p?.slices) ? p.slices : [];
   if (slices.length === 0) {
-    return <div className="text-sm text-lumo-muted">Flight</div>;
+    return <div className="text-[13px] text-lumo-fg-mid">Flight</div>;
   }
   const first = slices[0]!;
   const last = slices[slices.length - 1]!;
@@ -182,8 +282,10 @@ function FlightLegRow({ payload }: { payload: unknown }) {
       : `${first.origin} → ${first.destination}`;
   return (
     <div className="min-w-0">
-      <div className="text-sm font-medium text-lumo-ink truncate">{route}</div>
-      <div className="text-xs text-lumo-muted mt-0.5">
+      <div className="text-[13px] font-medium text-lumo-fg truncate font-mono num">
+        {route}
+      </div>
+      <div className="text-[11.5px] text-lumo-fg-mid mt-0.5 num">
         {firstDep
           ? `${formatDate(firstDep)} · ${formatTime(firstDep)}`
           : `${slices.length} flight${slices.length > 1 ? "s" : ""}`}
@@ -192,11 +294,6 @@ function FlightLegRow({ payload }: { payload: unknown }) {
   );
 }
 
-/**
- * Cart leg (food / restaurant): show merchant name + item count. We
- * don't assume a rigid cart schema across food vs. restaurant — just
- * look for common fields and fall back gracefully.
- */
 function CartLegRow({ payload }: { payload: unknown }) {
   const p = payload as {
     merchant_name?: string;
@@ -216,19 +313,24 @@ function CartLegRow({ payload }: { payload: unknown }) {
     .join(", ");
   return (
     <div className="min-w-0">
-      <div className="text-sm font-medium text-lumo-ink truncate">{merchant}</div>
-      <div className="text-xs text-lumo-muted mt-0.5 truncate">
-        {itemCount > 0 ? `${itemCount} item${itemCount === 1 ? "" : "s"}` : "Order"}
+      <div className="text-[13px] font-medium text-lumo-fg truncate">
+        {merchant}
+      </div>
+      <div className="text-[11.5px] text-lumo-fg-mid mt-0.5 truncate">
+        {itemCount > 0 ? (
+          <>
+            <span className="num">{itemCount}</span>{" "}
+            item{itemCount === 1 ? "" : "s"}
+          </>
+        ) : (
+          "Order"
+        )}
         {preview ? ` · ${preview}` : ""}
       </div>
     </div>
   );
 }
 
-/**
- * Generic booking leg (hotel / car / etc). Probe common field names —
- * hotel_name/check_in/check_out, property_name, etc — but stay generic.
- */
 function BookingLegRow({ payload }: { payload: unknown }) {
   const p = payload as {
     hotel_name?: string;
@@ -250,45 +352,32 @@ function BookingLegRow({ payload }: { payload: unknown }) {
       : null;
   return (
     <div className="min-w-0">
-      <div className="text-sm font-medium text-lumo-ink truncate">{title}</div>
+      <div className="text-[13px] font-medium text-lumo-fg truncate">
+        {title}
+      </div>
       {when ? (
-        <div className="text-xs text-lumo-muted mt-0.5 truncate">{when}</div>
+        <div className="text-[11.5px] text-lumo-fg-mid mt-0.5 truncate num">
+          {when}
+        </div>
       ) : null}
     </div>
   );
 }
 
-/** Last-resort row for unknown kinds — show tool_name as the label. */
 function GenericLegRow({ toolName }: { toolName: string }) {
   return (
     <div className="min-w-0">
-      <div className="text-sm font-medium text-lumo-ink truncate">{toolName}</div>
-      <div className="text-xs text-lumo-muted mt-0.5">Booking</div>
+      <div className="text-[13px] font-medium text-lumo-fg truncate font-mono">
+        {toolName}
+      </div>
+      <div className="text-[11.5px] text-lumo-fg-mid mt-0.5">Booking</div>
     </div>
   );
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Leg classification → icon + agent label. Driven off agent_id rather
-// than summary.kind because the user reads "Flight" / "Food" not
-// "structured-itinerary".
-// ──────────────────────────────────────────────────────────────────────────
-
-function agentLabel(agent_id: string): { short: string; icon: string } {
-  const id = agent_id.toLowerCase();
-  if (id.includes("flight")) return { short: "Flight", icon: "✈" };
-  if (id.includes("food") || id.includes("restaurant"))
-    return { short: "Food", icon: "🍽" };
-  if (id.includes("hotel") || id.includes("stay"))
-    return { short: "Hotel", icon: "🏨" };
-  if (id.includes("car") || id.includes("ride"))
-    return { short: "Car", icon: "🚗" };
-  return { short: agent_id, icon: "•" };
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// Status pill — maps LegDispatchStatus to a short label + color class
-// ──────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────
+// Status pill — maps LegDispatchStatus to a short label + classes
+// ──────────────────────────────────────────────────────────────────
 
 function statusPill(status: LegDispatchStatus): {
   label: string;
@@ -299,43 +388,43 @@ function statusPill(status: LegDispatchStatus): {
     case "pending":
       return {
         label: "Pending",
-        className: "bg-lumo-paper text-lumo-muted",
+        className: "bg-lumo-inset text-lumo-fg-low border-lumo-hair",
         ariaLive: "off",
       };
     case "in_flight":
       return {
         label: "Booking…",
-        className: "bg-lumo-accent/10 text-lumo-ink",
+        className: "bg-lumo-inset text-lumo-fg border-lumo-edge",
         ariaLive: "polite",
       };
     case "committed":
       return {
         label: "Booked",
-        className: "bg-emerald-50 text-emerald-700",
+        className: "bg-lumo-inset text-lumo-ok border-lumo-hair",
         ariaLive: "polite",
       };
     case "failed":
       return {
         label: "Failed",
-        className: "bg-red-50 text-red-700",
+        className: "bg-lumo-inset text-lumo-err border-lumo-hair",
         ariaLive: "polite",
       };
     case "rolled_back":
       return {
         label: "Rolled back",
-        className: "bg-amber-50 text-amber-700",
+        className: "bg-lumo-inset text-lumo-warn border-lumo-hair",
         ariaLive: "polite",
       };
     case "rollback_failed":
       return {
         label: "Rollback failed",
-        className: "bg-red-100 text-red-800",
+        className: "bg-lumo-inset text-lumo-err border-lumo-edge",
         ariaLive: "polite",
       };
   }
 }
 
-/** Aggregate state across all legs — drives the footer banner in dispatch mode. */
+/** Aggregate state across all legs — drives the footer banner. */
 function aggregateState(
   legs: TripLegRef[],
   statuses: Record<number, LegDispatchStatus>,
@@ -350,9 +439,9 @@ function aggregateState(
   return "idle";
 }
 
-// ──────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────
 // Main component
-// ──────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────
 
 export function TripConfirmationCard({
   payload,
@@ -382,30 +471,30 @@ export function TripConfirmationCard({
     <div
       role="group"
       aria-label="Trip booking confirmation"
-      className="mr-auto max-w-[92%] w-full rounded-2xl border border-black/10 bg-white shadow-sm overflow-hidden"
+      className="w-full max-w-[600px] rounded-xl border border-lumo-hair bg-lumo-surface overflow-hidden animate-fade-up"
     >
-      {/* Header: the big, obvious trip name + total. Parallels the
-          itinerary card's header so the two feel of a piece. */}
-      <div className="flex items-baseline justify-between gap-3 px-5 pt-4 pb-2">
+      {/* Header: trip title + total */}
+      <div className="flex items-start justify-between gap-4 px-5 pt-4 pb-3.5 border-b border-lumo-hair">
         <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-widest text-lumo-muted">
+          <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium">
             {dispatching ? "Trip in progress" : "Confirm trip"}
           </div>
-          <div className="text-base font-semibold tracking-tight text-lumo-ink truncate">
+          <div className="mt-1 text-[15px] font-semibold tracking-[-0.005em] text-lumo-fg truncate">
             {payload.trip_title}
           </div>
         </div>
         <div className="text-right shrink-0">
-          <div className="text-[11px] uppercase tracking-widest text-lumo-muted">Total</div>
-          <div className="text-2xl font-semibold tracking-tight text-lumo-ink">
+          <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium">
+            Total
+          </div>
+          <div className="mt-1 text-[22px] font-semibold tracking-[-0.02em] text-lumo-fg num">
             {totalLabel}
           </div>
         </div>
       </div>
 
-      {/* Per-leg rows. Visual rhythm matches the itinerary card — same
-          left icon + two-line body + right column. */}
-      <div className="px-5 py-3 divide-y divide-black/5">
+      {/* Per-leg rows */}
+      <div className="px-5 py-2 divide-y divide-lumo-hair">
         {sortedLegs.map((leg) => {
           const agent = agentLabel(leg.agent_id);
           const status = legStatuses?.[leg.order];
@@ -420,14 +509,14 @@ export function TripConfirmationCard({
           return (
             <div
               key={leg.order}
-              className="py-3 first:pt-0 last:pb-0 grid grid-cols-[auto_1fr_auto] items-center gap-3"
+              className="py-3 grid grid-cols-[auto_1fr_auto] items-center gap-3"
             >
-              {/* Left: agent icon + short label stacked */}
-              <div className="flex flex-col items-center gap-0.5 w-10">
-                <div className="h-8 w-8 rounded-full bg-lumo-paper flex items-center justify-center text-base">
-                  <span aria-hidden>{agent.icon}</span>
+              {/* Left: agent glyph + label */}
+              <div className="flex items-center gap-2 w-[92px] shrink-0">
+                <div className="h-7 w-7 rounded-md border border-lumo-hair bg-lumo-inset flex items-center justify-center text-lumo-fg-mid">
+                  <agent.Glyph />
                 </div>
-                <div className="text-[10px] uppercase tracking-wider text-lumo-muted">
+                <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-mid font-medium">
                   {agent.short}
                 </div>
               </div>
@@ -450,15 +539,18 @@ export function TripConfirmationCard({
                     const pill = statusPill(status);
                     return (
                       <span
-                        className={`inline-block text-[11px] font-medium px-2 py-1 rounded-full ${pill.className}`}
+                        className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded-md border ${pill.className}`}
                         aria-live={pill.ariaLive}
                       >
+                        {status === "in_flight" ? (
+                          <span className="h-1.5 w-1.5 rounded-full bg-current animate-dot-1" />
+                        ) : null}
                         {pill.label}
                       </span>
                     );
                   })()
                 ) : legMoney ? (
-                  <div className="text-sm text-lumo-ink tabular-nums">
+                  <div className="text-[13px] text-lumo-fg num">
                     {formatMoneyPrecise(legMoney, legCurrency)}
                   </div>
                 ) : null}
@@ -469,12 +561,13 @@ export function TripConfirmationCard({
       </div>
 
       {/* Footer — three variants:
-          1. dispatch-mode: aggregate status banner, no buttons
+          1. dispatch-mode: aggregate status banner
           2. decidedLabel set: frozen "Confirmed — booking…" line
           3. otherwise: Cancel / Confirm trip */}
-      <div className="px-5 py-3 border-t border-black/5 bg-lumo-paper/40 flex items-center justify-between gap-3">
-        <div className="text-[11px] text-lumo-muted truncate">
-          {payload.legs.length} leg{payload.legs.length === 1 ? "" : "s"}
+      <div className="px-5 py-3 border-t border-lumo-hair flex items-center justify-between gap-3">
+        <div className="text-[11px] text-lumo-fg-low truncate">
+          <span className="num">{payload.legs.length}</span> leg
+          {payload.legs.length === 1 ? "" : "s"}
           {dispatching ? null : " · one confirmation covers all"}
         </div>
 
@@ -482,8 +575,8 @@ export function TripConfirmationCard({
           <DispatchFooter agg={agg} />
         ) : decidedLabel ? (
           <div
-            className={`text-xs font-medium ${
-              decidedLabel === "confirmed" ? "text-lumo-ink" : "text-lumo-muted"
+            className={`text-[12px] font-medium ${
+              decidedLabel === "confirmed" ? "text-lumo-ok" : "text-lumo-fg-mid"
             }`}
             aria-live="polite"
           >
@@ -492,12 +585,12 @@ export function TripConfirmationCard({
               : "Cancelled"}
           </div>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={onCancel}
               disabled={disabled}
-              className="h-9 px-3 rounded-full border border-black/10 text-sm text-lumo-ink hover:bg-black/5 disabled:opacity-40"
+              className="h-8 px-3 rounded-md text-[12.5px] font-medium text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors disabled:opacity-40"
             >
               Cancel
             </button>
@@ -505,7 +598,7 @@ export function TripConfirmationCard({
               type="button"
               onClick={onConfirm}
               disabled={disabled}
-              className="h-9 px-4 rounded-full bg-lumo-ink text-white text-sm font-medium hover:opacity-95 disabled:opacity-40"
+              className="h-8 px-3.5 rounded-md text-[12.5px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors disabled:bg-lumo-elevated disabled:text-lumo-fg-low"
             >
               Confirm trip
             </button>
@@ -517,10 +610,8 @@ export function TripConfirmationCard({
 }
 
 /**
- * Footer banner while a trip is dispatching. Purely visual — the real
- * state lives in lib/trip-state.ts. We pick a single phrase that maps
- * to the aggregate and stay out of per-leg details; those are already
- * shown inline in the rows above.
+ * Footer banner while a trip is dispatching. Picks a single phrase
+ * that maps to the aggregate; per-leg details are already inline.
  */
 function DispatchFooter({
   agg,
@@ -529,27 +620,38 @@ function DispatchFooter({
 }) {
   if (agg === "committed") {
     return (
-      <div className="text-xs font-medium text-emerald-700" aria-live="polite">
+      <div
+        className="text-[12px] font-medium text-lumo-ok inline-flex items-center gap-1.5"
+        aria-live="polite"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-lumo-ok" aria-hidden />
         All legs booked
       </div>
     );
   }
   if (agg === "rolled_back") {
     return (
-      <div className="text-xs font-medium text-amber-700" aria-live="polite">
+      <div
+        className="text-[12px] font-medium text-lumo-warn"
+        aria-live="polite"
+      >
         Rolled back — you haven't been charged
       </div>
     );
   }
   if (agg === "partial_failure") {
     return (
-      <div className="text-xs font-medium text-red-700" aria-live="polite">
+      <div className="text-[12px] font-medium text-lumo-err" aria-live="polite">
         Something failed — checking what's recoverable
       </div>
     );
   }
   return (
-    <div className="text-xs font-medium text-lumo-ink" aria-live="polite">
+    <div
+      className="text-[12px] font-medium text-lumo-fg inline-flex items-center gap-1.5"
+      aria-live="polite"
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-lumo-accent animate-dot-1" aria-hidden />
       Dispatching…
     </div>
   );

@@ -2,169 +2,340 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
- * Lumo canvas — warm paper with a soft radial lift. The gradient stays
- * fully behind the thread; the chat bubbles themselves sit on solid
- * `lumo.surface` so legibility never depends on the background tone.
- */
+/* ══════════════════════════════════════════════════════════════════════
+   Lumo design system — Linear / Vercel editorial minimal, dark-first.
+
+   Everything driven by CSS variables so the theme toggle is instant
+   (no JS rerender, no Tailwind class churn). Every component reads
+   from `var(--lumo-*)` via arbitrary-value utilities.
+
+   The palette is monochrome by design. One accent (--lumo-accent)
+   carries intent; hierarchy is carried by spacing + type weight + a
+   four-step foreground scale. No gradients, no glows, no shadows
+   above 1 elevation.
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme="dark"] {
+  /* Surfaces — four tiers from deepest to lifted. Tuned so the steps
+     feel like equal perceptual lifts, not arbitrary hex. */
+  --lumo-bg:            #07080A;  /* page canvas                       */
+  --lumo-surface:       #0C0E12;  /* cards, composer, sidebars         */
+  --lumo-elevated:      #12151B;  /* hover states, popovers            */
+  --lumo-inset:         #05060880; /* pressed wells, code blocks       */
+
+  /* Borders — two weights. "hair" is the default 1px line; "edge"
+     is used where a surface needs to read as clearly separated. */
+  --lumo-hair:          #1A1D24;
+  --lumo-edge:          #23272F;
+
+  /* Foreground — four-step legibility scale.
+     fg:       primary headings + user input
+     fg-high:  body text
+     fg-mid:   secondary labels, captions
+     fg-low:   placeholders, disabled, tertiary meta */
+  --lumo-fg:            #E8EAEE;
+  --lumo-fg-high:       #BDC1CB;
+  --lumo-fg-mid:        #7C8290;
+  --lumo-fg-low:        #4A4F5B;
+
+  /* Accent — single restrained tone for selection, focus, confirmed
+     states. Desaturated mint — reads "instrument" not "alert". */
+  --lumo-accent:        #A8F0C8;
+  --lumo-accent-dim:    #6BC28D;
+  --lumo-accent-ink:    #04130A;  /* text on accent fills              */
+
+  /* Semantic — used sparingly. */
+  --lumo-ok:            #6BC28D;
+  --lumo-warn:          #E8B86B;
+  --lumo-err:           #E88585;
+
+  /* Selection highlight in the composer / markdown. */
+  --lumo-selection:     #A8F0C833;
+  --lumo-ring:          #A8F0C866;
+
+  /* Single shadow token. Anything deeper than this reads gratuitous. */
+  --lumo-shadow:        0 1px 0 0 #00000066, 0 24px 48px -24px #00000099;
+}
+
+[data-theme="light"] {
+  --lumo-bg:            #FBFBFA;
+  --lumo-surface:       #FFFFFF;
+  --lumo-elevated:      #F4F4F2;
+  --lumo-inset:         #0B0E1408;
+
+  --lumo-hair:          #E7E7E3;
+  --lumo-edge:          #D8D8D3;
+
+  --lumo-fg:            #0B0E14;
+  --lumo-fg-high:       #2E323B;
+  --lumo-fg-mid:        #6A6F7A;
+  --lumo-fg-low:        #A2A6AF;
+
+  --lumo-accent:        #0B7A4E;
+  --lumo-accent-dim:    #0E9966;
+  --lumo-accent-ink:    #FFFFFF;
+
+  --lumo-ok:            #0B7A4E;
+  --lumo-warn:          #A8651A;
+  --lumo-err:           #A8342C;
+
+  --lumo-selection:     #0B7A4E22;
+  --lumo-ring:          #0B7A4E44;
+
+  --lumo-shadow:        0 1px 0 0 #0B0E1408, 0 24px 48px -24px #0B0E1418;
+}
+
+/* ─── Base canvas ──────────────────────────────────────────────────── */
+
 html,
 body {
   height: 100%;
-  color: theme("colors.lumo.ink");
+  background: var(--lumo-bg);
+  color: var(--lumo-fg-high);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  font-feature-settings: "cv11", "ss01";
+  font-feature-settings: "cv11", "ss01", "cv02";
+  font-synthesis: none;
 }
 
-body {
-  background:
-    radial-gradient(
-      1100px 700px at 82% -10%,
-      rgba(255, 107, 44, 0.08),
-      transparent 60%
-    ),
-    radial-gradient(
-      900px 620px at 12% 110%,
-      rgba(255, 107, 44, 0.045),
-      transparent 55%
-    ),
-    theme("colors.lumo.paper");
+::selection {
+  background: var(--lumo-selection);
+  color: var(--lumo-fg);
 }
 
-/* Tabular numerals for prices, durations, flight numbers. */
+/* Universal focus ring — 2px, offset, accent alpha. */
+*:focus-visible {
+  outline: 2px solid var(--lumo-ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Tabular numerals for prices, durations, flight numbers, hashes. */
 .num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
 }
 
-/* ─── Scrollbars ───────────────────────────────────────────────────── */
-.thread::-webkit-scrollbar {
-  width: 8px;
+/* ─── Scrollbars — hairline, surface-matched ──────────────────────── */
+
+.thread::-webkit-scrollbar,
+.scroll-y::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
-.thread::-webkit-scrollbar-track {
+.thread::-webkit-scrollbar-track,
+.scroll-y::-webkit-scrollbar-track {
   background: transparent;
 }
-.thread::-webkit-scrollbar-thumb {
-  background: rgba(11, 14, 20, 0.1);
+.thread::-webkit-scrollbar-thumb,
+.scroll-y::-webkit-scrollbar-thumb {
+  background: var(--lumo-hair);
+  border: 3px solid var(--lumo-bg);
   border-radius: 999px;
 }
-.thread::-webkit-scrollbar-thumb:hover {
-  background: rgba(11, 14, 20, 0.2);
+.thread::-webkit-scrollbar-thumb:hover,
+.scroll-y::-webkit-scrollbar-thumb:hover {
+  background: var(--lumo-edge);
 }
 
-/* ─── Assistant prose ──────────────────────────────────────────────────
- * We run assistant text through react-markdown. Tailwind Typography does
- * most of the work via prose-*; the rules below tighten it for a chat
- * bubble context where generous margins feel wrong.
- */
+/* ─── Assistant prose — editorial, tight, no surprise colors ───────── */
 .lumo-prose {
-  color: theme("colors.lumo.ink");
-  font-size: 0.9375rem;
-  line-height: 1.55;
+  color: var(--lumo-fg-high);
+  font-size: 15px;
+  line-height: 1.625;
+  letter-spacing: -0.005em;
 }
 .lumo-prose > :first-child { margin-top: 0; }
-.lumo-prose > :last-child { margin-bottom: 0; }
-.lumo-prose p { margin: 0.5em 0; }
+.lumo-prose > :last-child  { margin-bottom: 0; }
+
+.lumo-prose p { margin: 0.6em 0; }
 .lumo-prose p:first-child { margin-top: 0; }
-.lumo-prose p:last-child { margin-bottom: 0; }
-.lumo-prose strong { color: theme("colors.lumo.ink"); font-weight: 600; }
+.lumo-prose p:last-child  { margin-bottom: 0; }
+
+.lumo-prose strong {
+  color: var(--lumo-fg);
+  font-weight: 600;
+}
+.lumo-prose em { font-style: italic; }
+
+.lumo-prose h1,
+.lumo-prose h2,
+.lumo-prose h3 {
+  color: var(--lumo-fg);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  margin: 1.25em 0 0.4em;
+}
+.lumo-prose h1 { font-size: 1.25rem; }
+.lumo-prose h2 { font-size: 1.125rem; }
+.lumo-prose h3 { font-size: 1rem; }
+
 .lumo-prose a {
-  color: theme("colors.lumo.accentDeep");
+  color: var(--lumo-fg);
   text-decoration: underline;
-  text-decoration-color: rgba(232, 90, 27, 0.4);
-  text-underline-offset: 2px;
+  text-decoration-color: var(--lumo-edge);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-color 120ms ease;
 }
 .lumo-prose a:hover {
-  text-decoration-color: theme("colors.lumo.accentDeep");
+  text-decoration-color: var(--lumo-accent);
 }
-.lumo-prose ul, .lumo-prose ol {
-  margin: 0.5em 0;
+
+.lumo-prose ul,
+.lumo-prose ol {
+  margin: 0.6em 0;
   padding-left: 1.25em;
 }
-.lumo-prose li { margin: 0.15em 0; }
-.lumo-prose li::marker { color: theme("colors.lumo.muted"); }
+.lumo-prose li { margin: 0.2em 0; }
+.lumo-prose li::marker { color: var(--lumo-fg-low); }
+
 .lumo-prose code {
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 0.85em;
-  background: rgba(11, 14, 20, 0.05);
-  padding: 0.1em 0.35em;
+  font-size: 0.86em;
+  background: var(--lumo-inset);
+  color: var(--lumo-fg);
+  padding: 0.1em 0.38em;
   border-radius: 4px;
+  border: 1px solid var(--lumo-hair);
 }
+
 .lumo-prose pre {
-  background: theme("colors.lumo.ink");
-  color: #F7F7F5;
-  padding: 0.85rem 1rem;
-  border-radius: 12px;
+  background: var(--lumo-inset);
+  color: var(--lumo-fg-high);
+  padding: 0.9rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--lumo-hair);
   overflow-x: auto;
   font-size: 0.82rem;
-  line-height: 1.5;
-  margin: 0.75em 0;
+  line-height: 1.55;
+  margin: 0.8em 0;
 }
 .lumo-prose pre code {
   background: transparent;
+  border: 0;
   padding: 0;
   color: inherit;
 }
 
-/* ─── Markdown tables — the big visual upgrade ───────────────────────── */
+/* ─── Markdown tables ────────────────────────────────────────────── */
 .lumo-prose table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  margin: 0.75em 0;
+  margin: 0.9em 0;
   font-size: 0.875rem;
   font-variant-numeric: tabular-nums;
-  border: 1px solid theme("colors.lumo.hairline");
-  border-radius: 12px;
+  border: 1px solid var(--lumo-hair);
+  border-radius: 8px;
   overflow: hidden;
-  background: theme("colors.lumo.surface");
+  background: var(--lumo-surface);
 }
-.lumo-prose thead {
-  background: rgba(11, 14, 20, 0.03);
-}
+.lumo-prose thead { background: var(--lumo-inset); }
 .lumo-prose thead th {
   text-align: left;
-  font-weight: 600;
-  color: theme("colors.lumo.muted");
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
+  font-weight: 500;
+  color: var(--lumo-fg-mid);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  padding: 0.55rem 0.85rem;
-  border-bottom: 1px solid theme("colors.lumo.hairline");
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--lumo-hair);
 }
 .lumo-prose tbody td {
-  padding: 0.7rem 0.85rem;
-  border-bottom: 1px solid theme("colors.lumo.hairline");
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--lumo-hair);
   vertical-align: middle;
+  color: var(--lumo-fg-high);
 }
-.lumo-prose tbody tr:last-child td {
-  border-bottom: none;
-}
-.lumo-prose tbody tr:hover {
-  background: rgba(255, 107, 44, 0.04);
-}
-/* Right-align any cell whose content is a price or ends in "m" / "h" */
+.lumo-prose tbody tr:last-child td { border-bottom: none; }
 .lumo-prose td:last-child,
-.lumo-prose th:last-child {
-  text-align: right;
-}
+.lumo-prose th:last-child { text-align: right; }
 
-/* ─── Horizontal rule ─────────────────────────────────────────────── */
 .lumo-prose hr {
   border: 0;
-  border-top: 1px solid theme("colors.lumo.hairline");
-  margin: 1em 0;
+  border-top: 1px solid var(--lumo-hair);
+  margin: 1.25em 0;
 }
 
-/* ─── Blockquote ──────────────────────────────────────────────────── */
 .lumo-prose blockquote {
-  border-left: 3px solid theme("colors.lumo.accent");
-  padding: 0.2em 0.9em;
-  color: theme("colors.lumo.ink");
-  background: rgba(255, 107, 44, 0.06);
-  border-radius: 0 8px 8px 0;
-  margin: 0.65em 0;
+  border-left: 2px solid var(--lumo-accent);
+  padding: 0.05em 0 0.05em 0.9em;
+  color: var(--lumo-fg-high);
+  margin: 0.75em 0;
   font-style: normal;
 }
 .lumo-prose blockquote p { margin: 0.25em 0; }
+
+/* ─── Animations — calm, never bouncy ─────────────────────────────── */
+@keyframes fade-up {
+  0%   { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes caret-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+.animate-fade-up { animation: fade-up 220ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.animate-fade-in { animation: fade-in 180ms ease-out both; }
+
+/* Shimmering "thinking" label — one line of text whose fill sweeps. */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--lumo-fg-low) 0%,
+    var(--lumo-fg) 50%,
+    var(--lumo-fg-low) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+
+.stream-caret::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  background: var(--lumo-accent);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: caret-blink 900ms steps(1) infinite;
+}
+
+/* Subtle background grid — opt-in per page via .grid-bg. */
+.grid-bg {
+  background-image:
+    linear-gradient(var(--lumo-hair) 1px, transparent 1px),
+    linear-gradient(90deg, var(--lumo-hair) 1px, transparent 1px);
+  background-size: 56px 56px;
+  background-position: -1px -1px;
+  mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 75%);
+}
+
+/* Kbd chip — used in the composer hint row. */
+.kbd {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 3px 5px;
+  border: 1px solid var(--lumo-hair);
+  border-radius: 4px;
+  color: var(--lumo-fg-mid);
+  background: var(--lumo-surface);
+}
