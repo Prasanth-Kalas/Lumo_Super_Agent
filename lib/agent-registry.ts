@@ -19,6 +19,33 @@ import {
   type OpenApiDocument,
 } from "@lumo/agent-sdk";
 
+// Static JSON imports so Next.js' file tracer pulls these into the
+// serverless bundle. We had been reading the registry via
+// `readFile(process.cwd() + "/config/...")`, but Next's tracer only
+// follows static imports — on Vercel the function shipped without the
+// JSON and every chat request 500'd with
+//   ENOENT: no such file or directory, open 'config/agents.registry.vercel.json'
+//
+// `resolveJsonModule` is on in tsconfig; these are compile-time
+// constants with no runtime cost.
+import devRegistry from "../config/agents.registry.json";
+import prodRegistry from "../config/agents.registry.prod.json";
+import vercelRegistry from "../config/agents.registry.vercel.json";
+
+/**
+ * Map the `LUMO_REGISTRY_PATH` env var (kept for legacy compatibility)
+ * or an explicit path argument onto one of the three JSON blobs we
+ * bundled statically above. Unknown values fall through to a disk
+ * read, which preserves the old behaviour for anyone running the
+ * shell locally with a hand-crafted registry file.
+ */
+function bundledRegistryFor(path: string): RegistryConfigFile | null {
+  if (path.endsWith("agents.registry.vercel.json")) return vercelRegistry as RegistryConfigFile;
+  if (path.endsWith("agents.registry.prod.json")) return prodRegistry as RegistryConfigFile;
+  if (path.endsWith("agents.registry.json")) return devRegistry as RegistryConfigFile;
+  return null;
+}
+
 export interface RegistryEntry {
   /** Key used in config/agents.registry.json. */
   key: string;
@@ -67,8 +94,11 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
     process.env.LUMO_REGISTRY_PATH ??
     join(process.cwd(), "config", "agents.registry.json");
 
-  const raw = await readFile(path, "utf8");
-  const config = JSON.parse(raw) as RegistryConfigFile;
+  // Prefer the statically-imported JSON so Vercel's file tracer keeps
+  // it in the function bundle. Only fall back to disk if the caller
+  // pointed at something bespoke.
+  const bundled = bundledRegistryFor(path);
+  const config: RegistryConfigFile = bundled ?? (JSON.parse(await readFile(path, "utf8")) as RegistryConfigFile);
 
   const entries: RegistryEntry[] = [];
   for (const a of config.agents) {
