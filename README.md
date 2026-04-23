@@ -18,8 +18,8 @@ dispatches each tool call to the matching specialist agent over HTTP.
 
 ## What this repo does NOT own
 
-- Any agent implementation. Agents live in their own repos (`Lumo_Flight_Agent`,
-  `Lumo_Food_Agent`, …) and are discovered over the wire.
+- Any agent implementation. Agents live in their own repos (`Lumo_Flight_Agent_Web`,
+  `Lumo_Food_Agent_Web`, …) and are discovered over the wire.
 - The SDK. Contract types + helpers live in `Lumo_Agent_SDK`, consumed as a
   pinned dependency. Editing SDK behavior from here is a smell — bump the SDK.
 
@@ -35,7 +35,7 @@ port `config/agents.registry.json` points at (default `3002`). In a second
 terminal:
 
 ```bash
-cd ../Lumo_Flight_Agent
+cd ../Lumo_Flight_Agent_Web
 pnpm dev           # http://localhost:3002
 ```
 
