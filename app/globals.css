@@ -2,19 +2,169 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Lumo canvas — warm paper with a soft radial lift. The gradient stays
+ * fully behind the thread; the chat bubbles themselves sit on solid
+ * `lumo.surface` so legibility never depends on the background tone.
+ */
 html,
 body {
   height: 100%;
-  background: theme("colors.lumo.paper");
   color: theme("colors.lumo.ink");
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01";
 }
 
-/* Chat scrollbar — subtle */
+body {
+  background:
+    radial-gradient(
+      1100px 700px at 82% -10%,
+      rgba(255, 107, 44, 0.08),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 620px at 12% 110%,
+      rgba(255, 107, 44, 0.045),
+      transparent 55%
+    ),
+    theme("colors.lumo.paper");
+}
+
+/* Tabular numerals for prices, durations, flight numbers. */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ─── Scrollbars ───────────────────────────────────────────────────── */
 .thread::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+}
+.thread::-webkit-scrollbar-track {
+  background: transparent;
 }
 .thread::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.12);
+  background: rgba(11, 14, 20, 0.1);
   border-radius: 999px;
 }
+.thread::-webkit-scrollbar-thumb:hover {
+  background: rgba(11, 14, 20, 0.2);
+}
+
+/* ─── Assistant prose ──────────────────────────────────────────────────
+ * We run assistant text through react-markdown. Tailwind Typography does
+ * most of the work via prose-*; the rules below tighten it for a chat
+ * bubble context where generous margins feel wrong.
+ */
+.lumo-prose {
+  color: theme("colors.lumo.ink");
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+.lumo-prose > :first-child { margin-top: 0; }
+.lumo-prose > :last-child { margin-bottom: 0; }
+.lumo-prose p { margin: 0.5em 0; }
+.lumo-prose p:first-child { margin-top: 0; }
+.lumo-prose p:last-child { margin-bottom: 0; }
+.lumo-prose strong { color: theme("colors.lumo.ink"); font-weight: 600; }
+.lumo-prose a {
+  color: theme("colors.lumo.accentDeep");
+  text-decoration: underline;
+  text-decoration-color: rgba(232, 90, 27, 0.4);
+  text-underline-offset: 2px;
+}
+.lumo-prose a:hover {
+  text-decoration-color: theme("colors.lumo.accentDeep");
+}
+.lumo-prose ul, .lumo-prose ol {
+  margin: 0.5em 0;
+  padding-left: 1.25em;
+}
+.lumo-prose li { margin: 0.15em 0; }
+.lumo-prose li::marker { color: theme("colors.lumo.muted"); }
+.lumo-prose code {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.85em;
+  background: rgba(11, 14, 20, 0.05);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.lumo-prose pre {
+  background: theme("colors.lumo.ink");
+  color: #F7F7F5;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0.75em 0;
+}
+.lumo-prose pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+/* ─── Markdown tables — the big visual upgrade ───────────────────────── */
+.lumo-prose table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0.75em 0;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid theme("colors.lumo.hairline");
+  border-radius: 12px;
+  overflow: hidden;
+  background: theme("colors.lumo.surface");
+}
+.lumo-prose thead {
+  background: rgba(11, 14, 20, 0.03);
+}
+.lumo-prose thead th {
+  text-align: left;
+  font-weight: 600;
+  color: theme("colors.lumo.muted");
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.55rem 0.85rem;
+  border-bottom: 1px solid theme("colors.lumo.hairline");
+}
+.lumo-prose tbody td {
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid theme("colors.lumo.hairline");
+  vertical-align: middle;
+}
+.lumo-prose tbody tr:last-child td {
+  border-bottom: none;
+}
+.lumo-prose tbody tr:hover {
+  background: rgba(255, 107, 44, 0.04);
+}
+/* Right-align any cell whose content is a price or ends in "m" / "h" */
+.lumo-prose td:last-child,
+.lumo-prose th:last-child {
+  text-align: right;
+}
+
+/* ─── Horizontal rule ─────────────────────────────────────────────── */
+.lumo-prose hr {
+  border: 0;
+  border-top: 1px solid theme("colors.lumo.hairline");
+  margin: 1em 0;
+}
+
+/* ─── Blockquote ──────────────────────────────────────────────────── */
+.lumo-prose blockquote {
+  border-left: 3px solid theme("colors.lumo.accent");
+  padding: 0.2em 0.9em;
+  color: theme("colors.lumo.ink");
+  background: rgba(255, 107, 44, 0.06);
+  border-radius: 0 8px 8px 0;
+  margin: 0.65em 0;
+  font-style: normal;
+}
+.lumo-prose blockquote p { margin: 0.25em 0; }

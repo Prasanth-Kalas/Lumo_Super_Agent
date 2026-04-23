@@ -14,6 +14,20 @@
  *
  * Voice is stubbed for v0 — wired up against the Realtime API in a
  * follow-up PR.
+ *
+ * Visual model
+ * ────────────
+ * - Warm paper canvas (set on <body> in globals.css) with a bright
+ *   surface card for the chat column so legibility never depends on
+ *   the gradient tone behind it.
+ * - Assistant replies are rendered through ChatMarkdown, so GFM tables,
+ *   lists, code, and links get real typography instead of whitespace-
+ *   preserved plain text. This is what fixes the "literal pipes" look
+ *   we saw on the first deploy.
+ * - Suggestion tiles on the empty state are full cards, not chips —
+ *   flights/food/trips each get an icon, a label, and a one-line hint.
+ * - The composer is a single pill with mic + send living inside the
+ *   same bordered surface; matches the density of a premium chat UI.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -26,6 +40,7 @@ import {
   type TripPayload,
   type LegDispatchStatus,
 } from "@/components/TripConfirmationCard";
+import { ChatMarkdown } from "@/components/ChatMarkdown";
 
 /**
  * Local mirror of the shell's ConfirmationSummary — we re-declare it
@@ -56,21 +71,34 @@ interface UIMessage {
 /**
  * Starter prompt suggestions on the empty state. Chosen to cover the
  * three specialist surfaces we currently ship (flight / food / hotel).
- * Kept in-file because they're copy, not config.
+ * Each tile carries a glyph + label + hint so the empty state reads as
+ * an onboarding moment, not a placeholder.
  */
-const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
+const SUGGESTIONS: Array<{
+  label: string;
+  hint: string;
+  prompt: string;
+  glyph: string;
+}> = [
   {
-    label: "Flight to Vegas",
+    label: "Book a flight",
+    hint: "SFO → LAS next Friday, under $300",
     prompt: "Find me a flight to Las Vegas next Friday for under $300.",
+    glyph: "✈",
   },
   {
     label: "Order dinner",
-    prompt: "Order a pepperoni pizza and a Caesar salad from the closest place.",
+    hint: "Pepperoni pizza + Caesar salad, nearby",
+    prompt:
+      "Order a pepperoni pizza and a Caesar salad from the closest place.",
+    glyph: "🍽",
   },
   {
-    label: "Trip to Austin",
+    label: "Plan a trip",
+    hint: "Flight + hotel + dinner, all in one ask",
     prompt:
       "Plan a trip to Austin next weekend: flight from SFO, a hotel downtown, and dinner Friday night.",
+    glyph: "🗺",
   },
 ];
 
@@ -95,6 +123,7 @@ export default function Home() {
     Record<string, Record<number, LegDispatchStatus>>
   >({});
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionIdRef = useRef<string>(
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -107,6 +136,17 @@ export default function Home() {
       behavior: "smooth",
     });
   }, [messages]);
+
+  // Auto-grow the textarea up to ~5 lines, then clamp to scroll. The
+  // raw `rows={1}` fallback is kept so SSR renders a single-line shell
+  // before hydration runs this effect.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const maxPx = 160; // ~5 lines at our line-height
+    el.style.height = `${Math.min(el.scrollHeight, maxPx)}px`;
+  }, [input]);
 
   /**
    * Find the most recent assistant message that carries a trip
@@ -302,18 +342,37 @@ export default function Home() {
   }, [messages]);
 
   return (
-    <main className="flex h-dvh flex-col mx-auto w-full max-w-2xl">
-      <header className="flex items-center justify-between px-5 py-4 border-b border-black/5">
-        <div className="flex items-center gap-2">
-          <div className="h-7 w-7 rounded-full bg-lumo-accent" />
-          <span className="font-semibold tracking-tight text-lumo-ink">Lumo</span>
+    <main className="flex h-dvh flex-col mx-auto w-full max-w-3xl">
+      {/* ─── Header ─────────────────────────────────────────────────── */}
+      <header className="flex items-center justify-between px-6 py-4">
+        <div className="flex items-center gap-2.5">
+          {/* Mark: solid orange disc with a tiny inner highlight to read
+              as a "lit" dot rather than a flat circle. */}
+          <div className="relative h-8 w-8 rounded-full bg-lumo-accent shadow-[0_0_0_1px_rgba(11,14,20,0.06),0_4px_10px_-4px_rgba(255,107,44,0.55)]">
+            <div className="absolute left-[6px] top-[6px] h-[7px] w-[7px] rounded-full bg-white/60 blur-[0.5px]" />
+          </div>
+          <div className="leading-tight">
+            <div className="font-semibold tracking-tight text-lumo-ink text-[15px]">
+              Lumo
+            </div>
+            <div className="text-[11px] text-lumo-muted -mt-0.5">
+              one app. any task.
+            </div>
+          </div>
         </div>
-        <span className="text-xs text-lumo-muted">one app. any task.</span>
+
+        {/* Status pill — a running agent's equivalent of a presence dot.
+            Intentionally low-contrast; it's ambient, not a CTA. */}
+        <div className="flex items-center gap-1.5 text-[11px] text-lumo-muted px-2.5 py-1 rounded-full border border-lumo-hairline bg-white/60 backdrop-blur-sm">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          live
+        </div>
       </header>
 
+      {/* ─── Thread ─────────────────────────────────────────────────── */}
       <div
         ref={scrollRef}
-        className="thread flex-1 overflow-y-auto px-5 pt-4 pb-4 space-y-3"
+        className="thread flex-1 overflow-y-auto px-5 pt-2 pb-6 space-y-4"
       >
         {messages.map((m) => {
           const isItinerary =
@@ -324,19 +383,30 @@ export default function Home() {
           const decided =
             isItinerary || isTrip ? userMessageExistsAfter(m.id) : null;
           const tripStatuses = isTrip ? legStatusesByMsg[m.id] : undefined;
+          const isUser = m.role === "user";
 
           return (
-            <div key={m.id} className="space-y-2">
+            <div key={m.id} className="animate-fade-up space-y-2">
               {m.content ? (
-                <div
-                  className={
-                    m.role === "user"
-                      ? "ml-auto max-w-[85%] rounded-2xl bg-lumo-ink text-white px-4 py-2 whitespace-pre-wrap shadow-sm"
-                      : "mr-auto max-w-[85%] rounded-2xl bg-white border border-black/5 px-4 py-2 whitespace-pre-wrap shadow-sm"
-                  }
-                >
-                  {m.content}
-                </div>
+                isUser ? (
+                  // User bubble — ink surface, right-aligned.
+                  <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-lumo-ink text-white/95 px-4 py-2.5 whitespace-pre-wrap shadow-card">
+                    {m.content}
+                  </div>
+                ) : (
+                  // Assistant row: avatar + prose bubble. The bubble is
+                  // the white "surface" tone so the warm paper canvas
+                  // shows around it.
+                  <div className="mr-auto flex items-start gap-2.5 max-w-[92%]">
+                    <div
+                      className="mt-1 h-6 w-6 shrink-0 rounded-full bg-lumo-accent shadow-[0_0_0_1px_rgba(11,14,20,0.06)]"
+                      aria-hidden
+                    />
+                    <div className="flex-1 rounded-2xl rounded-tl-md bg-lumo-surface border border-lumo-hairline px-4 py-3 shadow-card">
+                      <ChatMarkdown>{m.content}</ChatMarkdown>
+                    </div>
+                  </div>
+                )
               ) : null}
 
               {isItinerary && m.summary ? (
@@ -363,81 +433,126 @@ export default function Home() {
           );
         })}
 
-        {/* Empty-state suggestions. Visible when no user turn has happened
-            yet — disappears the moment the first message goes out. */}
+        {/* ─── Empty state ──────────────────────────────────────────
+            Hero + three full-size suggestion tiles. Disappears the
+            moment the first real user turn is sent. */}
         {isEmpty && (
-          <div className="pt-2 space-y-2">
-            <div className="text-[11px] uppercase tracking-widest text-lumo-muted px-1">
-              Try
+          <div className="pt-6 pb-2 space-y-6">
+            <div className="space-y-2 px-1">
+              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-lumo-ink">
+                What can I book for you?
+              </h1>
+              <p className="text-sm text-lumo-muted max-w-md">
+                Flights, dinner, hotels — or all three in one ask. I'll hand
+                off to the right specialist and bring back a single trip.
+              </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s.label}
                   type="button"
                   onClick={() => void sendText(s.prompt)}
-                  className="text-sm px-3 py-1.5 rounded-full bg-white border border-black/10 text-lumo-ink hover:bg-lumo-paper hover:border-black/20 transition-colors"
+                  className="group text-left rounded-2xl bg-lumo-surface border border-lumo-hairline hover:border-lumo-accent/40 hover:shadow-card transition-all px-4 py-3.5 space-y-1.5"
                 >
-                  {s.label}
+                  <div className="flex items-center gap-2">
+                    <span className="text-base" aria-hidden>
+                      {s.glyph}
+                    </span>
+                    <span className="font-medium text-[14px] text-lumo-ink">
+                      {s.label}
+                    </span>
+                  </div>
+                  <div className="text-[12.5px] text-lumo-muted leading-snug">
+                    {s.hint}
+                  </div>
                 </button>
               ))}
             </div>
           </div>
         )}
 
+        {/* ─── "Thinking" indicator ─────────────────────────────────── */}
         {busy && (
-          <div
-            className="mr-auto max-w-[85%] rounded-2xl bg-white border border-black/5 px-4 py-2 text-lumo-muted shadow-sm inline-flex items-center gap-2"
-            aria-live="polite"
-          >
-            <span className="inline-flex gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-lumo-muted animate-pulse" />
-              <span
-                className="h-1.5 w-1.5 rounded-full bg-lumo-muted animate-pulse"
-                style={{ animationDelay: "150ms" }}
-              />
-              <span
-                className="h-1.5 w-1.5 rounded-full bg-lumo-muted animate-pulse"
-                style={{ animationDelay: "300ms" }}
-              />
-            </span>
-            Lumo is thinking…
+          <div className="mr-auto flex items-start gap-2.5 max-w-[92%] animate-fade-up">
+            <div
+              className="mt-1 h-6 w-6 shrink-0 rounded-full bg-lumo-accent shadow-[0_0_0_1px_rgba(11,14,20,0.06)]"
+              aria-hidden
+            />
+            <div
+              className="rounded-2xl rounded-tl-md bg-lumo-surface border border-lumo-hairline px-4 py-3 text-lumo-muted text-sm shadow-card inline-flex items-center gap-2.5"
+              aria-live="polite"
+            >
+              <span className="inline-flex gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-lumo-accent animate-dot-1" />
+                <span className="h-1.5 w-1.5 rounded-full bg-lumo-accent animate-dot-2" />
+                <span className="h-1.5 w-1.5 rounded-full bg-lumo-accent animate-dot-3" />
+              </span>
+              <span>Lumo is thinking…</span>
+            </div>
           </div>
         )}
       </div>
 
-      <div className="border-t border-black/5 p-3 flex items-end gap-2 bg-white/60 backdrop-blur">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          rows={1}
-          placeholder="Order a pizza, book a flight to Vegas, find a hotel in Austin…"
-          className="flex-1 resize-none rounded-2xl border border-black/10 bg-white px-4 py-3 focus:outline-none focus:ring-2 focus:ring-lumo-accent/40"
-          disabled={busy}
-        />
-        <button
-          type="button"
-          aria-label="Voice"
-          title="Voice (coming soon)"
-          className="h-11 w-11 rounded-full bg-white border border-black/10 flex items-center justify-center hover:bg-black/5 disabled:opacity-50"
-          disabled
-        >
-          <span className="text-lg">🎙</span>
-        </button>
-        <button
-          type="button"
-          onClick={send}
-          disabled={busy || !input.trim()}
-          className="h-11 px-5 rounded-full bg-lumo-ink text-white font-medium hover:opacity-95 disabled:opacity-40 transition-opacity"
-        >
-          Send
-        </button>
+      {/* ─── Composer ───────────────────────────────────────────────── */}
+      <div className="px-4 pb-4 pt-2">
+        <div className="mx-auto flex items-end gap-2 rounded-[22px] bg-lumo-surface border border-lumo-hairline shadow-card px-2.5 py-2 focus-within:border-lumo-accent/50 focus-within:shadow-cardHero transition-shadow">
+          <button
+            type="button"
+            aria-label="Voice (coming soon)"
+            title="Voice (coming soon)"
+            className="h-10 w-10 rounded-full flex items-center justify-center text-lumo-muted hover:bg-black/5 disabled:opacity-40 transition-colors"
+            disabled
+          >
+            <span className="text-[17px]">🎙</span>
+          </button>
+
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            rows={1}
+            placeholder="Order a pizza, book a flight to Vegas, find a hotel in Austin…"
+            className="flex-1 resize-none bg-transparent px-1 py-2.5 text-[15px] leading-6 text-lumo-ink placeholder:text-lumo-muted/80 focus:outline-none"
+            disabled={busy}
+          />
+
+          {/* Send — circular, accent when armed, neutral when empty.
+              Kept visually distinct from the mic so the primary action
+              is unambiguous. */}
+          <button
+            type="button"
+            onClick={send}
+            disabled={busy || !input.trim()}
+            aria-label="Send"
+            className="h-10 w-10 rounded-full bg-lumo-accent text-white flex items-center justify-center shadow-[0_6px_14px_-6px_rgba(255,107,44,0.7)] hover:bg-lumo-accentDeep disabled:bg-black/10 disabled:text-lumo-muted disabled:shadow-none transition-all"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M3.5 10h12" />
+              <path d="M10 4.5 15.5 10 10 15.5" />
+            </svg>
+          </button>
+        </div>
+        <div className="text-[11px] text-lumo-muted text-center mt-2">
+          Enter to send · Shift+Enter for newline
+        </div>
       </div>
     </main>
   );
