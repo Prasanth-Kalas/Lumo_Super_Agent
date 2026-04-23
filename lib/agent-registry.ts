@@ -82,9 +82,27 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
     }
   }
 
-  const bridge = mergeBridges(
-    entries.map((e) => openApiToClaudeTools(e.manifest.agent_id, e.openapi)),
-  );
+  // Per-agent bridge construction may throw if the agent's OpenAPI violates
+  // the cancellation protocol (money tool without cancel counterpart, cancel
+  // that re-prompts, etc.). Isolate the failure the same way we isolate a
+  // failed manifest fetch — log loudly, drop that agent, keep the shell up.
+  const healthyEntries: RegistryEntry[] = [];
+  const bridgeResults = [];
+  for (const e of entries) {
+    try {
+      bridgeResults.push(openApiToClaudeTools(e.manifest.agent_id, e.openapi));
+      healthyEntries.push(e);
+    } catch (err) {
+      console.error(
+        `[registry] agent "${e.key}" (${e.manifest.agent_id}) failed bridge validation — dropping from this boot:`,
+        err,
+      );
+    }
+  }
+  const bridge = mergeBridges(bridgeResults);
+  // Replace the accumulator we were about to use for the registry map.
+  entries.length = 0;
+  entries.push(...healthyEntries);
 
   const registry: Registry = {
     agents: Object.fromEntries(entries.map((e) => [e.key, e])),

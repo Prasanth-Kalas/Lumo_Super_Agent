@@ -58,9 +58,15 @@ export interface OrchestratorTurn {
 }
 
 const MAX_TOOL_LOOP = 6;
-// Sonnet 4.6 is GA. If Anthropic ships a newer Sonnet we should eval before
-// bumping — the tool-use loop is sensitive to minor model-behavior shifts.
-const MODEL = "claude-sonnet-4-6";
+// Opus 4.6 is the orchestrator brain. We chose Opus over Sonnet for the
+// Super Agent specifically because compound-booking decomposition (one user
+// intent → N specialist legs with DAG dependencies → single-confirm +
+// Saga rollback) has a longer critical reasoning path than single-leg
+// bookings. The per-turn token cost is higher; the per-intent error rate
+// and recovery cost are lower. Specialist agents that run their own LLM
+// (e.g. Food Agent's /api/chat) are free to pick Sonnet or Haiku for their
+// own in-house flows.
+const MODEL = "claude-opus-4-6";
 
 export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTurn> {
   const registry = await ensureRegistry();
