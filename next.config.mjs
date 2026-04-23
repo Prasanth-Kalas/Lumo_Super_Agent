@@ -5,6 +5,17 @@ const nextConfig = {
   experimental: {
     typedRoutes: false,
   },
+  // Next.js' file tracer only follows static imports, so the registry JSON
+  // that `lib/agent-registry.ts` reads at runtime via `readFile()` never
+  // gets shipped with the serverless function bundle. Without this,
+  // /api/chat crashes on Vercel with ENOENT: config/agents.registry.vercel.json.
+  // Force-include the config directory for every route that touches the
+  // registry.
+  outputFileTracingIncludes: {
+    "app/api/chat/route.ts": ["./config/**/*.json"],
+    "app/api/health/route.ts": ["./config/**/*.json"],
+    "app/api/registry/route.ts": ["./config/**/*.json"],
+  },
   // TypeScript source files use NodeNext-style ".js" extensions in imports
   // (e.g. `import "./foo.js"` that actually resolves to `foo.ts`). Webpack
   // doesn't do this rewrite on its own under moduleResolution: "Bundler",
