@@ -36,12 +36,15 @@ import {
   confirmTrip,
   createDraftTrip,
   finalizeTrip,
+  getTripById,
   getTripBySession,
   isCancelRequested,
   snapshot,
   updateLeg,
+  type TripRecord,
 } from "./trip-state.js";
 import { planRollback } from "./saga.js";
+import { openEscalation } from "./escalations.js";
 import {
   isAffirmative,
   hashSummary,
@@ -465,30 +468,35 @@ export async function dispatchConfirmedTrip(
     emit({ type: "leg_status", value: { order: leg.order, status: "pending" } });
   }
 
-  // Forward-topological walk. We compute depths once and dispatch in
-  // ascending depth order (ties broken by ascending `order`). If any leg
-  // fails, we stop forward dispatch and flip to Saga rollback.
+  // Depth-batched parallel dispatch (task #75).
+  //
+  // Previously this was a single sequential loop over every leg in
+  // ascending (depth, order). That's correct but slow for independent
+  // legs — a flight + hotel + restaurant trip with depends_on=[] on
+  // all three waited on three serial round-trips to three specialist
+  // agents. For v2 we group legs by topological depth and dispatch
+  // all legs at the same depth concurrently via Promise.all. Between
+  // depths we still serialize — the next depth's legs may depend on
+  // this depth's bookings.
+  //
+  // Any failure at a given depth flips forwardFailed and we break
+  // out of the outer loop without advancing. Saga rollback then
+  // compensates whatever committed at earlier depths or concurrently
+  // succeeded at this depth — the per-leg status is authoritative.
   const depthMap = computeLegDepths(trip.legs);
-  const forwardOrder = trip.legs
-    .slice()
-    .sort((a, b) => {
-      const da = depthMap.get(a.order) ?? 0;
-      const db = depthMap.get(b.order) ?? 0;
-      if (da !== db) return da - db;
-      return a.order - b.order;
-    });
+  const depths = Array.from(new Set(depthMap.values())).sort((a, b) => a - b);
 
   let forwardFailed = false;
-  for (const leg of forwardOrder) {
-    // Cooperative cancellation check. The /api/trip/[id]/cancel route
-    // sets cancel_requested_at on the trip row; we poll it at each
-    // leg boundary (never mid-HTTP call — that would strand a
-    // committed booking with no leg row update). If the user cancelled,
-    // stop forward dispatch and let Saga compensate whatever committed.
+  for (const depth of depths) {
+    if (forwardFailed) break;
+
+    // Cooperative cancellation check. Done once per depth (not per
+    // leg) so a cancel fires while the prior depth's legs are in
+    // flight still gets observed before we open the next fan-out.
     if (await isCancelRequested(input.trip_id)) {
       emit({
         type: "internal",
-        value: { kind: "user_cancel_observed", detail: { at_leg_order: leg.order } },
+        value: { kind: "user_cancel_observed", detail: { at_depth: depth } },
       });
       emit({
         type: "text",
@@ -498,150 +506,28 @@ export async function dispatchConfirmedTrip(
       break;
     }
 
-    // Preflight: every dependency must have committed. If a dependency
-    // failed we mark this leg `failed` (dependency abort) and carry on —
-    // rollback below will compensate only truly-committed legs.
-    const allDepsOk = leg.depends_on.every(
-      (d) => trip.legs.find((x) => x.order === d)?.status === "committed",
-    );
-    if (!allDepsOk) {
-      trip = await updateLeg(input.trip_id, leg.order, {
-        status: "failed",
-        error_detail: { reason: "dependency_failed" },
-      });
-      emit({ type: "leg_status", value: { order: leg.order, status: "failed" } });
-      forwardFailed = true;
-      continue;
-    }
+    const legsAtDepth = trip.legs
+      .filter((l) => (depthMap.get(l.order) ?? 0) === depth)
+      .sort((a, b) => a.order - b.order);
 
-    // In-flight.
-    trip = await updateLeg(input.trip_id, leg.order, { status: "in_flight" });
-    emit({ type: "leg_status", value: { order: leg.order, status: "in_flight" } });
-
-    // Build args for the bookable tool. The leg's AttachedSummary hash
-    // is the summary_hash the confirmation gate checks. We also pass
-    // `trip_hash` + `trip_leg_order` so compound-aware agents can use
-    // `evaluateCompoundConfirmation` instead of the single-leg gate.
-    //
-    // The pricing tool's result body is NOT stored on the leg (trip-
-    // state intentionally keeps only DAG-level info). For v1 we inline
-    // the minimum the bookable tool needs: the leg summary's payload
-    // (each agent knows how to read back its own shape from the payload).
-    const legRef = trip.payload.legs.find((l) => l.order === leg.order);
-    if (!legRef) continue; // unreachable — snapshot matches payload
-    const legSummaryPayload = legRef.summary.payload as Record<string, unknown>;
-    const args: Record<string, unknown> = {
-      ...legSummaryPayload,
-      summary_hash: legRef.summary.hash,
-      trip_hash: trip.hash,
-      trip_leg_order: leg.order,
-    };
-
-    const turn_id = `${input.session_id}:${Date.now()}`;
-    const legPriorSummary: ConfirmationSummary = {
-      kind: legRef.summary.kind,
-      payload: legRef.summary.payload as unknown,
-      hash: legRef.summary.hash,
-      session_id: input.session_id,
-      turn_id,
-      rendered_at: new Date().toISOString(),
-    };
-
-    // Retry on transient errors (429/5xx/timeout). Permanent errors —
-    // confirmation mismatch, price_changed, payment_failed — fail
-    // immediately. Each retry reuses the same idempotency key so the
-    // vendor-side dedupe catches a successful-but-slow first attempt.
-    const outcome = await dispatchWithRetry(
-      leg.tool_name,
-      args,
-      {
-        user_id: input.user_id,
-        session_id: input.session_id,
-        turn_id,
-        idempotency_key: `${input.session_id}:trip_${input.trip_id}:leg_${leg.order}`,
-        region: input.user_region,
-        device_kind: input.device_kind,
-        prior_summary: legPriorSummary,
-        user_confirmed: true,
-        user_pii: input.user_pii,
-      },
-      {},
-      (info) =>
-        emit({
-          type: "internal",
-          value: {
-            kind: "retry_forward_leg",
-            detail: {
-              tool_name: leg.tool_name,
-              leg_order: leg.order,
-              attempt: info.attempt,
-              next_delay_ms: info.next_delay_ms,
-              error_code: info.error_code,
-              error_message: info.error_message,
-            },
-          },
+    const results = await Promise.all(
+      legsAtDepth.map((leg) =>
+        dispatchOneLegForward({
+          leg,
+          trip,
+          input,
+          emit,
         }),
+      ),
     );
 
-    if (outcome.ok) {
-      // Price-integrity gate: did the vendor charge more than the user
-      // confirmed? Compare the receipt total to the PricedLeg ceiling
-      // carried on the TripSummary payload (leg_amount + currency,
-      // hash-protected at confirmation time). Any overrun — even 1 cent
-      // — treats the leg as a price violation and triggers rollback.
-      // Saga compensates via the agent's cancel tool so money flows
-      // back to the user.
-      const violation = checkLegPriceIntegrity(
-        legRef,
-        outcome.result,
-      );
-      if (violation) {
-        const booking_id = extractBookingId(outcome.result);
-        // Mark committed (money moved) so rollback will compensate it,
-        // then flip the trip into failure mode.
-        trip = await updateLeg(input.trip_id, leg.order, {
-          status: "committed",
-          booking_id,
-          error_detail: {
-            code: "price_changed",
-            message: violation.message,
-            reason: "price_integrity_violation",
-            confirmed_amount: violation.confirmed_amount,
-            confirmed_currency: violation.confirmed_currency,
-            charged_amount: violation.charged_amount,
-            charged_currency: violation.charged_currency,
-          },
-        });
-        emit({
-          type: "leg_status",
-          value: { order: leg.order, status: "committed" },
-        });
-        emit({
-          type: "text",
-          value: `Price-integrity violation on leg ${leg.order} — vendor charged ${violation.charged_amount} ${violation.charged_currency}, you confirmed ${violation.confirmed_amount} ${violation.confirmed_currency}. Rolling back.`,
-        });
-        forwardFailed = true;
-        break;
-      }
+    // Reconcile concurrent updateLeg calls by re-snapshotting once
+    // per depth before moving on — the next depth's dep-check needs
+    // the merged view.
+    trip = await snapshotTripRecord(trip, input.trip_id);
 
-      const booking_id = extractBookingId(outcome.result);
-      trip = await updateLeg(input.trip_id, leg.order, {
-        status: "committed",
-        booking_id,
-      });
-      emit({ type: "leg_status", value: { order: leg.order, status: "committed" } });
-    } else {
-      trip = await updateLeg(input.trip_id, leg.order, {
-        status: "failed",
-        error_detail: {
-          code: outcome.error.code,
-          message: outcome.error.message,
-        },
-      });
-      emit({ type: "leg_status", value: { order: leg.order, status: "failed" } });
+    if (results.some((r) => !r.ok)) {
       forwardFailed = true;
-      // Fail-fast: stop forward dispatch. Subsequent legs that haven't
-      // run yet stay in `pending`. Rollback only touches `committed`.
       break;
     }
   }
@@ -668,6 +554,23 @@ export async function dispatchConfirmedTrip(
   });
 
   let anyRollbackFailed = plan.manual_escalations.length > 0;
+
+  // Any manual_escalation the saga plan surfaced (e.g., leg had no
+  // booking_id, agent has no compensation tool) gets filed to the
+  // escalations queue right now — before we touch any compensation
+  // tool. Ops needs these visible even if the rest of rollback
+  // succeeds.
+  for (const esc of plan.manual_escalations) {
+    void openEscalation({
+      trip_id: input.trip_id,
+      session_id: input.session_id,
+      user_id: input.user_id,
+      leg_order: esc.order,
+      reason: "manual_only",
+      detail: { saga_reason: esc.reason, source: "dispatch_forward_failed" },
+    });
+  }
+
   for (const step of plan.steps) {
     emit({
       type: "leg_status",
@@ -733,6 +636,23 @@ export async function dispatchConfirmedTrip(
         value: { order: step.order, status: "rollback_failed" },
       });
       anyRollbackFailed = true;
+
+      // Queue for human follow-up. The user has been charged and the
+      // automatic refund path just failed — this is the exact case
+      // that must not sit silently in the DB.
+      void openEscalation({
+        trip_id: input.trip_id,
+        session_id: input.session_id,
+        user_id: input.user_id,
+        leg_order: step.order,
+        reason: "rollback_failed",
+        detail: {
+          tool_name: step.tool_name,
+          error_code: outcome.error.code,
+          error_message: outcome.error.message,
+          source: "dispatch_saga",
+        },
+      });
     }
   }
 
@@ -979,6 +899,171 @@ function inferTripTitle(messages: ChatMessage[]): string {
   const trimmed = firstLine.replace(/[.!?]+$/, "").trim();
   if (!trimmed) return "Your trip";
   return trimmed.length > 60 ? trimmed.slice(0, 57).trim() + "…" : trimmed;
+}
+
+/**
+ * Dispatch one forward leg. Extracted from dispatchConfirmedTrip so
+ * that Promise.all can fan out legs at the same topological depth
+ * concurrently (task #75).
+ *
+ * Mutates the leg row via updateLeg (DB-backed + in-memory cache). The
+ * caller re-snapshots the trip after Promise.all to reconcile — we
+ * don't return the updated trip here because concurrent fan-out would
+ * make that racy.
+ *
+ * Returns { ok: true } on success (committed + no price violation),
+ * { ok: false, reason } otherwise. The caller only needs the boolean
+ * — detailed per-leg status is already persisted + emitted as
+ * leg_status frames.
+ */
+async function dispatchOneLegForward(args: {
+  leg: { order: number; depends_on: number[]; agent_id: string; tool_name: string };
+  trip: TripRecord;
+  input: DispatchTripInput;
+  emit: EmitFrame;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const { leg, trip, input, emit } = args;
+
+  // Dependency check — every depends_on must be committed. A sibling
+  // in the same depth-batch can't be a dependency (depths guarantee
+  // this), so at this point all deps are at earlier depths and their
+  // Promise.all already settled. We re-check against the current
+  // trip legs map rather than trusting a stale snapshot.
+  const depsOk = leg.depends_on.every(
+    (d) => trip.legs.find((x) => x.order === d)?.status === "committed",
+  );
+  if (!depsOk) {
+    await updateLeg(input.trip_id, leg.order, {
+      status: "failed",
+      error_detail: { reason: "dependency_failed" },
+    });
+    emit({ type: "leg_status", value: { order: leg.order, status: "failed" } });
+    return { ok: false, reason: "dependency_failed" };
+  }
+
+  await updateLeg(input.trip_id, leg.order, { status: "in_flight" });
+  emit({ type: "leg_status", value: { order: leg.order, status: "in_flight" } });
+
+  const legRef = trip.payload.legs.find((l) => l.order === leg.order);
+  if (!legRef) {
+    // Unreachable — snapshot matches payload. Treat as failure to
+    // avoid silent pending leg.
+    await updateLeg(input.trip_id, leg.order, {
+      status: "failed",
+      error_detail: { reason: "legref_missing" },
+    });
+    emit({ type: "leg_status", value: { order: leg.order, status: "failed" } });
+    return { ok: false, reason: "legref_missing" };
+  }
+
+  const legSummaryPayload = legRef.summary.payload as Record<string, unknown>;
+  const callArgs: Record<string, unknown> = {
+    ...legSummaryPayload,
+    summary_hash: legRef.summary.hash,
+    trip_hash: trip.hash,
+    trip_leg_order: leg.order,
+  };
+
+  const turn_id = `${input.session_id}:${Date.now()}:${leg.order}`;
+  const legPriorSummary: ConfirmationSummary = {
+    kind: legRef.summary.kind,
+    payload: legRef.summary.payload as unknown,
+    hash: legRef.summary.hash,
+    session_id: input.session_id,
+    turn_id,
+    rendered_at: new Date().toISOString(),
+  };
+
+  const outcome = await dispatchWithRetry(
+    leg.tool_name,
+    callArgs,
+    {
+      user_id: input.user_id,
+      session_id: input.session_id,
+      turn_id,
+      idempotency_key: `${input.session_id}:trip_${input.trip_id}:leg_${leg.order}`,
+      region: input.user_region,
+      device_kind: input.device_kind,
+      prior_summary: legPriorSummary,
+      user_confirmed: true,
+      user_pii: input.user_pii,
+    },
+    {},
+    (info) =>
+      emit({
+        type: "internal",
+        value: {
+          kind: "retry_forward_leg",
+          detail: {
+            tool_name: leg.tool_name,
+            leg_order: leg.order,
+            attempt: info.attempt,
+            next_delay_ms: info.next_delay_ms,
+            error_code: info.error_code,
+            error_message: info.error_message,
+          },
+        },
+      }),
+  );
+
+  if (!outcome.ok) {
+    await updateLeg(input.trip_id, leg.order, {
+      status: "failed",
+      error_detail: {
+        code: outcome.error.code,
+        message: outcome.error.message,
+      },
+    });
+    emit({ type: "leg_status", value: { order: leg.order, status: "failed" } });
+    return { ok: false, reason: outcome.error.code };
+  }
+
+  // Price-integrity gate.
+  const violation = checkLegPriceIntegrity(legRef, outcome.result);
+  const booking_id = extractBookingId(outcome.result);
+  if (violation) {
+    await updateLeg(input.trip_id, leg.order, {
+      status: "committed",
+      booking_id,
+      error_detail: {
+        code: "price_changed",
+        message: violation.message,
+        reason: "price_integrity_violation",
+        confirmed_amount: violation.confirmed_amount,
+        confirmed_currency: violation.confirmed_currency,
+        charged_amount: violation.charged_amount,
+        charged_currency: violation.charged_currency,
+      },
+    });
+    emit({ type: "leg_status", value: { order: leg.order, status: "committed" } });
+    emit({
+      type: "text",
+      value: `Price-integrity violation on leg ${leg.order} — vendor charged ${violation.charged_amount} ${violation.charged_currency}, you confirmed ${violation.confirmed_amount} ${violation.confirmed_currency}. Rolling back.`,
+    });
+    return { ok: false, reason: "price_integrity_violation" };
+  }
+
+  await updateLeg(input.trip_id, leg.order, {
+    status: "committed",
+    booking_id,
+  });
+  emit({ type: "leg_status", value: { order: leg.order, status: "committed" } });
+  return { ok: true };
+}
+
+/**
+ * Merge refresh: after Promise.all over a depth-batch, re-read the
+ * trip so the next depth's dep-check sees every concurrent update.
+ * Falls back to the stale record if the read fails — callers prefer
+ * continuing-with-stale over aborting the whole trip on a transient
+ * DB blip.
+ */
+async function snapshotTripRecord(
+  fallback: TripRecord,
+  trip_id: string,
+): Promise<TripRecord> {
+  const fresh = await getTripById(trip_id);
+  return fresh ?? fallback;
 }
 
 /**

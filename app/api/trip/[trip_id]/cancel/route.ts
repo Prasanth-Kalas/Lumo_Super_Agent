@@ -53,6 +53,7 @@ import {
   updateLeg,
 } from "@/lib/trip-state";
 import { recordEvent } from "@/lib/events";
+import { openEscalation } from "@/lib/escalations";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -172,6 +173,14 @@ export async function POST(
         status: "manual_escalation",
         error: { code: "manual_escalation", message: esc.reason },
       });
+      void openEscalation({
+        trip_id,
+        session_id: trip.session_id,
+        user_id,
+        leg_order: esc.order,
+        reason: "manual_only",
+        detail: { saga_reason: esc.reason, source: "user_cancel_after_commit" },
+      });
     }
 
     for (const step of plan.steps) {
@@ -209,6 +218,19 @@ export async function POST(
           error: { code: outcome.error.code, message: outcome.error.message },
         });
         anyRollbackFailed = true;
+        void openEscalation({
+          trip_id,
+          session_id: trip.session_id,
+          user_id,
+          leg_order: step.order,
+          reason: "rollback_failed",
+          detail: {
+            tool_name: step.tool_name,
+            error_code: outcome.error.code,
+            error_message: outcome.error.message,
+            source: "user_cancel_after_commit",
+          },
+        });
       }
     }
 
