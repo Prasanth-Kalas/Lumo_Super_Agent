@@ -238,23 +238,38 @@ export default function Home() {
   // back to a fresh random UUID (or a timestamp if the crypto API
   // isn't around — mobile webviews). Message replay from
   // /api/events is a separate ticket; for now we only pin the ID.
-  const sessionIdRef = useRef<string>(
-    (() => {
-      try {
-        if (typeof window !== "undefined") {
-          const fromUrl = new URL(window.location.href).searchParams.get(
-            "session",
-          );
-          if (fromUrl && /^[0-9a-fA-F-]{8,}$/.test(fromUrl)) return fromUrl;
-        }
-      } catch {
-        /* ignore */
-      }
-      return typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : String(Date.now());
-    })(),
-  );
+  //
+  // ⚠︎ SSR-safety: the old implementation computed this in a lazy
+  // ref initializer that read window.location + crypto.randomUUID()
+  // at render time. The server produced UUID #1; the client hydrated
+  // with UUID #2; anywhere the ref flowed into rendered attributes
+  // (e.g. LeftRail's currentSessionId prop → session row aria-current)
+  // React saw mismatched markup and threw hydration errors #425/#418/
+  // #423 in production. We now start BOTH the state and the ref at
+  // "" so server and client first-render agree, then populate from
+  // ?session=… or a fresh UUID in a mount effect — which only runs
+  // after hydration, avoiding the mismatch entirely.
+  const sessionIdRef = useRef<string>("");
+  const [sessionId, setSessionId] = useState<string>("");
+  useEffect(() => {
+    let id = "";
+    try {
+      const fromUrl = new URL(window.location.href).searchParams.get(
+        "session",
+      );
+      if (fromUrl && /^[0-9a-fA-F-]{8,}$/.test(fromUrl)) id = fromUrl;
+    } catch {
+      /* ignore */
+    }
+    if (!id) {
+      id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : String(Date.now());
+    }
+    sessionIdRef.current = id;
+    setSessionId(id);
+  }, []);
 
   // J4 — ambient context. Opportunistic geolocation: ask once on the
   // first real user message, remember yes/no for the session. Denied
@@ -521,10 +536,14 @@ export default function Home() {
     ]);
     setLegStatusesByMsg({});
     setInput("");
-    sessionIdRef.current =
+    const fresh =
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
         : String(Date.now());
+    sessionIdRef.current = fresh;
+    // Mirror the ref into state so LeftRail re-renders with the new
+    // id and the session-row highlight stays in sync.
+    setSessionId(fresh);
   }
 
   const isEmpty = useMemo(() => {
@@ -695,7 +714,7 @@ export default function Home() {
       <div className="flex flex-1 overflow-hidden">
         <LeftRail
           onNewChat={newThread}
-          currentSessionId={sessionIdRef.current}
+          currentSessionId={sessionId || null}
         />
 
         <div className="flex flex-1 flex-col min-w-0">
