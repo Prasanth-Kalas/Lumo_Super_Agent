@@ -183,22 +183,26 @@ export default function Home() {
     })();
   }, []);
 
-  // Personalize the opening hello with the user's first name once
-  // we have it. We mutate the "hello" message's content in place so
-  // the user sees the greeting update from generic → personal
-  // within a beat of the page loading. Only touches the message if
-  // it's still the original scaffold text (we don't want to
-  // overwrite a user's own turn or a prior assistant reply).
+  // Personalize the opening hello with the user's first name AND
+  // device-local time of day (Good morning / afternoon / evening).
+  // We mutate the "hello" message content in place so the generic
+  // scaffold swaps to a warm, time-aware greeting within a beat of
+  // the page loading — but only if it still reads as the scaffold
+  // (never overwrite a user's own turn or an in-flight reply).
+  //
+  // Time-of-day buckets use local wall-clock, not UTC: 05:00–11:59
+  // morning, 12:00–16:59 afternoon, 17:00–21:59 evening, else night.
+  // These boundaries match how people actually greet each other;
+  // adjust here if we ever want regional variants.
   useEffect(() => {
     if (!me?.first_name) return;
+    const greeting = `Hey ${me.first_name}! ${timeOfDayGreeting(new Date())} I can book flights, order food, reserve hotels, and string them together into a single trip. What do you need?`;
     setMessages((prev) =>
       prev.map((m) =>
         m.id === "hello" &&
-        m.content.startsWith("I can book flights")
-          ? {
-              ...m,
-              content: `Hey ${me.first_name} — I can book flights, order food, reserve hotels, and string them together into a single trip. What do you need?`,
-            }
+        (m.content.startsWith("I can book flights") ||
+          m.content.startsWith(`Hey ${me.first_name}`))
+          ? { ...m, content: greeting }
           : m,
       ),
     );
@@ -640,19 +644,35 @@ export default function Home() {
               <span>History</span>
             </a>
 
-            {/* Sign in — small header CTA for desktop. Hidden when
-                the Supabase public env vars weren't inlined at build
-                (i.e. the deployment doesn't have auth wired), so
-                users don't click into a dead-end explainer. Mobile
-                drawer uses the same gate. */}
+            {/* Auth chip — three states:
+                  • env not wired → render nothing (dev / stub deploy)
+                  • env wired, signed out → "Sign in" link
+                  • env wired, signed in → circular initial chip
+                    linking to /memory (shows full name + email there).
+                Hides on mobile; drawer owns that surface. */}
             {process.env.NEXT_PUBLIC_SUPABASE_URL ? (
-              <a
-                href="/login"
-                aria-label="Sign in"
-                className="hidden sm:inline-flex h-8 px-3 rounded-md items-center text-[12.5px] font-medium text-lumo-fg hover:bg-lumo-elevated transition-colors"
-              >
-                Sign in
-              </a>
+              me ? (
+                <a
+                  href="/memory"
+                  aria-label={
+                    me.full_name
+                      ? `Signed in as ${me.full_name}`
+                      : `Signed in as ${me.email ?? "you"}`
+                  }
+                  title={me.email ?? me.full_name ?? "Account"}
+                  className="hidden sm:inline-flex h-8 w-8 rounded-full items-center justify-center bg-lumo-elevated border border-lumo-hair text-[12px] font-semibold text-lumo-fg hover:bg-lumo-surface transition-colors"
+                >
+                  {initialFor(me.first_name, me.full_name, me.email)}
+                </a>
+              ) : (
+                <a
+                  href="/login"
+                  aria-label="Sign in"
+                  className="hidden sm:inline-flex h-8 px-3 rounded-md items-center text-[12.5px] font-medium text-lumo-fg hover:bg-lumo-elevated transition-colors"
+                >
+                  Sign in
+                </a>
+              )
             ) : null}
 
             <ThemeToggle />
@@ -1007,6 +1027,274 @@ export default function Home() {
           memoryRefreshKey={memoryRefreshKey}
         />
       </div>
+
+      {/* Post-sign-in location prompt — renders nothing until we have
+          an authed user AND a profile fetch confirms no home_address
+          yet. Self-dismisses on save / "not now" / esc. */}
+      {me ? <LocationPrompt userId={me.id} /> : null}
     </main>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Local helpers
+// ──────────────────────────────────────────────────────────────────────
+
+/**
+ * "Good morning." / "Good afternoon." / "Good evening." based on the
+ * device's wall-clock hour. Returned with a trailing space-friendly
+ * period so the greeting sentence reads naturally when concatenated.
+ *
+ * Buckets chosen to match conversational English, not astronomical
+ * definitions: 05–11 morning, 12–16 afternoon, 17–21 evening, else
+ * we fall back to "evening" (nobody greets at 2 a.m. with "good
+ * night"; it reads as a farewell).
+ */
+function timeOfDayGreeting(now: Date): string {
+  const h = now.getHours();
+  if (h >= 5 && h < 12) return "Good morning.";
+  if (h >= 12 && h < 17) return "Good afternoon.";
+  return "Good evening.";
+}
+
+/**
+ * One-character initial for the auth chip. Prefers first name, then
+ * the first letter of full name, then the first letter of the email
+ * local-part, then "·" as a last resort. Always uppercase.
+ */
+function initialFor(
+  firstName: string | null,
+  fullName: string | null,
+  email: string | null,
+): string {
+  const src =
+    (firstName && firstName.trim()) ||
+    (fullName && fullName.trim()) ||
+    (email && email.split("@")[0]) ||
+    "";
+  const ch = src.charAt(0);
+  return ch ? ch.toUpperCase() : "·";
+}
+
+/**
+ * Post-sign-in location prompt. Checks once whether the user's
+ * profile has a home_address; if not, slides in a dismissible card
+ * asking for "current location" (geolocation) or a typed place.
+ *
+ * Why here and not always-on: we want to ask exactly once per user
+ * per device — nagging people every mount is worse than missing the
+ * signal. State:
+ *
+ *   "checking"  → fetching /api/memory to see if home_address exists
+ *   "hidden"    → profile already has it, or user dismissed this
+ *                 session
+ *   "prompt"    → showing the card
+ *   "saving"    → PATCH in flight
+ *
+ * Dismissal is sticky per user per device via localStorage
+ * ("lumo.locationPromptDismissed.v1:<userId>") so a reload doesn't
+ * re-ask. A server-side "dismissed" flag would be stronger; for now
+ * a local flag is good enough and keeps the first-login experience
+ * from feeling nosy.
+ */
+function LocationPrompt({ userId }: { userId: string }) {
+  type Phase = "checking" | "hidden" | "prompt" | "saving";
+  const [phase, setPhase] = useState<Phase>("checking");
+  const [manual, setManual] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  const dismissKey = `lumo.locationPromptDismissed.v1:${userId}`;
+
+  useEffect(() => {
+    // Short-circuit if dismissed for this user on this device.
+    try {
+      if (window.localStorage.getItem(dismissKey) === "1") {
+        setPhase("hidden");
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/memory", { cache: "no-store" });
+        if (!res.ok) {
+          // Signed out or error — don't render.
+          if (!cancelled) setPhase("hidden");
+          return;
+        }
+        const j = (await res.json()) as {
+          profile?: { home_address?: unknown } | null;
+        };
+        const hasHome =
+          j.profile &&
+          j.profile.home_address &&
+          typeof j.profile.home_address === "object";
+        if (!cancelled) setPhase(hasHome ? "hidden" : "prompt");
+      } catch {
+        if (!cancelled) setPhase("hidden");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [dismissKey]);
+
+  function dismiss(remember = true) {
+    if (remember) {
+      try {
+        window.localStorage.setItem(dismissKey, "1");
+      } catch {
+        /* ignore */
+      }
+    }
+    setPhase("hidden");
+  }
+
+  async function saveHome(payload: Record<string, unknown>) {
+    setPhase("saving");
+    setErr(null);
+    try {
+      const res = await fetch("/api/memory/profile", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ home_address: payload }),
+      });
+      if (!res.ok) {
+        setErr("Couldn't save location. Try again?");
+        setPhase("prompt");
+        return;
+      }
+      dismiss(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setPhase("prompt");
+    }
+  }
+
+  async function useCurrentLocation() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setErr("This browser doesn't support location.");
+      return;
+    }
+    setErr(null);
+    await new Promise<void>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          void saveHome({
+            label: "Current location",
+            coords: {
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+            },
+          }).finally(() => resolve());
+        },
+        (e) => {
+          setErr(
+            e.code === 1
+              ? "Location permission denied. You can type it instead."
+              : "Couldn't read location. Try typing it.",
+          );
+          resolve();
+        },
+        { timeout: 8000, maximumAge: 5 * 60 * 1000 },
+      );
+    });
+  }
+
+  async function saveManual(e: React.FormEvent) {
+    e.preventDefault();
+    const label = manual.trim();
+    if (!label) return;
+    await saveHome({ label });
+  }
+
+  if (phase === "hidden" || phase === "checking") return null;
+
+  return (
+    <div className="fixed inset-x-0 bottom-4 z-40 px-4 sm:px-6 flex justify-center pointer-events-none">
+      <div
+        role="dialog"
+        aria-label="Share your location"
+        className="pointer-events-auto w-full max-w-md rounded-2xl border border-lumo-hair bg-lumo-surface/95 backdrop-blur-md shadow-lg p-4 sm:p-5 animate-fade-up"
+      >
+        <div className="flex items-start gap-3">
+          <div className="h-8 w-8 shrink-0 rounded-full bg-lumo-accent/10 text-lumo-accent inline-flex items-center justify-center">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+              <path
+                d="M8 14s5-4.5 5-8.3A5 5 0 0 0 3 5.7C3 9.5 8 14 8 14Z"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinejoin="round"
+              />
+              <circle cx="8" cy="5.8" r="1.6" stroke="currentColor" strokeWidth="1.4" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[14px] font-medium text-lumo-fg">
+              Where are you based?
+            </div>
+            <div className="text-[12.5px] text-lumo-fg-mid mt-0.5 leading-snug">
+              Helps Lumo find nearby food, suggest flights from the
+              right airport, and estimate drive times. You can change
+              it anytime in Memory.
+            </div>
+
+            <form onSubmit={saveManual} className="mt-3 space-y-2.5">
+              <input
+                type="text"
+                value={manual}
+                onChange={(ev) => setManual(ev.target.value)}
+                placeholder="City or neighborhood — e.g. Austin, TX"
+                className="w-full rounded-md border border-lumo-hair bg-lumo-bg px-3 py-2 text-[13.5px] text-lumo-fg placeholder:text-lumo-fg-low focus:border-lumo-edge outline-none"
+                disabled={phase === "saving"}
+                autoFocus
+              />
+
+              {err ? (
+                <div className="text-[11.5px] text-red-500">{err}</div>
+              ) : null}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={phase === "saving" || !manual.trim()}
+                  className="h-8 px-3 rounded-md bg-lumo-fg text-lumo-bg text-[12.5px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low transition-colors"
+                >
+                  {phase === "saving" ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void useCurrentLocation()}
+                  disabled={phase === "saving"}
+                  className="h-8 px-3 rounded-md border border-lumo-hair bg-lumo-bg text-[12.5px] text-lumo-fg hover:bg-lumo-elevated transition-colors inline-flex items-center gap-1.5"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+                    <circle cx="6" cy="6" r="2" stroke="currentColor" strokeWidth="1.3" />
+                    <path
+                      d="M6 1v1.5M6 9.5V11M1 6h1.5M9.5 6H11"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  Use current
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismiss(true)}
+                  disabled={phase === "saving"}
+                  className="ml-auto h-8 px-2 text-[12px] text-lumo-fg-low hover:text-lumo-fg transition-colors"
+                >
+                  Not now
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
