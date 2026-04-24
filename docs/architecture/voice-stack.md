@@ -76,23 +76,28 @@ const MODEL_ID = "eleven_turbo_v2_5";
 
 ### Voice settings
 
-We pass a settings payload tuned for Turbo v2.5:
+We pass a settings payload tuned for "friend-like" warmth on Turbo v2.5:
 
 ```json
 {
-  "stability": 0.5,
-  "similarity_boost": 0.75,
-  "style": 0.3,
+  "stability": 0.42,
+  "similarity_boost": 0.8,
+  "style": 0.55,
   "use_speaker_boost": true
 }
 ```
 
-- **Stability 0.5** — ElevenLabs default. Holds a steady cadence on Turbo v2.5 without sounding flat. Below 0.4 on this model the delivery speeds up and you start hearing glottal artifacts on plosives.
-- **Similarity 0.75** — default. Higher values (0.85+) overfit the source voice and can introduce clicks at chunk boundaries on this model.
-- **Style 0.3** — some emotional inference from punctuation. Keeps the concierge tone warm without over-acting.
-- **Speaker boost on** — keeps clarity on small speakers / AirPods.
+- **Stability 0.42** — dropped from ElevenLabs' 0.5 default. The lower value lets cadence breathe so lines don't sound like a narrator reading a script; any lower and the model starts slurring plosives. 0.42–0.45 is the sweet spot on Turbo v2.5 where prosody opens up without losing pace.
+- **Similarity 0.8** — bumped from the 0.75 default to hold voice identity (Rachel) even as stability drops. Without this pairing, the voice drifts character across long responses.
+- **Style 0.55** — real emotional inference. The model leans into punctuation cues — em-dashes, ellipses, question marks. Above 0.7 it starts over-acting; 0.55 is the "warm but honest" point we want for the concierge persona.
+- **Speaker boost on** — keeps clarity on phone + laptop speakers where mids get muddy.
 
-(The earlier, more aggressive settings — stability 0.35, style 0.45 — were calibrated for v3's wider expressive range and don't translate well to Turbo. If we ever re-trial v3, we'll want to re-tune.)
+The tuning history, roughly:
+- v3 trial used aggressive settings (stability 0.35, style 0.45) because v3's expressive range absorbed the extra play. Reverted.
+- Post-revert conservative pass used defaults (stability 0.5, style 0.3) — safe but read as polite-concierge; users wanted conversational.
+- Current settings land in the middle — enough variation to feel human, enough stability for Turbo v2.5 to not crack.
+
+If we ever re-trial v3, expect another round of tuning; these values don't translate across models.
 
 ### Streaming mechanics
 
