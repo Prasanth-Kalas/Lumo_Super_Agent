@@ -363,13 +363,16 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
         {process.env.NEXT_PUBLIC_SUPABASE_URL ? (
           <div className="border-t border-lumo-hair px-4 py-4 relative z-10">
             {isAuthed ? (
-              <Link
-                href="/login"
-                onClick={onClose}
-                className="block w-full text-center h-11 leading-[2.75rem] rounded-lg border border-lumo-hair text-[14px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors"
-              >
-                Account settings
-              </Link>
+              <div className="space-y-2">
+                <Link
+                  href="/memory"
+                  onClick={onClose}
+                  className="block w-full text-center h-11 leading-[2.75rem] rounded-lg border border-lumo-hair text-[14px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors"
+                >
+                  Account settings
+                </Link>
+                <MobileSignOutButton onClose={onClose} />
+              </div>
             ) : (
               <div className="space-y-2">
                 <Link
@@ -436,5 +439,39 @@ function MobileNavLink({
         </span>
       </Link>
     </li>
+  );
+}
+
+/**
+ * Full-width Sign out button for the mobile sheet. Same POST-then-
+ * hard-reload flow as the desktop LeftRail button: hits the logout
+ * route, then window.location.assign("/login") so the next render
+ * has freshly-cleared cookies and no stale React state. Closes the
+ * mobile sheet on click so we don't leave the overlay painted while
+ * the reload races.
+ */
+function MobileSignOutButton({ onClose }: { onClose: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const onClick = async () => {
+    if (busy) return;
+    setBusy(true);
+    onClose();
+    try {
+      await fetch("/api/auth/logout", { method: "POST", keepalive: true });
+    } catch {
+      // Middleware will 401 the next request regardless; proceed to
+      // /login either way.
+    }
+    window.location.assign("/login");
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className="block w-full text-center h-11 leading-[2.75rem] rounded-lg text-[14px] text-lumo-fg-low hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors disabled:opacity-60"
+    >
+      {busy ? "Signing out…" : "Sign out"}
+    </button>
   );
 }

@@ -358,7 +358,7 @@ export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps)
             </Link>
           </div>
         ) : process.env.NEXT_PUBLIC_SUPABASE_URL && isAuthed === true ? (
-          <div className="px-4 pt-3 pb-1">
+          <div className="px-4 pt-3 pb-1 space-y-1.5">
             <Link
               href="/memory"
               className="block w-full rounded-lg border border-lumo-hair px-3 py-2 text-[12.5px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors inline-flex items-center gap-2"
@@ -366,6 +366,7 @@ export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps)
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-lumo-accent shadow-[0_0_6px_rgba(94,234,172,0.6)]" />
               Signed in
             </Link>
+            <SignOutButton />
           </div>
         ) : null}
 
@@ -395,6 +396,46 @@ function FooterLink({ href, label }: { href: string; label: string }) {
     >
       {label}
     </Link>
+  );
+}
+
+/**
+ * SignOutButton — hits POST /api/auth/logout and hard-navigates to
+ * /login. Hard-nav (window.location.assign) instead of next/router
+ * so the browser drops all in-memory state and reloads against
+ * freshly-cleared cookies — guarantees no stale user data is ever
+ * rendered after sign-out. Disabled briefly while in-flight so a
+ * double-click can't fire two logout requests.
+ */
+function SignOutButton() {
+  const [busy, setBusy] = useState(false);
+  const onClick = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        // Keep the request atomic — don't let it be aborted when we
+        // navigate away immediately after.
+        keepalive: true,
+      });
+    } catch {
+      // Network failure still proceeds to /login; server will 401 on
+      // the next request and middleware will bounce accordingly, and
+      // the cookies are effectively orphaned.
+    }
+    // Hard reload — drops every client ref to the signed-in identity.
+    window.location.assign("/login");
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className="block w-full rounded-lg px-3 py-2 text-left text-[12.5px] text-lumo-fg-low hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors disabled:opacity-60"
+    >
+      {busy ? "Signing out…" : "Sign out"}
+    </button>
   );
 }
 
