@@ -23,13 +23,18 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 
+function supabaseEnv(): { url: string; anonKey: string } {
+  return {
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+  };
+}
+function isAuthConfigured(): boolean {
+  const { url, anonKey } = supabaseEnv();
+  return url.length > 0 && anonKey.length > 0;
+}
 function getBrowserSupabase() {
-  const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "";
-  const anonKey =
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-    process.env.SUPABASE_ANON_KEY ??
-    "";
+  const { url, anonKey } = supabaseEnv();
   return createBrowserClient(url, anonKey);
 }
 
@@ -116,6 +121,46 @@ function SignupForm() {
           </p>
           <Link href="/login" className="inline-block text-[12.5px] text-lumo-accent hover:underline">
             Back to sign in
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  // Auth env not baked into this build — show a plain explainer
+  // instead of letting the form fail silently.
+  if (!isAuthConfigured()) {
+    return (
+      <main className="min-h-dvh flex items-center justify-center bg-lumo-bg text-lumo-fg-high px-5">
+        <div className="w-full max-w-md space-y-4">
+          <h1 className="text-[22px] font-semibold tracking-tight">
+            Account system isn&apos;t set up yet
+          </h1>
+          <p className="text-[13.5px] text-lumo-fg-mid leading-relaxed">
+            Lumo&apos;s account system is powered by Supabase Auth.
+            The NEXT_PUBLIC_SUPABASE_URL and
+            NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables
+            aren&apos;t configured on this deployment, so signup
+            can&apos;t proceed.
+          </p>
+          <p className="text-[13px] text-lumo-fg-low leading-relaxed">
+            If you&apos;re the admin: set both vars on Vercel
+            (Project → Settings → Environment Variables) and
+            redeploy. The URL looks like
+            <code className="mx-1 rounded bg-lumo-elevated px-1 py-0.5 text-[12px]">
+              https://&lt;ref&gt;.supabase.co
+            </code>
+            and the anon key starts with
+            <code className="mx-1 rounded bg-lumo-elevated px-1 py-0.5 text-[12px]">
+              eyJ
+            </code>
+            .
+          </p>
+          <Link
+            href="/"
+            className="inline-block text-[13px] text-lumo-accent hover:underline underline-offset-4"
+          >
+            ← Back to Lumo
           </Link>
         </div>
       </main>
