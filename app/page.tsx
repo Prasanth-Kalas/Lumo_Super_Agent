@@ -581,6 +581,18 @@ export default function Home() {
               <span>History</span>
             </a>
 
+            {/* Sign in — small header CTA for desktop. Mobile users
+                find this in the drawer footer. Always visible so
+                logged-out users always have a one-click path to
+                auth without opening the rail. */}
+            <a
+              href="/login"
+              aria-label="Sign in"
+              className="hidden sm:inline-flex h-8 px-3 rounded-md items-center text-[12.5px] font-medium text-lumo-fg hover:bg-lumo-elevated transition-colors"
+            >
+              Sign in
+            </a>
+
             <ThemeToggle />
           </div>
         </div>

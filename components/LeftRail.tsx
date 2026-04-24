@@ -73,6 +73,11 @@ export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps)
       connection_status: null,
     })),
   );
+  // Auth state — driven by /api/connections responding 200 vs 401.
+  // 200 = signed in (user has a Lumo account). 401 = logged out.
+  // null = still loading / server unreachable. We show auth CTAs
+  // when the value is false, and an account link when it's true.
+  const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
 
   // Lazy-load recents. We don't block the first paint waiting for
   // them — the rail renders immediately with an empty state.
@@ -161,6 +166,16 @@ export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps)
       // "we can't know", don't overlay connection state. Registry
       // health alone drives the dot in that mode.
       const haveConnections = connRes.status === "fulfilled" && connRes.value.ok;
+
+      // Auth inference: 200 → signed in. 401 → logged out. Other
+      // errors or network failure → leave null so we don't flash
+      // the wrong CTA.
+      if (!cancelled) {
+        if (connRes.status === "fulfilled") {
+          if (connRes.value.ok) setIsAuthed(true);
+          else if (connRes.value.status === 401) setIsAuthed(false);
+        }
+      }
 
       if (cancelled) return;
       setAgents(
@@ -320,11 +335,40 @@ export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps)
         </div>
       </div>
 
-      {/* Footer nav */}
-      <div className="border-t border-lumo-hair px-4 py-3 space-y-0.5 relative z-10">
-        <FooterLink href="/history" label="History" />
-        <FooterLink href="/marketplace" label="Marketplace" />
-        <FooterLink href="/connections" label="Connections" />
+      {/* Footer — auth + nav */}
+      <div className="border-t border-lumo-hair relative z-10">
+        {isAuthed === false ? (
+          <div className="px-4 pt-3 pb-2 space-y-2">
+            <Link
+              href="/signup"
+              className="block w-full text-center h-10 leading-[2.5rem] rounded-lg bg-lumo-fg text-lumo-bg text-[13.5px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors"
+            >
+              Create account
+            </Link>
+            <Link
+              href="/login"
+              className="block w-full text-center h-9 leading-[2.25rem] rounded-lg border border-lumo-hair text-[13px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors"
+            >
+              Sign in
+            </Link>
+          </div>
+        ) : isAuthed === true ? (
+          <div className="px-4 pt-3 pb-1">
+            <Link
+              href="/memory"
+              className="block w-full rounded-lg border border-lumo-hair px-3 py-2 text-[12.5px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors inline-flex items-center gap-2"
+            >
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-lumo-accent shadow-[0_0_6px_rgba(94,234,172,0.6)]" />
+              Signed in
+            </Link>
+          </div>
+        ) : null}
+
+        <div className="px-4 pt-2 pb-3 space-y-0.5">
+          <FooterLink href="/history" label="History" />
+          <FooterLink href="/marketplace" label="Marketplace" />
+          <FooterLink href="/connections" label="Connections" />
+        </div>
       </div>
     </aside>
   );
