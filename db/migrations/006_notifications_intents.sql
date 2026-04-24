@@ -64,12 +64,16 @@ create trigger notifications_touch_updated_at
   before update on public.notifications
   for each row execute function public.tg_touch_updated_at();
 
--- At-most-one LIVE notification per (user, dedup_key). "Live" means:
--- unread AND not yet expired. Once a user reads it OR expiry passes, the
--- partial predicate no longer holds and the same rule can re-fire.
+-- At-most-one LIVE notification per (user, dedup_key). "Live" for the
+-- uniqueness constraint means "unread" — we can't include
+-- `expires_at > now()` in the partial predicate because Postgres
+-- requires all functions in an index predicate to be IMMUTABLE, and
+-- now() is STABLE. Queries that care about expiry filter
+-- expires_at at query time (cheap; the dedup window is minutes,
+-- not days, so few rows ever sit in the index while expired).
 create unique index if not exists notifications_one_live_per_dedup
   on public.notifications (user_id, dedup_key)
-  where read_at is null and (expires_at is null or expires_at > now());
+  where read_at is null;
 
 -- Unread-list hot path — the header bell's primary query.
 create index if not exists notifications_unread_by_user
