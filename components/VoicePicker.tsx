@@ -225,6 +225,7 @@ function CharacterChip({ character }: { character: VoiceOption["character"] }) {
   const label: Record<VoiceOption["character"], string> = {
     "warm-female": "warm · female",
     "youthful-female": "youthful · female",
+    "british-female": "british · female",
     "warm-male": "warm · male",
     "deep-male": "deep · male",
   };

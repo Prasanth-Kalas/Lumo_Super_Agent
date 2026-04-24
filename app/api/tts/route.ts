@@ -98,15 +98,23 @@ export async function POST(req: NextRequest): Promise<Response> {
       body: JSON.stringify({
         text,
         model_id: MODEL_ID,
-        // Voice settings tuned for warm-friendly:
-        //   stability 0.5 — not robotic (<0.5 is erratic, >0.7 is flat)
-        //   similarity_boost 0.75 — stay recognizable as Rachel
-        //   style 0 — neutral; let punctuation drive emotion
-        //   use_speaker_boost — loudens+clarifies perceived voice
+        // Voice settings retuned for naturalness (task #91). The prior
+        // defaults (stability 0.5, style 0) produced a flat "narrator"
+        // read — technically clean but felt like a bot.
+        //
+        //   stability 0.35 — lower = more pitch/pace variation. 0.35
+        //     is the sweet spot for conversational speech; below 0.3
+        //     starts sounding erratic.
+        //   similarity_boost 0.85 — bumped to hold voice identity
+        //     while the lower stability lets expression breathe.
+        //   style 0.45 — was 0, which disables emotional inference
+        //     entirely. 0.45 lets the model pick up cues from
+        //     punctuation and context. Above 0.7 starts over-acting.
+        //   use_speaker_boost — keeps clarity on small speakers.
         voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0,
+          stability: 0.35,
+          similarity_boost: 0.85,
+          style: 0.45,
           use_speaker_boost: true,
         },
       }),

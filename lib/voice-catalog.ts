@@ -23,25 +23,44 @@ export interface VoiceOption {
   /** One-sentence vibe description shown in the picker card. */
   description: string;
   /** Rough demographic category for filtering/sorting. */
-  character: "warm-female" | "youthful-female" | "warm-male" | "deep-male";
+  character:
+    | "warm-female"
+    | "youthful-female"
+    | "british-female"
+    | "warm-male"
+    | "deep-male";
   /** True for the initial default — only one entry should set this. */
   default?: boolean;
 }
 
 export const VOICE_CATALOG: VoiceOption[] = [
   {
-    id: "21m00Tcm4TlvDq8ikWAM",
-    name: "Rachel",
+    id: "EXAVITQu4vr4xnSDxMaL",
+    name: "Sarah",
     description:
-      "Warm and professional. Late-20s American female — the friend who happens to narrate your day with calm confidence.",
+      "Conversational and warm. Sounds like a friend texting you back — not reading a script. The new default for natural everyday chat.",
     character: "warm-female",
     default: true,
   },
   {
-    id: "EXAVITQu4vr4xnSDxMaL",
-    name: "Bella",
+    id: "21m00Tcm4TlvDq8ikWAM",
+    name: "Rachel",
     description:
-      "Soft and expressive. Early-20s, playful, reads casual messages naturally. Great when you want Lumo to feel like a peer.",
+      "Calm and professional. Late-20s American female — a little more narrator-forward. Pick this if you want Lumo to sound composed and premium.",
+    character: "warm-female",
+  },
+  {
+    id: "XB0fDUnXU5powFXDhCwa",
+    name: "Charlotte",
+    description:
+      "Warm British female. Inviting, unhurried, a touch of dry humor. The voice of someone who has planned a thousand trips and enjoyed every one.",
+    character: "british-female",
+  },
+  {
+    id: "AZnzlk1XvdvUeBnXmlld",
+    name: "Domi",
+    description:
+      "Expressive and confident. Early-20s American female with range — can sound excited or measured depending on the turn.",
     character: "youthful-female",
   },
   {

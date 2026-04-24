@@ -70,8 +70,83 @@ export function toSpeakable(md: string): string {
   s = s.replace(/^\s*[-*•]\s+/gm, ". ");
   // Emoji sweep — keep it plain. (Rough unicode range for emoji.)
   s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "");
+
+  // ── Contractions — the single biggest naturalness win. ──
+  //
+  // LLMs love "I will", "do not", "it is" — phrasings no human
+  // actually uses in speech. Rewriting to contractions makes the
+  // TTS output sound conversational instead of announcer-y.
+  // Order matters: multi-word forms first, then single-word.
+  // Case-preserving on the first letter via lowercase-matching +
+  // capitalization rebuild where it mattered.
+  s = applyContractions(s);
+
   // Collapse runs of whitespace.
   s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
+/**
+ * Expand "I will" → "I'll" and friends. We stay conservative — only
+ * pairs where the contraction is unambiguous in speech. Skip things
+ * like "he'd" (he would vs he had) where the wrong reading lands
+ * awkwardly.
+ */
+function applyContractions(input: string): string {
+  let s = input;
+  // Two-word → contracted. Word-boundary + optional capitalization.
+  const pairs: Array<[RegExp, string]> = [
+    [/\bI am\b/g, "I'm"],
+    [/\bI will\b/g, "I'll"],
+    [/\bI have\b/g, "I've"],
+    [/\bI would\b/g, "I'd"],
+    [/\byou are\b/gi, "you're"],
+    [/\byou will\b/gi, "you'll"],
+    [/\byou have\b/gi, "you've"],
+    [/\byou would\b/gi, "you'd"],
+    [/\bwe are\b/gi, "we're"],
+    [/\bwe will\b/gi, "we'll"],
+    [/\bwe have\b/gi, "we've"],
+    [/\bthey are\b/gi, "they're"],
+    [/\bthey will\b/gi, "they'll"],
+    [/\bthey have\b/gi, "they've"],
+    [/\bit is\b/gi, "it's"],
+    [/\bit will\b/gi, "it'll"],
+    [/\bit has\b/gi, "it's"],
+    [/\bthat is\b/gi, "that's"],
+    [/\bthere is\b/gi, "there's"],
+    [/\bhere is\b/gi, "here's"],
+    [/\bwhat is\b/gi, "what's"],
+    [/\bwho is\b/gi, "who's"],
+    [/\bdo not\b/gi, "don't"],
+    [/\bdoes not\b/gi, "doesn't"],
+    [/\bdid not\b/gi, "didn't"],
+    [/\bis not\b/gi, "isn't"],
+    [/\bare not\b/gi, "aren't"],
+    [/\bwas not\b/gi, "wasn't"],
+    [/\bwere not\b/gi, "weren't"],
+    [/\bwill not\b/gi, "won't"],
+    [/\bwould not\b/gi, "wouldn't"],
+    [/\bcould not\b/gi, "couldn't"],
+    [/\bshould not\b/gi, "shouldn't"],
+    [/\bhas not\b/gi, "hasn't"],
+    [/\bhave not\b/gi, "haven't"],
+    [/\bhad not\b/gi, "hadn't"],
+    [/\bcannot\b/gi, "can't"],
+    [/\bcan not\b/gi, "can't"],
+    [/\blet us\b/gi, "let's"],
+    [/\bgoing to\b/gi, "gonna"],
+    [/\bwant to\b/gi, "wanna"],
+  ];
+  for (const [re, rep] of pairs) {
+    s = s.replace(re, (match) => {
+      // Preserve leading capitalization if the match started with one.
+      if (/^[A-Z]/.test(match)) {
+        return rep.charAt(0).toUpperCase() + rep.slice(1);
+      }
+      return rep;
+    });
+  }
   return s;
 }
 
@@ -242,21 +317,38 @@ function agentNoun(agent_id: string): string {
  */
 export const VOICE_MODE_PROMPT = `
 You are in VOICE mode. The user can't look at the screen — they are
-likely driving. Respond as if on a phone call:
+likely driving. Respond as if on a phone call with a friend:
 
-- Keep turns under 40 words unless the user explicitly asks for detail.
+WRITE LIKE A HUMAN TALKS — this matters more than any other rule:
+- Use contractions: "I'll", "it's", "you're", "can't", "won't",
+  "let's", "here's". Never "I will" or "I am" or "do not" in voice
+  mode. It sounds like a robot narrator.
+- Start sentences with natural connectors sometimes: "Alright,",
+  "Okay,", "So,", "Let me check,", "Got it —". Don't overdo it.
+- Vary sentence length. Short punch sentence. Then a slightly
+  longer one that flows. Then short.
+- Drop formal transitions like "Additionally", "Furthermore",
+  "In conclusion". Use "also", "and", "one more thing", "by the
+  way" instead.
+- Dashes and commas are your friends — they create natural pauses
+  the TTS can breathe on.
+- It's okay to sound slightly casual: "sounds good", "you got it",
+  "alright here we go", "here's what I found". Warm, not stuffy.
+
+STRUCTURE:
+- Keep turns under 40 words unless the user explicitly asks for
+  detail.
 - No markdown, no lists, no emoji, no code. Plain prose only.
-- ALWAYS put a space after sentence punctuation before the next word.
-  Write "Checking flights now. Got three options." — never
-  "Checking flights now.Got three options." TTS depends on it.
-- Read amounts naturally ("three hundred forty seven dollars", not
-  "three four seven USD"). The client will handle final TTS formatting
-  too — your job is to keep the text speakable.
-- When you've priced a compound trip or single booking, summarize it
-  in one sentence and ask "should I book it?" — don't read every
-  line item.
-- When a tool is running, ack briefly ("checking flights now") so the
-  user knows progress. Don't narrate every field in the result.
+- ALWAYS put a space after sentence punctuation before the next
+  word. "Got three options. Want me to pick?" — never
+  "Got three options.Want me to pick?" TTS depends on it.
+- Read amounts naturally ("three forty seven" or "three hundred
+  forty seven dollars"). Don't say "USD" or "dollars and cents".
+- When you've priced a trip or booking, summarize in one sentence
+  and ask "should I book it?" — don't list every field.
+- When a tool is running, ack briefly ("checking flights",
+  "let me look", "one sec") so the user knows progress. Don't
+  narrate every field in the result.
 
 CONFIRMATION GRAMMAR — critical for money-moving tools:
 - After you've shown a confirmation summary (any structured-*
