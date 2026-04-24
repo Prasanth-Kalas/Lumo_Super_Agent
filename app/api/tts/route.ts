@@ -28,9 +28,13 @@
  * friendly enough for "I found three options". Overridable per-call
  * via `voice_id` in the body.
  *
- * Model: eleven_turbo_v2_5 — best naturalness-to-latency ratio. We
- * don't use Flash v2.5 yet (75ms but slightly lower quality) — if
- * latency ends up mattering more than warmth, revisit.
+ * Model: eleven_v3 — experimental bump from turbo_v2_5 (Apr 2026).
+ * v3 has the richest emotional range and widest language coverage,
+ * at the cost of higher + more variable first-chunk latency. We're
+ * trialling whether the extra expressiveness is worth the perceived
+ * "waiting for the voice" on short concierge replies. If turn-feel
+ * degrades, flip back to eleven_turbo_v2_5 (275 ms, proven) or step
+ * down to eleven_flash_v2_5 (75 ms, slightly flatter).
  */
 
 import type { NextRequest } from "next/server";
@@ -39,7 +43,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // Rachel
-const MODEL_ID = "eleven_turbo_v2_5";
+// Experimental: trying v3. Fallback candidates (one-line revert):
+//   - "eleven_turbo_v2_5" — balanced (prior default, proven)
+//   - "eleven_flash_v2_5" — 75 ms, slightly lower quality
+const MODEL_ID = "eleven_v3";
 
 // Hard caps so a runaway turn doesn't burn through the ElevenLabs
 // character quota. Speech at ~150wpm ≈ 13 chars/sec, so 5000 chars
