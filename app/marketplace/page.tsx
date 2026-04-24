@@ -16,6 +16,7 @@ import { usePathname } from "next/navigation";
 import { AgentCard } from "@/components/AgentCard";
 import { BrandMark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import McpConnectModal from "@/components/McpConnectModal";
 
 interface MarketplaceAgent {
   agent_id: string;
@@ -29,9 +30,11 @@ interface MarketplaceAgent {
     category?: string;
     pricing_note?: string;
   } | null;
-  connect_model: "oauth2" | "lumo_id" | "none";
+  connect_model: "oauth2" | "lumo_id" | "none" | "mcp_bearer" | "mcp_none";
   required_scopes: Array<{ name: string; description: string }>;
   health_score: number;
+  /** "lumo" for native agents, "mcp" for MCP-backed entries. */
+  source?: "lumo" | "mcp";
   connection: {
     id: string;
     status: "active" | "expired" | "revoked" | "error";
@@ -45,7 +48,21 @@ export default function MarketplacePage() {
   const [filter, setFilter] = useState<string>("all");
   const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mcpModalFor, setMcpModalFor] = useState<MarketplaceAgent | null>(null);
   const pathname = usePathname();
+
+  // Re-fetch the catalog after a successful connect so the UI
+  // flips to "Connected" without a manual refresh.
+  const refreshCatalog = useCallback(async () => {
+    try {
+      const res = await fetch("/api/marketplace", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { agents: MarketplaceAgent[] };
+      setAgents(data.agents);
+    } catch {
+      /* ignore — the stale list is fine */
+    }
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -84,17 +101,30 @@ export default function MarketplacePage() {
   }, [agents, filter]);
 
   const startConnect = useCallback(
-    async (agent_id: string) => {
+    async (agent: MarketplaceAgent) => {
       if (connecting) return;
-      setConnecting(agent_id);
+
+      // MCP servers with bearer-token auth get the token-paste
+      // modal. OAuth for MCP lands in Phase 1c; until then bearer
+      // is the only MCP connect model we actually support.
+      if (agent.source === "mcp") {
+        if (agent.connect_model === "mcp_bearer") {
+          setMcpModalFor(agent);
+          return;
+        }
+        // "mcp_none" public servers — nothing to connect.
+        return;
+      }
+
+      setConnecting(agent.agent_id);
       setError(null);
       try {
         const res = await fetch("/api/connections/start", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            agent_id,
-            redirect_after: `${pathname}?connected=${agent_id}`,
+            agent_id: agent.agent_id,
+            redirect_after: `${pathname}?connected=${agent.agent_id}`,
           }),
         });
         if (!res.ok) {
@@ -199,12 +229,14 @@ export default function MarketplacePage() {
                 pricing_note={a.listing?.pricing_note ?? null}
                 connected={a.connection?.status === "active"}
                 connecting={connecting === a.agent_id}
+                source={a.source}
                 onConnect={
-                  a.connect_model === "oauth2"
-                    ? () => void startConnect(a.agent_id)
+                  a.connect_model === "oauth2" ||
+                  a.connect_model === "mcp_bearer"
+                    ? () => void startConnect(a)
                     : undefined
                 }
-                linkToDetail
+                linkToDetail={a.source !== "mcp"}
               />
             ))}
           </div>
@@ -214,6 +246,24 @@ export default function MarketplacePage() {
           Are you building an app? <Link href="/publisher" className="text-lumo-accent hover:underline">Publish it on Lumo</Link> (coming soon).
         </div>
       </div>
+
+      <McpConnectModal
+        open={mcpModalFor !== null}
+        server={
+          mcpModalFor
+            ? {
+                server_id: mcpModalFor.agent_id.replace(/^mcp:/, ""),
+                display_name: mcpModalFor.display_name,
+                one_liner: mcpModalFor.one_liner,
+                scopes: mcpModalFor.required_scopes,
+              }
+            : null
+        }
+        onClose={() => setMcpModalFor(null)}
+        onConnected={() => {
+          void refreshCatalog();
+        }}
+      />
     </main>
   );
 }

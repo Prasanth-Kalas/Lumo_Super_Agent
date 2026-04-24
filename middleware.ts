@@ -64,6 +64,9 @@ const PROTECTED_API_PREFIXES = [
   // about the user_id you pass them; if we let unauth'd requests
   // through we'd leak whichever default the route picks.
   "/api/history",
+  // MCP server connections — per-user bearer tokens. Signed-out
+  // requests must never reach these handlers.
+  "/api/mcp/connections",
 ];
 
 export async function middleware(req: NextRequest) {

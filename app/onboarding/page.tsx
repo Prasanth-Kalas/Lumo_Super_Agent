@@ -33,6 +33,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AgentCard } from "@/components/AgentCard";
 import { BrandMark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import McpConnectModal from "@/components/McpConnectModal";
 
 interface MarketplaceAgent {
   agent_id: string;
@@ -46,9 +47,10 @@ interface MarketplaceAgent {
     category?: string;
     pricing_note?: string;
   } | null;
-  connect_model: "oauth2" | "lumo_id" | "none";
+  connect_model: "oauth2" | "lumo_id" | "none" | "mcp_bearer" | "mcp_none";
   required_scopes: Array<{ name: string; description: string }>;
   health_score: number;
+  source?: "lumo" | "mcp";
   connection: {
     id: string;
     status: "active" | "expired" | "revoked" | "error";
@@ -112,6 +114,20 @@ function OnboardingFlow() {
   const [error, setError] = useState<string | null>(null);
   const [checkedOnboarded, setCheckedOnboarded] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [mcpModalFor, setMcpModalFor] = useState<MarketplaceAgent | null>(null);
+
+  // Refetch the catalog after a successful MCP connect so the
+  // card flips to "Connected" without reloading the page.
+  const refreshCatalog = useCallback(async () => {
+    try {
+      const res = await fetch("/api/marketplace", { cache: "no-store" });
+      if (!res.ok) return;
+      const j = (await res.json()) as { agents: MarketplaceAgent[] };
+      setAgents(j.agents);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // Idempotency guard: if the user already finished onboarding once,
   // skip straight to `next`. Source of truth is
@@ -179,21 +195,32 @@ function OnboardingFlow() {
   }, [agents]);
 
   const startConnect = useCallback(
-    async (agent_id: string) => {
+    async (agent: MarketplaceAgent) => {
       if (connecting) return;
-      setConnecting(agent_id);
+
+      // MCP bearer servers use the token-paste modal (OAuth DCR
+      // for MCP lands in Phase 1c). Public MCP servers have
+      // nothing to connect.
+      if (agent.source === "mcp") {
+        if (agent.connect_model === "mcp_bearer") {
+          setMcpModalFor(agent);
+        }
+        return;
+      }
+
+      setConnecting(agent.agent_id);
       setError(null);
       try {
         const res = await fetch("/api/connections/start", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            agent_id,
+            agent_id: agent.agent_id,
             // After the OAuth round-trip the provider will bounce
             // the user back here so they can keep connecting more
             // apps. The `connected=` query string triggers a tiny
             // "connected" toast on return.
-            redirect_after: `/onboarding?next=${encodeURIComponent(next)}&connected=${agent_id}`,
+            redirect_after: `/onboarding?next=${encodeURIComponent(next)}&connected=${agent.agent_id}`,
           }),
         });
         if (!res.ok) {
@@ -346,9 +373,11 @@ function OnboardingFlow() {
                 pricing_note={a.listing?.pricing_note ?? null}
                 connected={a.connection?.status === "active"}
                 connecting={connecting === a.agent_id}
+                source={a.source}
                 onConnect={
-                  a.connect_model === "oauth2"
-                    ? () => void startConnect(a.agent_id)
+                  a.connect_model === "oauth2" ||
+                  a.connect_model === "mcp_bearer"
+                    ? () => void startConnect(a)
                     : undefined
                 }
               />
@@ -387,6 +416,24 @@ function OnboardingFlow() {
           </div>
         </div>
       </footer>
+
+      <McpConnectModal
+        open={mcpModalFor !== null}
+        server={
+          mcpModalFor
+            ? {
+                server_id: mcpModalFor.agent_id.replace(/^mcp:/, ""),
+                display_name: mcpModalFor.display_name,
+                one_liner: mcpModalFor.one_liner,
+                scopes: mcpModalFor.required_scopes,
+              }
+            : null
+        }
+        onClose={() => setMcpModalFor(null)}
+        onConnected={() => {
+          void refreshCatalog();
+        }}
+      />
     </main>
   );
 }

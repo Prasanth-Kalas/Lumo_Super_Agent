@@ -24,6 +24,13 @@ export interface AgentCardProps {
   onConnect?: () => void;
   /** When true, renders as a Link to the detail page. Otherwise just a card. */
   linkToDetail?: boolean;
+  /**
+   * "lumo" (default) for native agents, "mcp" for Model Context
+   * Protocol servers. Drives the small "via MCP" badge so users
+   * can distinguish transactional Lumo agents from third-party
+   * read-heavy integrations at a glance.
+   */
+  source?: "lumo" | "mcp";
 }
 
 export function AgentCard(props: AgentCardProps) {
@@ -40,6 +47,14 @@ export function AgentCard(props: AgentCardProps) {
               <span className="inline-flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-lumo-ok border border-lumo-ok/30 bg-lumo-ok/10 rounded px-1.5 py-0.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-lumo-ok" />
                 Connected
+              </span>
+            ) : null}
+            {props.source === "mcp" ? (
+              <span
+                className="inline-flex items-center text-[10px] uppercase tracking-[0.12em] text-lumo-fg-low border border-lumo-hair rounded px-1.5 py-0.5"
+                title="Powered by Model Context Protocol"
+              >
+                via MCP
               </span>
             ) : null}
           </div>
