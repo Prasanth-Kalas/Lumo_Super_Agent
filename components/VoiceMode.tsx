@@ -276,9 +276,29 @@ export default function VoiceMode(props: VoiceModeProps) {
   // a time, awaiting each chunk's playback before starting the next.
   // Mute, turn-reset, and mode-exit clear the queue AND stop the
   // active stream so nothing lingers.
-  const ttsQueueRef = useRef<string[]>([]);
+  // Queue entries carry their own onEnd so we can fire the right
+  // callback when the *last* chunk of a turn finishes. The earlier
+  // design used a single shared onFinalChunkEnd passed to the
+  // worker — which silently dropped every enqueuer after the
+  // first. That's why state got stuck at "speaking" after long
+  // replies: tail-flush's "setState idle + startListening"
+  // callback was never invoked because the worker was already
+  // running with the chunk-effect's callback.
+  interface TtsQueueEntry {
+    text: string;
+    onEnd?: () => void;
+  }
+  const ttsQueueRef = useRef<TtsQueueEntry[]>([]);
   const ttsWorkerRunningRef = useRef<boolean>(false);
   const ttsTurnIdRef = useRef<number>(0); // bumped on every fresh turn
+  // Mirror of `busy` for the onEnd callbacks to consult. Captured
+  // closures otherwise read the busy value at enqueue time, which
+  // is usually true — so after all TTS drained we'd incorrectly
+  // setState("thinking") instead of transitioning to idle.
+  const busyRef = useRef<boolean>(busy);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
   const spokenSoFarRef = useRef<number>(0); // index into spokenText already sent to TTS
   const lastSpokenTextRef = useRef<string>(spokenText);
   const userStoppedListeningRef = useRef<boolean>(false); // user intent to be off
@@ -440,43 +460,53 @@ export default function VoiceMode(props: VoiceModeProps) {
     [playPremiumTts],
   );
 
-  // Drain the queue one chunk at a time. ttsWorkerRunningRef
-  // guards against concurrent workers (which would re-introduce
-  // the overlap bug). The worker captures the turn id at entry;
-  // if cancelTts bumps it mid-drain, the loop exits instead of
-  // grabbing the next queued chunk.
-  const runTtsWorker = useCallback(
-    async (onFinalChunkEnd?: () => void) => {
-      if (ttsWorkerRunningRef.current) return;
-      ttsWorkerRunningRef.current = true;
-      const myTurn = ttsTurnIdRef.current;
-      try {
-        while (
-          ttsQueueRef.current.length > 0 &&
+  // Drain the queue one chunk at a time. Each chunk carries its
+  // own onEnd; it fires only if the queue happens to be empty
+  // when that chunk finishes (i.e. this chunk was the last one
+  // to play). That way, if the tail-flush enqueues after the
+  // chunk-effect, only the tail's onEnd runs — which is the one
+  // that correctly handles the final state transition.
+  //
+  // ttsWorkerRunningRef guards against concurrent workers
+  // (serialization). Turn-id guard lets cancelTts abort mid-drain.
+  const runTtsWorker = useCallback(async () => {
+    if (ttsWorkerRunningRef.current) return;
+    ttsWorkerRunningRef.current = true;
+    const myTurn = ttsTurnIdRef.current;
+    try {
+      while (
+        ttsQueueRef.current.length > 0 &&
+        myTurn === ttsTurnIdRef.current
+      ) {
+        const next = ttsQueueRef.current.shift();
+        if (!next) continue;
+        await playOneChunk(next.text, () => setState("speaking"));
+        // Fire this chunk's onEnd only if it was the last one in
+        // the queue at the moment it finished. If more were added
+        // while it was playing, those chunks' own onEnds will fire
+        // when they become the last — so the "final" callback
+        // always matches the actually-final chunk.
+        if (
+          ttsQueueRef.current.length === 0 &&
           myTurn === ttsTurnIdRef.current
         ) {
-          const next = ttsQueueRef.current.shift();
-          if (!next) continue;
-          await playOneChunk(next, () => setState("speaking"));
+          try {
+            next.onEnd?.();
+          } catch (err) {
+            console.warn("[voice] onEnd threw:", err);
+          }
         }
-      } finally {
-        ttsWorkerRunningRef.current = false;
       }
-      if (
-        myTurn === ttsTurnIdRef.current &&
-        ttsQueueRef.current.length === 0
-      ) {
-        onFinalChunkEnd?.();
-      }
-    },
-    [playOneChunk],
-  );
+    } finally {
+      ttsWorkerRunningRef.current = false;
+    }
+  }, [playOneChunk]);
 
   const enqueueTts = useCallback(
-    (text: string, onFinalChunkEnd?: () => void) => {
+    (text: string, onEnd?: () => void) => {
       if (!text.trim()) return;
-      ttsQueueRef.current.push(text);
-      void runTtsWorker(onFinalChunkEnd);
+      ttsQueueRef.current.push({ text, onEnd });
+      void runTtsWorker();
     },
     [runTtsWorker],
   );
@@ -525,8 +555,14 @@ export default function VoiceMode(props: VoiceModeProps) {
   // segment has landed yet, the timer is almost certainly
   // triggered by ambient noise or a mic test and we shouldn't
   // dispatch an empty turn.
-  const SILENCE_END_MS = 2500;
-  const SILENCE_SHORT_MS = 1200;
+  // Tuned after user feedback that 2500 ms was still cutting off
+  // long booking requests mid-sentence. 3500 ms is the right
+  // default for composed speech ("Find me a flight from SFO … to
+  // Austin … next Friday … under $400") where the user is thinking
+  // while talking. Tight commands still dispatch on the short
+  // window once the buffer clears the LONG_UTTERANCE_CHARS bar.
+  const SILENCE_END_MS = 3500;
+  const SILENCE_SHORT_MS = 1500;
   const LONG_UTTERANCE_CHARS = 60; // > ~10 words — treat as "done"
   const finalBufferRef = useRef<string>("");
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -579,9 +615,14 @@ export default function VoiceMode(props: VoiceModeProps) {
 
     // Dispatch whatever we've accumulated and end the session.
     // Safe to call multiple times — the buffer is cleared before
-    // dispatch so the second call is a no-op. Also safe to call
-    // with an empty buffer (the timer path gates on that, but
-    // explicit stop may still hit this path).
+    // dispatch so the second call is a no-op.
+    //
+    // IMPORTANT: null recognitionRef immediately. Web Speech's
+    // onend is async and can lag several hundred ms after stop();
+    // the hands-free loop's next startListening() fires before
+    // then and was bailing out on the "recognizer already alive"
+    // idempotency guard, which is why the mic "stopped working"
+    // after the first turn.
     const dispatchAndStop = () => {
       clearSilenceTimer();
       const finalText = finalBufferRef.current.trim();
@@ -590,6 +631,9 @@ export default function VoiceMode(props: VoiceModeProps) {
       if (finalText) {
         userStoppedListeningRef.current = false;
         onUserUtterance(finalText);
+      }
+      if (recognitionRef.current === rec) {
+        recognitionRef.current = null;
       }
       try {
         rec.stop();
@@ -720,6 +764,10 @@ export default function VoiceMode(props: VoiceModeProps) {
     const buffered = finalBufferRef.current.trim();
     finalBufferRef.current = "";
     setInterim("");
+    // Null the ref immediately for the same reason as
+    // dispatchAndStop — onend lag was blocking the next
+    // startListening().
+    recognitionRef.current = null;
     if (buffered) {
       try {
         onUserUtterance(buffered);
@@ -779,12 +827,13 @@ export default function VoiceMode(props: VoiceModeProps) {
     // tail-flush effect below.
     if (muted) return;
 
-    // Enqueue. The onFinalChunkEnd callback fires only when the
-    // worker has drained the queue AND the turn id still matches —
-    // i.e. no newer chunk has been added behind us. That's the
-    // right moment to transition state.
+    // Enqueue. onEnd runs only when this chunk happens to be the
+    // last in the queue at its own completion — see runTtsWorker.
+    // busyRef (not busy) so the state transition reflects the
+    // NOW-value when the callback actually runs, not the value
+    // captured when this chunk was enqueued.
     enqueueTts(chunk, () => {
-      if (busy) {
+      if (busyRef.current) {
         setState("thinking");
       } else if (wantHandsFreeRef.current && enabled) {
         setState("idle");
@@ -793,7 +842,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         setState("idle");
       }
     });
-  }, [spokenText, enabled, busy, startListening, muted, enqueueTts, cancelTts]);
+  }, [spokenText, enabled, startListening, muted, enqueueTts, cancelTts]);
 
   // Flush the tail once the agent turn ends (!busy) so we don't
   // drop the last sentence if it didn't end with punctuation. Also
@@ -842,6 +891,28 @@ export default function VoiceMode(props: VoiceModeProps) {
       }
     });
   }, [busy, spokenText, enabled, startListening, muted, enqueueTts]);
+
+  // Belt-and-suspenders safety net: if we're idle by intent (no
+  // queue, no worker, no recognizer, not busy) but state is stuck
+  // at "speaking" or "thinking" from some dropped transition, force
+  // idle. This catches the edge cases where cancelTts fired
+  // mid-drain and ate the final onEnd that would have transitioned
+  // us. Cheap — just a couple of ref reads — and prevents the
+  // "Skip keeps showing" symptom the user reported.
+  useEffect(() => {
+    if (!enabled) return;
+    if (busy) return;
+    if (state !== "speaking" && state !== "thinking") return;
+    const noQueue = ttsQueueRef.current.length === 0;
+    const noWorker = !ttsWorkerRunningRef.current;
+    const noRec = recognitionRef.current === null;
+    if (noQueue && noWorker && noRec) {
+      setState("idle");
+      if (wantHandsFreeRef.current && !muted) {
+        setTimeout(() => startListening(), 200);
+      }
+    }
+  }, [busy, state, enabled, muted, startListening, spokenText]);
 
   // While the network is busy, reflect "thinking" if we're not mid-TTS.
   useEffect(() => {
