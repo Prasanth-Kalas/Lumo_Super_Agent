@@ -26,7 +26,8 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { ensureRegistry, healthyBridge } from "./agent-registry.js";
+import { ensureRegistry, healthyBridge, userScopedBridge } from "./agent-registry.js";
+import { listConnectionsForUser } from "./connections.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { dispatchWithRetry } from "./retry.js";
 import { buildSystemPrompt } from "./system-prompt.js";
@@ -196,7 +197,20 @@ export async function runTurn(
   emit: EmitFrame = () => {},
 ): Promise<OrchestratorTurn> {
   const registry = await ensureRegistry();
-  const bridge = healthyBridge(registry);
+  // Appstore (v0.4): filter the Claude tool bridge to agents the current
+  // user has actually connected, plus public "connect.model === none"
+  // agents. Prevents Claude from trying to use an app the user hasn't
+  // linked yet — the user would just see "connect Food first" turns and
+  // nothing else, which is a worse UX than the tools simply not being
+  // offered.
+  const connections =
+    input.user_id && input.user_id !== "anon"
+      ? await listConnectionsForUser(input.user_id)
+      : [];
+  const connectedAgentIds = new Set(
+    connections.filter((c) => c.status === "active").map((c) => c.agent_id),
+  );
+  const bridge = userScopedBridge(registry, connectedAgentIds);
   const system = buildSystemPrompt({
     agents: Object.values(registry.agents),
     now: new Date(),

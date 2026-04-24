@@ -49,6 +49,7 @@ import {
   type OrchestratorFrame,
 } from "@/lib/orchestrator";
 import { recordEvent, type EventFrameType } from "@/lib/events";
+import { getServerUser } from "@/lib/auth";
 
 export const runtime = "nodejs"; // orchestrator uses Anthropic SDK + node:crypto
 export const dynamic = "force-dynamic";
@@ -79,13 +80,32 @@ export async function POST(req: NextRequest): Promise<Response> {
     return new Response(JSON.stringify({ error: "invalid_body" }), { status: 400 });
   }
 
-  // TODO(auth): replace with Clerk-derived user
-  const user_id = req.headers.get("x-lumo-user-id") ?? "dev-user";
+  // Resolve the real Lumo user from the Supabase session cookie. When
+  // Supabase Auth isn't configured (local dev without envs), we fall
+  // back to the legacy x-lumo-user-id header so curl-driven dev still
+  // works; the router will reject any tool call that requires a
+  // connection unless the dev has also seeded a connection for that
+  // user_id in the DB.
+  const authedUser = await getServerUser();
+  const user_id =
+    authedUser?.id ??
+    req.headers.get("x-lumo-user-id") ??
+    "anon";
   const user_region = body.region ?? "US";
   const device_kind = body.device_kind ?? "web";
 
-  // TODO(identity): pull from identity service. For now, a bare minimum.
-  const user_pii: Record<string, unknown> = {};
+  // user_pii now pulls name/email from the auth'd user. More fields
+  // (phone, address, payment_method_id) will come from a profile form
+  // we haven't built yet — the router filter intersects this with the
+  // agent's pii_scope before sending.
+  const user_pii: Record<string, unknown> = authedUser
+    ? {
+        email: authedUser.email,
+        name:
+          (authedUser.user_metadata as { full_name?: string } | null)
+            ?.full_name ?? authedUser.email,
+      }
+    : {};
 
   // Record the inbound user message as an audit event. We record the
   // WHOLE last user message so replay can re-feed the orchestrator

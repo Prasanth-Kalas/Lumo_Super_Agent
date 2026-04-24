@@ -5,9 +5,14 @@
  * 1. Look up the routing entry for a tool name.
  * 2. Check the circuit breaker for that agent.
  * 3. Run the confirmation gate for money-moving tools.
- * 4. Inject only the PII fields the agent was granted.
- * 5. Call the agent over HTTP with an idempotency key.
- * 6. Record success/failure into the breaker.
+ * 4. Resolve the user's OAuth connection to this agent (if the manifest
+ *    declares connect.model === "oauth2") and attach Authorization:
+ *    Bearer <access_token>. Auto-refresh on near-expiry. If the user
+ *    has no active connection, surface a `connection_required` error
+ *    so the orchestrator can tell the user to hit /marketplace.
+ * 5. Inject only the PII fields the agent was granted.
+ * 6. Call the agent over HTTP with an idempotency key.
+ * 7. Record success/failure into the breaker.
  */
 
 import {
@@ -19,6 +24,11 @@ import {
 } from "@lumo/agent-sdk";
 import { canCall, recordFailure, recordSuccess } from "./circuit-breaker.js";
 import { ensureRegistry } from "./agent-registry.js";
+import {
+  getDispatchableConnection,
+  touchLastUsed,
+  ConnectionError,
+} from "./connections.js";
 
 export interface DispatchContext {
   user_id: string;
@@ -88,6 +98,57 @@ export async function dispatchToolCall(
   // Inject only the PII the agent was granted.
   const piiPayload = filterPii(ctx.user_pii, routing.pii_required, agent.manifest.pii_scope);
 
+  // ── Connection / bearer token ────────────────────────────────────
+  // If the agent's manifest declares connect.model === "oauth2", the
+  // user MUST have an active connection for this agent. We fetch and
+  // auto-refresh the token here, then attach it as Authorization:
+  // Bearer on the outbound request. For connect.model === "none"
+  // (e.g., public weather agent) we skip this entirely. "lumo_id"
+  // isn't supported in MVP; treat same as "none" for now.
+  //
+  // ctx.user_id === "anon" is the "no authenticated user" sentinel
+  // used for public-only tools; those only dispatch to "none" agents.
+  let authHeader: string | null = null;
+  let connectionId: string | null = null;
+  if (agent.manifest.connect.model === "oauth2") {
+    if (!ctx.user_id || ctx.user_id === "anon") {
+      return failure(
+        "connection_required",
+        `${agent.manifest.display_name} requires you to sign in first.`,
+        started,
+      );
+    }
+    try {
+      const conn = await getDispatchableConnection({
+        user_id: ctx.user_id,
+        agent_id: agent.manifest.agent_id,
+        oauth2_config: agent.manifest.connect,
+      });
+      if (!conn) {
+        return failure(
+          "connection_required",
+          `You haven't connected ${agent.manifest.display_name} yet. Open the Marketplace and hit Connect.`,
+          started,
+          { agent_id: agent.manifest.agent_id, display_name: agent.manifest.display_name },
+        );
+      }
+      authHeader = `Bearer ${conn.access_token}`;
+      connectionId = conn.id;
+    } catch (err) {
+      if (err instanceof ConnectionError) {
+        const code: AgentError["code"] =
+          err.code === "refresh_failed" || err.code === "not_refreshable"
+            ? "connection_refresh_failed"
+            : "connection_required";
+        return failure(code, err.message, started, {
+          agent_id: agent.manifest.agent_id,
+          display_name: agent.manifest.display_name,
+        });
+      }
+      throw err;
+    }
+  }
+
   const url = new URL(routing.path, agent.base_url).toString();
   const body =
     routing.http_method === "GET" || routing.http_method === "DELETE"
@@ -103,6 +164,7 @@ export async function dispatchToolCall(
         "x-lumo-session-id": ctx.session_id,
         "x-lumo-turn-id": ctx.turn_id,
         "x-idempotency-key": ctx.idempotency_key,
+        ...(authHeader ? { authorization: authHeader } : {}),
       },
       body,
       timeoutMs: agent.manifest.sla.p95_latency_ms * 2, // generous
@@ -126,6 +188,10 @@ export async function dispatchToolCall(
 
     const result = await res.json();
     recordSuccess(routing.agent_id);
+    // Fire-and-forget update of the connection's last_used_at so the
+    // /connections UI can render "Last used Xm ago" without the router
+    // paying the DB round-trip synchronously.
+    if (connectionId) void touchLastUsed(connectionId);
     return { ok: true, result, latency_ms };
   } catch (err) {
     recordFailure(routing.agent_id);
@@ -146,12 +212,14 @@ function failure(
   code: LumoAgentError["code"],
   message: string,
   started: number,
+  detail?: Record<string, unknown>,
 ): DispatchOutcome {
   return {
     ok: false,
     error: {
       code,
       message,
+      detail,
       at: new Date().toISOString(),
     },
     latency_ms: Date.now() - started,
@@ -159,6 +227,7 @@ function failure(
 }
 
 function mapHttpToCode(status: number): LumoAgentError["code"] {
+  if (status === 401 || status === 403) return "connection_refresh_failed";
   if (status === 429) return "rate_limited";
   if (status === 402) return "payment_failed";
   if (status === 409) return "price_changed";

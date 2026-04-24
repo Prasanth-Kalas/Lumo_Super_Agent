@@ -1,0 +1,219 @@
+"use client";
+
+/**
+ * /marketplace — catalog of agents the Super Agent can orchestrate.
+ *
+ * Renders a grid of AgentCards keyed off /api/marketplace. The Connect
+ * button kicks off an OAuth round-trip by POSTing to
+ * /api/connections/start and navigating to the returned authorize_url.
+ *
+ * Middleware guarantees the user is authenticated.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { AgentCard } from "@/components/AgentCard";
+import { BrandMark } from "@/components/BrandMark";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
+interface MarketplaceAgent {
+  agent_id: string;
+  display_name: string;
+  one_liner: string;
+  domain: string;
+  version: string;
+  intents: string[];
+  listing: {
+    logo_url?: string;
+    category?: string;
+    pricing_note?: string;
+  } | null;
+  connect_model: "oauth2" | "lumo_id" | "none";
+  required_scopes: Array<{ name: string; description: string }>;
+  health_score: number;
+  connection: {
+    id: string;
+    status: "active" | "expired" | "revoked" | "error";
+    connected_at: string;
+    last_used_at: string | null;
+  } | null;
+}
+
+export default function MarketplacePage() {
+  const [agents, setAgents] = useState<MarketplaceAgent[] | null>(null);
+  const [filter, setFilter] = useState<string>("all");
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const pathname = usePathname();
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/marketplace", { cache: "no-store" });
+        if (!alive) return;
+        if (!res.ok) {
+          setError("Couldn't load the catalog.");
+          return;
+        }
+        const data = (await res.json()) as { agents: MarketplaceAgent[] };
+        setAgents(data.agents);
+      } catch (err) {
+        if (alive) setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const categories = useMemo(() => {
+    if (!agents) return [] as string[];
+    const set = new Set<string>();
+    for (const a of agents) {
+      if (a.listing?.category) set.add(a.listing.category);
+    }
+    return ["all", ...Array.from(set).sort()];
+  }, [agents]);
+
+  const filtered = useMemo(() => {
+    if (!agents) return [];
+    if (filter === "all") return agents;
+    return agents.filter((a) => a.listing?.category === filter);
+  }, [agents, filter]);
+
+  const startConnect = useCallback(
+    async (agent_id: string) => {
+      if (connecting) return;
+      setConnecting(agent_id);
+      setError(null);
+      try {
+        const res = await fetch("/api/connections/start", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            agent_id,
+            redirect_after: `${pathname}?connected=${agent_id}`,
+          }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => null);
+          throw new Error(j?.detail ?? j?.error ?? `HTTP ${res.status}`);
+        }
+        const { authorize_url } = (await res.json()) as { authorize_url: string };
+        window.location.href = authorize_url;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+        setConnecting(null);
+      }
+    },
+    [connecting, pathname],
+  );
+
+  return (
+    <main className="min-h-dvh bg-lumo-bg text-lumo-fg-high">
+      <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/80 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-3">
+          <div className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-2.5 hover:text-lumo-accent transition-colors">
+              <BrandMark size={22} className="text-lumo-fg" />
+              <span className="text-[14px] font-semibold tracking-tight text-lumo-fg">
+                Lumo
+              </span>
+            </Link>
+            <span className="text-lumo-fg-low text-[12px]">/</span>
+            <span className="text-[13px] text-lumo-fg">Marketplace</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Link
+              href="/connections"
+              className="h-7 px-2.5 rounded-md inline-flex items-center text-[12px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
+            >
+              My connections
+            </Link>
+            <Link
+              href="/"
+              className="h-7 px-2.5 rounded-md inline-flex items-center text-[12px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
+            >
+              Chat
+            </Link>
+            <ThemeToggle />
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto w-full max-w-5xl px-5 py-8">
+        <div className="mb-6 space-y-2">
+          <h1 className="text-[28px] font-semibold tracking-[-0.022em] text-lumo-fg">
+            The Lumo Appstore
+          </h1>
+          <p className="text-[13.5px] text-lumo-fg-mid max-w-2xl">
+            Connect the apps you already use. Lumo orchestrates them from a
+            single chat — flights, food, hotels, whatever lives here next.
+          </p>
+        </div>
+
+        {categories.length > 2 ? (
+          <div className="mb-5 flex flex-wrap items-center gap-1.5">
+            {categories.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setFilter(c)}
+                className={
+                  "h-7 px-3 rounded-full text-[12px] border transition-colors " +
+                  (filter === c
+                    ? "bg-lumo-fg text-lumo-bg border-lumo-fg"
+                    : "border-lumo-hair text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge")
+                }
+              >
+                {c === "all" ? "All" : c}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-[12.5px] text-red-500">
+            {error}
+          </div>
+        ) : null}
+
+        {!agents ? (
+          <div className="text-[13px] text-lumo-fg-mid py-10">Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div className="text-[13px] text-lumo-fg-mid py-10">
+            No apps in this category yet.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map((a) => (
+              <AgentCard
+                key={a.agent_id}
+                agent_id={a.agent_id}
+                display_name={a.display_name}
+                one_liner={a.one_liner}
+                category={a.listing?.category ?? null}
+                logo_url={a.listing?.logo_url ?? null}
+                pricing_note={a.listing?.pricing_note ?? null}
+                connected={a.connection?.status === "active"}
+                connecting={connecting === a.agent_id}
+                onConnect={
+                  a.connect_model === "oauth2"
+                    ? () => void startConnect(a.agent_id)
+                    : undefined
+                }
+                linkToDetail
+              />
+            ))}
+          </div>
+        )}
+
+        <div className="mt-10 text-[12px] text-lumo-fg-low">
+          Are you building an app? <Link href="/publisher" className="text-lumo-accent hover:underline">Publish it on Lumo</Link> (coming soon).
+        </div>
+      </div>
+    </main>
+  );
+}

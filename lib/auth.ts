@@ -28,17 +28,28 @@ import type { User } from "@supabase/supabase-js";
 // Env
 // ──────────────────────────────────────────────────────────────────────────
 
-function getPublicEnv(): { url: string; anonKey: string } {
+function getPublicEnv(): { url: string; anonKey: string } | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const anonKey =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
-    throw new Error(
-      "[auth] NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY " +
-        "must be set for Supabase Auth. See .env.example.",
-    );
+    // Graceful fallback: Supabase Auth is optional. When env isn't set,
+    // auth-dependent paths treat the user as logged-out and the
+    // middleware no-ops (see isAuthConfigured usage below). This keeps
+    // local dev, CI, and early-stage prod running without anon keys
+    // configured.
+    return null;
   }
   return { url, anonKey };
+}
+
+/**
+ * Whether Supabase Auth is configured in this environment. Middleware
+ * skips auth gating when false; server components fall through to null
+ * user. No throws.
+ */
+export function isAuthConfigured(): boolean {
+  return getPublicEnv() !== null;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -52,7 +63,14 @@ function getPublicEnv(): { url: string; anonKey: string } {
  * into the outgoing response.
  */
 export function getSupabaseServerClient() {
-  const { url, anonKey } = getPublicEnv();
+  const env = getPublicEnv();
+  if (!env) {
+    throw new AuthError(
+      "not_authenticated",
+      "[auth] Supabase Auth env is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+    );
+  }
+  const { url, anonKey } = env;
   const cookieStore = cookies();
   return createServerClient(url, anonKey, {
     cookies: {
@@ -87,6 +105,7 @@ export function getSupabaseServerClient() {
  * an error.
  */
 export async function getServerUser(): Promise<User | null> {
+  if (!isAuthConfigured()) return null;
   const supabase = getSupabaseServerClient();
   const { data, error } = await supabase.auth.getUser();
   if (error) {
@@ -133,7 +152,9 @@ export function getSupabaseMiddlewareClient(
   req: NextRequest,
   res: NextResponse,
 ) {
-  const { url, anonKey } = getPublicEnv();
+  const env = getPublicEnv();
+  if (!env) return null;
+  const { url, anonKey } = env;
   return createServerClient(url, anonKey, {
     cookies: {
       get(name: string) {

@@ -46,7 +46,11 @@ export async function middleware(req: NextRequest) {
   // auth cookies to this object as a side effect of getUser().
   const res = NextResponse.next({ request: { headers: req.headers } });
 
+  // Supabase Auth is optional in dev. When not configured, skip all
+  // gating and let every request through. See lib/auth.ts isAuthConfigured.
   const supabase = getSupabaseMiddlewareClient(req, res);
+  if (!supabase) return res;
+
   const {
     data: { user },
   } = await supabase.auth.getUser();

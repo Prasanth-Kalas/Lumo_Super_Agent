@@ -165,6 +165,47 @@ export async function ensureRegistry(): Promise<Registry> {
 }
 
 /**
+ * Filter the bridge to agents the user has actually connected (or agents
+ * that don't require a connection at all). Intersects with healthyBridge.
+ *
+ * Called by the orchestrator per-turn so Claude never sees tools the
+ * user can't execute. If we skip this filter, Claude will happily call
+ * `food_place_order` for a user who hasn't connected Food, the router
+ * will reject with `connection_required`, and the user's chat turn is
+ * wasted on a tool round-trip that was always going to fail.
+ *
+ * `connectedAgentIds` is the set of agent_ids for which the user has an
+ * active connection. Agents with connect.model === "none" bypass this
+ * check (public tools).
+ */
+export function userScopedBridge(
+  registry: Registry,
+  connectedAgentIds: ReadonlySet<string>,
+  minScore = 0.6,
+): BridgeResult {
+  const base = healthyBridge(registry, minScore);
+  const eligibleAgents = new Set<string>();
+  for (const e of Object.values(registry.agents)) {
+    if (e.health_score < minScore) continue;
+    if (e.manifest.connect.model === "none") {
+      eligibleAgents.add(e.manifest.agent_id);
+    } else if (connectedAgentIds.has(e.manifest.agent_id)) {
+      eligibleAgents.add(e.manifest.agent_id);
+    }
+  }
+  const filteredTools = base.tools.filter((t) => {
+    const routing = base.routing[t.name];
+    return routing ? eligibleAgents.has(routing.agent_id) : false;
+  });
+  const filteredRouting = Object.fromEntries(
+    Object.entries(base.routing).filter(([, v]) =>
+      eligibleAgents.has(v.agent_id),
+    ),
+  );
+  return { tools: filteredTools, routing: filteredRouting };
+}
+
+/**
  * Returns the tool list filtered to agents that are currently healthy. This
  * is what the orchestrator passes to Claude for each turn.
  */
