@@ -45,6 +45,13 @@ const PROTECTED_PAGE_PREFIXES = [
   "/intents",
   "/autonomy",
   "/ops",
+  // /history is the user's personal conversation + order archive —
+  // signed-out visitors should be bounced to /login.
+  "/history",
+  // /onboarding is the post-signup connector flow. Dead-link for a
+  // logged-out user; gate it so we don't half-render a page the
+  // user can't possibly use.
+  "/onboarding",
 ];
 const PROTECTED_API_PREFIXES = [
   "/api/connections",
@@ -53,6 +60,10 @@ const PROTECTED_API_PREFIXES = [
   "/api/notifications",
   "/api/autonomy",
   "/api/ops",
+  // Must be gated — listSessionsForUser / listTripsForUser only know
+  // about the user_id you pass them; if we let unauth'd requests
+  // through we'd leak whichever default the route picks.
+  "/api/history",
 ];
 
 export async function middleware(req: NextRequest) {

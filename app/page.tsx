@@ -90,31 +90,10 @@ interface UIMessage {
   selections?: UISelection[];
 }
 
-/**
- * Starter scaffolds on the empty state. Editorial — each reads as a
- * complete sentence a user would plausibly say, not a feature demo.
- */
-const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
-  {
-    label: "Flight to Vegas next Friday, under $300",
-    prompt: "Find me a flight to Las Vegas next Friday for under $300.",
-  },
-  {
-    label: "Pepperoni pizza and a Caesar salad, closest place",
-    prompt:
-      "Order a pepperoni pizza and a Caesar salad from the closest place.",
-  },
-  {
-    label: "Hotel in Austin, 2 nights, walkable to 6th Street",
-    prompt:
-      "Find me a hotel in Austin for 2 nights, walkable to 6th Street, 4 stars or better.",
-  },
-  {
-    label: "Trip to Austin: flight, hotel, Friday dinner",
-    prompt:
-      "Plan a trip to Austin next weekend: flight from SFO, a hotel downtown, and dinner Friday night.",
-  },
-];
+// Starter suggestion cards were removed — the personalized hello
+// from the assistant ("Hey Alex! Good morning. I can book flights,
+// order food, reserve hotels…") carries the same discovery intent
+// without stealing focus from the composer.
 
 export default function Home() {
   const [messages, setMessages] = useState<UIMessage[]>([
@@ -249,10 +228,32 @@ export default function Home() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Session identity for this tab.
+  //
+  // On first paint we read ?session=<uuid> from the URL and adopt it
+  // as our session_id if present — this is how /history's "Open
+  // conversation" button attaches new messages to an existing
+  // thread in the audit log rather than spawning an orphan
+  // session. If the query param is missing or malformed we fall
+  // back to a fresh random UUID (or a timestamp if the crypto API
+  // isn't around — mobile webviews). Message replay from
+  // /api/events is a separate ticket; for now we only pin the ID.
   const sessionIdRef = useRef<string>(
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : String(Date.now()),
+    (() => {
+      try {
+        if (typeof window !== "undefined") {
+          const fromUrl = new URL(window.location.href).searchParams.get(
+            "session",
+          );
+          if (fromUrl && /^[0-9a-fA-F-]{8,}$/.test(fromUrl)) return fromUrl;
+        }
+      } catch {
+        /* ignore */
+      }
+      return typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : String(Date.now());
+    })(),
   );
 
   // J4 — ambient context. Opportunistic geolocation: ask once on the
@@ -600,11 +601,10 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-1.5">
-            {/* Model / status chip — ambient, not a CTA. Hidden on mobile. */}
-            <div className="hidden md:inline-flex items-center gap-1.5 text-[10.5px] text-lumo-fg-mid px-2 py-1 rounded-md border border-lumo-hair num tracking-wide">
-              <span className="h-1.5 w-1.5 rounded-full bg-lumo-ok" />
-              <span>claude-opus-4.6</span>
-            </div>
+            {/* Model / status chip REMOVED — end users don't need to
+                see the model name or a green dot. If we want runtime
+                health back, expose it in the right-rail HUD where
+                power users look. */}
 
             {/* Desktop nav buttons — hidden on mobile (drawer owns these). */}
             <button
@@ -832,74 +832,27 @@ export default function Home() {
           })}
 
           {/* ─── Empty state ─────────────────────────────────────────
-              Editorial headline + four scaffold prompts. Disappears
-              the moment the first real user turn is sent. */}
+              Clean personalized hero — one greeting line tied to the
+              user's first name and time of day, a short subline, and
+              that's it. No starter suggestions (low signal, high
+              noise) and no editorial headline that competes with the
+              real hello the assistant just delivered. The first
+              assistant "hello" message (rendered by the normal
+              message loop above) IS the greeting; this block is
+              just the ambient backdrop for the thread before the
+              user speaks. */}
           {isEmpty && (
-            <div className="pt-8 pb-4 space-y-10 animate-fade-in relative">
-              {/* Ambient accent glow behind the headline */}
+            <div
+              className="pt-10 pb-2 animate-fade-in relative"
+              aria-hidden
+            >
               <div
-                className="pointer-events-none absolute -top-16 -left-16 h-80 w-[120%] rounded-full opacity-[0.12] blur-3xl -z-10"
+                className="pointer-events-none absolute -top-20 -left-20 h-80 w-[120%] rounded-full opacity-[0.10] blur-3xl -z-10"
                 style={{
                   background:
                     "radial-gradient(ellipse at 20% 30%, var(--lumo-accent) 0%, transparent 65%)",
                 }}
-                aria-hidden
               />
-
-              <div className="space-y-4 sm:space-y-5">
-                <h1 className="text-[36px] sm:text-[44px] md:text-[56px] lg:text-[64px] font-semibold tracking-[-0.025em] leading-[1.02] text-lumo-fg">
-                  Plan anything,
-                  <br />
-                  in one{" "}
-                  <span className="relative inline-block text-lumo-accent">
-                    sentence
-                    <span
-                      className="absolute inset-x-0 -bottom-1 h-[6px] bg-lumo-accent/25 blur-md"
-                      aria-hidden
-                    />
-                  </span>
-                  .
-                </h1>
-                <p className="text-[15.5px] sm:text-[17px] text-lumo-fg-mid max-w-2xl leading-relaxed">
-                  Lumo is your conversational concierge. Flights, hotels, food,
-                  reservations — booked by specialist agents, confirmed in one
-                  place. Speak or type; it works either way.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="text-[12px] uppercase tracking-[0.18em] text-lumo-fg-low">
-                  Try asking
-                </div>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  {SUGGESTIONS.map((s) => (
-                    <button
-                      key={s.label}
-                      type="button"
-                      onClick={() => void sendText(s.prompt)}
-                      className="group text-left rounded-2xl border border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg hover:from-lumo-elevated hover:to-lumo-surface hover:border-lumo-edge px-5 py-4 transition-all flex items-center justify-between gap-4"
-                    >
-                      <span className="text-[15px] leading-snug text-lumo-fg">
-                        {s.label}
-                      </span>
-                      <span
-                        className="text-lumo-fg-low group-hover:text-lumo-accent group-hover:translate-x-0.5 transition-all shrink-0"
-                        aria-hidden
-                      >
-                        <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
-                          <path
-                            d="M3 7h8m0 0-3-3m3 3-3 3"
-                            stroke="currentColor"
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           )}
 
@@ -1006,9 +959,9 @@ export default function Home() {
               </button>
             </div>
           </div>
-          <div className="text-[10.5px] text-lumo-fg-low text-center mt-2 tracking-wide">
-            Lumo can make mistakes. Confirmations are tamper-resistant — review before booking.
-          </div>
+          {/* Composer footnote removed — the confirmation cards are
+              the trust surface, not a line of fine print. Legal /
+              safety copy lives on /landing and /memory. */}
         </div>
       </div>
         </div>

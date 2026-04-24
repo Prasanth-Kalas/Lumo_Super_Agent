@@ -81,12 +81,21 @@ function SignupForm() {
 
     try {
       const supabase = getBrowserSupabase();
+      // Wrap the final destination in /onboarding so users who
+      // signed up via the email-verification flow also land on the
+      // connector setup page the first time they click the link.
+      // /onboarding is idempotent — it self-redirects if they're
+      // already onboarded, so no one gets trapped there.
+      const onboardingNext =
+        next && next !== "/"
+          ? `/onboarding?next=${encodeURIComponent(next)}`
+          : "/onboarding";
       const { data, error: err } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: {
           data: { full_name: fullName.trim() || undefined },
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(onboardingNext)}`,
         },
       });
       if (err) {
@@ -108,7 +117,16 @@ function SignupForm() {
       // regardless.
       void seedProfile({ fullName: fullName.trim() });
 
-      router.replace(next);
+      // First login after signup → drop them into the connector
+      // onboarding flow. /onboarding is idempotent: if the user
+      // has already onboarded (extra.onboarded_at present), it
+      // self-redirects to `next`. So even if this path runs twice
+      // we don't trap anyone.
+      const onboardingUrl =
+        next && next !== "/"
+          ? `/onboarding?next=${encodeURIComponent(next)}`
+          : "/onboarding";
+      router.replace(onboardingUrl);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

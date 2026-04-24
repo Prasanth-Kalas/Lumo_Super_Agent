@@ -12,21 +12,29 @@
  *   limit_sessions  default 30, max 100
  *   limit_trips     default 50, max 200
  *
- * Auth: reads the x-lumo-user-id header (same stub the chat route
- * uses; Clerk swap lands in the auth PR). If header is absent we
- * use "dev-user" so local dev works.
+ * Auth: resolved from the Supabase session cookie. Falls back to
+ * the x-lumo-user-id header when Supabase Auth isn't configured
+ * (local dev without envs) so curl-driven dev still works. In prod
+ * this always reads the real authed user.
  *
  * Every response is no-store — history is personal, never cache.
  */
 
 import { NextRequest } from "next/server";
+import { getServerUser } from "@/lib/auth";
 import { listSessionsForUser, listTripsForUser } from "@/lib/history";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest): Promise<Response> {
-  const user_id = req.headers.get("x-lumo-user-id") ?? "dev-user";
+  // Prefer the authed Supabase user. The middleware also protects
+  // this route (see middleware.ts PROTECTED_API_PREFIXES), so when
+  // auth is configured we should always land here with a user; the
+  // fallback chain is for the dev/unconfigured path only.
+  const authed = await getServerUser();
+  const user_id =
+    authed?.id ?? req.headers.get("x-lumo-user-id") ?? "dev-user";
   const { searchParams } = new URL(req.url);
   const limit_sessions = clampInt(searchParams.get("limit_sessions"), 30, 1, 100);
   const limit_trips = clampInt(searchParams.get("limit_trips"), 50, 1, 200);
