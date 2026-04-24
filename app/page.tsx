@@ -510,7 +510,7 @@ export default function Home() {
         ref={scrollRef}
         className="thread flex-1 overflow-y-auto"
       >
-        <div className="mx-auto w-full max-w-3xl px-5 pt-6 pb-10 space-y-5">
+        <div className="mx-auto w-full max-w-4xl px-6 pt-8 pb-12 space-y-6">
           {messages.map((m) => {
             const isItinerary =
               m.role === "assistant" &&
@@ -533,7 +533,7 @@ export default function Home() {
                   isUser ? (
                     // User — right-aligned, soft elevated surface, tight.
                     <div className="flex justify-end">
-                      <div className="max-w-[82%] rounded-lg bg-lumo-elevated text-lumo-fg px-3.5 py-2 text-[14.5px] leading-6 whitespace-pre-wrap border border-lumo-hair">
+                      <div className="max-w-[82%] rounded-2xl bg-lumo-elevated text-lumo-fg px-4 py-2.5 text-[16px] leading-[1.55] whitespace-pre-wrap border border-lumo-hair">
                         {m.content}
                       </div>
                     </div>
@@ -641,38 +641,62 @@ export default function Home() {
               Editorial headline + four scaffold prompts. Disappears
               the moment the first real user turn is sent. */}
           {isEmpty && (
-            <div className="pt-4 pb-2 space-y-8 animate-fade-in">
-              <div className="space-y-3">
-                <h1 className="text-[32px] md:text-[40px] font-semibold tracking-[-0.022em] leading-[1.1] text-lumo-fg">
-                  Plan anything, in one{" "}
-                  <span className="text-lumo-accent">sentence</span>.
+            <div className="pt-8 pb-4 space-y-10 animate-fade-in relative">
+              {/* Ambient accent glow behind the headline */}
+              <div
+                className="pointer-events-none absolute -top-16 -left-16 h-80 w-[120%] rounded-full opacity-[0.12] blur-3xl -z-10"
+                style={{
+                  background:
+                    "radial-gradient(ellipse at 20% 30%, var(--lumo-accent) 0%, transparent 65%)",
+                }}
+                aria-hidden
+              />
+
+              <div className="space-y-5">
+                <h1 className="text-[44px] md:text-[56px] lg:text-[64px] font-semibold tracking-[-0.025em] leading-[1.02] text-lumo-fg">
+                  Plan anything,
+                  <br />
+                  in one{" "}
+                  <span className="relative inline-block text-lumo-accent">
+                    sentence
+                    <span
+                      className="absolute inset-x-0 -bottom-1 h-[6px] bg-lumo-accent/25 blur-md"
+                      aria-hidden
+                    />
+                  </span>
+                  .
                 </h1>
-                <p className="text-[14.5px] text-lumo-fg-mid max-w-xl leading-relaxed">
-                  Lumo is a conversational shell over specialist agents.
-                  Flights, hotels, food — booked by the right service,
-                  confirmed in one place.
+                <p className="text-[17px] text-lumo-fg-mid max-w-2xl leading-relaxed">
+                  Lumo is your conversational concierge. Flights, hotels, food,
+                  reservations — booked by specialist agents, confirmed in one
+                  place. Speak or type; it works either way.
                 </p>
               </div>
 
-              <div className="space-y-1">
-                <div className="text-[10.5px] uppercase tracking-[0.14em] text-lumo-fg-low mb-2">
+              <div className="space-y-3">
+                <div className="text-[12px] uppercase tracking-[0.18em] text-lumo-fg-low">
                   Try asking
                 </div>
-                <div className="flex flex-col divide-y divide-lumo-hair border-y border-lumo-hair">
+                <div className="grid sm:grid-cols-2 gap-3">
                   {SUGGESTIONS.map((s) => (
                     <button
                       key={s.label}
                       type="button"
                       onClick={() => void sendText(s.prompt)}
-                      className="group text-left px-0.5 py-3 flex items-center justify-between gap-4 hover:text-lumo-fg text-lumo-fg-high transition-colors"
+                      className="group text-left rounded-2xl border border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg hover:from-lumo-elevated hover:to-lumo-surface hover:border-lumo-edge px-5 py-4 transition-all flex items-center justify-between gap-4"
                     >
-                      <span className="text-[14px] leading-snug">{s.label}</span>
-                      <span className="text-lumo-fg-low group-hover:text-lumo-accent transition-colors shrink-0" aria-hidden>
-                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <span className="text-[15px] leading-snug text-lumo-fg">
+                        {s.label}
+                      </span>
+                      <span
+                        className="text-lumo-fg-low group-hover:text-lumo-accent group-hover:translate-x-0.5 transition-all shrink-0"
+                        aria-hidden
+                      >
+                        <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
                           <path
                             d="M3 7h8m0 0-3-3m3 3-3 3"
                             stroke="currentColor"
-                            strokeWidth="1.4"
+                            strokeWidth="1.6"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           />
@@ -707,7 +731,7 @@ export default function Home() {
 
       {/* ─── Composer ───────────────────────────────────────────────── */}
       <div className="border-t border-lumo-hair bg-lumo-bg">
-        <div className="mx-auto w-full max-w-3xl px-5 pb-4 pt-3">
+        <div className="mx-auto w-full max-w-4xl px-6 pb-5 pt-3">
           {voiceEnabled ? (
             <div className="mb-2">
               <VoiceMode
@@ -728,7 +752,7 @@ export default function Home() {
             </div>
           ) : null}
 
-          <div className="group rounded-xl border border-lumo-hair bg-lumo-surface focus-within:border-lumo-edge transition-colors">
+          <div className="group rounded-2xl border border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg focus-within:border-lumo-edge focus-within:shadow-[0_0_0_3px_rgba(94,234,172,0.08)] transition-all">
             <textarea
               ref={textareaRef}
               value={input}
@@ -741,7 +765,7 @@ export default function Home() {
               }}
               rows={1}
               placeholder="Ask Lumo to book a flight, order dinner, plan a trip…"
-              className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-6 text-lumo-fg placeholder:text-lumo-fg-low focus:outline-none"
+              className="block w-full resize-none bg-transparent px-5 pt-4 pb-1.5 text-[16.5px] leading-[1.5] text-lumo-fg placeholder:text-lumo-fg-low focus:outline-none"
               style={{ outline: "none" }}
               disabled={busy}
             />

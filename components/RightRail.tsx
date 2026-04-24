@@ -1,36 +1,34 @@
 "use client";
 
 /**
- * RightRail — live operator HUD for the JARVIS dashboard.
+ * RightRail — live operator HUD.
  *
- * Panels (top to bottom, always rendered):
+ * Redesigned (2026-04) to cut the duplication with LeftRail. The
+ * previous "Connected apps" panel mirrored LeftRail's Agents list —
+ * dead weight. "Try asking" duplicated the center hero's suggestions.
+ * Both removed. What remains, and why:
  *
  *   ACTIVE TRIP
- *     When the current turn has a structured-trip summary, show a
- *     compact card with the trip title, per-leg status icons, and
- *     total. Empty state when idle: "No active trip — book one and
- *     watch it fly."
+ *     The one thing LeftRail doesn't show — live leg-by-leg dispatch
+ *     status. Bigger empty state: an ambient illustration and a
+ *     friendly prompt, not just a dashed border.
  *
  *   VOICE
- *     Real-time status from VoiceMode — ready / listening / speaking /
- *     off. The dot pulses live. Hands-free toggle visible here too so
- *     the user can flip it without scrolling to the composer.
+ *     Animated waveform when listening / speaking, calmer ring when
+ *     idle. Bigger, more alive — the ears of the product.
  *
- *   CONNECTED APPS
- *     Every specialist agent with its OAuth/status dot. Click through
- *     to /marketplace for the matching card.
+ *   RIGHT NOW
+ *     Time-of-day aware smart suggestion ("It's almost dinner —
+ *     want me to order?"). Calm by default, warm by context.
  *
- *   SUGGESTIONS
- *     Contextual one-tap prompts. Default is the 4 starter trips; later
- *     we can swap for "based on your history" picks.
+ *   CLOCK
+ *     Region + ticking local time, monospace. The ambient HUD.
  *
- *   CLOCK / REGION
- *     The user's region + local time. Tiny detail, but it's the sort
- *     of ambient HUD thing that makes the shell feel alive.
+ * Warmer than the prior pass: subtle radial accent at the top,
+ * rounded-2xl panels, more generous padding, typography up a notch.
  */
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
 export interface LegStatusLite {
   order: number;
@@ -61,43 +59,15 @@ export type VoiceStateLite =
   | "error";
 
 export interface RightRailProps {
-  /** The trip currently being confirmed or dispatched. Null when idle. */
   activeTrip: ActiveTripView | null;
-
-  /** Voice state surfaced from VoiceMode. "off" when voice mode disabled. */
   voiceState: VoiceStateLite;
   voiceEnabled: boolean;
   handsFree: boolean;
   onToggleVoice: () => void;
   onToggleHandsFree: () => void;
-
-  /** Region and device passed through from the shell. */
   userRegion: string;
-
-  /** Called when the user taps a suggestion. */
   onSuggestion: (text: string) => void;
 }
-
-const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
-  {
-    label: "Flight to Vegas next Friday",
-    prompt: "Find me a flight to Las Vegas next Friday for under $300.",
-  },
-  {
-    label: "Pepperoni + Caesar, closest",
-    prompt: "Order a pepperoni pizza and a Caesar salad from the closest place.",
-  },
-  {
-    label: "Austin hotel, 2 nights, 6th St",
-    prompt:
-      "Find me a hotel in Austin for 2 nights, walkable to 6th Street, 4 stars or better.",
-  },
-  {
-    label: "Austin trip: flight + hotel + dinner",
-    prompt:
-      "Plan a trip to Austin next weekend: flight from SFO, a hotel downtown, and dinner Friday night.",
-  },
-];
 
 export default function RightRail(props: RightRailProps) {
   const {
@@ -111,116 +81,82 @@ export default function RightRail(props: RightRailProps) {
     onSuggestion,
   } = props;
 
-  const [now, setNow] = useState<string>(fmtTime(new Date()));
+  const [now, setNow] = useState<Date>(() => new Date());
   useEffect(() => {
-    const t = setInterval(() => setNow(fmtTime(new Date())), 30_000);
+    const t = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(t);
   }, []);
 
+  const smart = useMemo(() => smartSuggestion(now), [now]);
+
   return (
-    <aside className="hidden xl:flex h-full w-[320px] shrink-0 flex-col border-l border-lumo-hair bg-lumo-bg overflow-y-auto">
-      {/* Active trip */}
-      <Panel title="Active trip" mono>
-        {activeTrip ? <ActiveTripCard trip={activeTrip} /> : <EmptyActiveTrip />}
-      </Panel>
+    <aside className="hidden xl:flex h-full w-[340px] shrink-0 flex-col border-l border-lumo-hair bg-lumo-bg relative overflow-hidden">
+      {/* Ambient top glow — the premium HUD cue */}
+      <div
+        className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 h-64 w-[120%] rounded-full opacity-[0.18] blur-3xl"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, var(--lumo-accent) 0%, transparent 60%)",
+        }}
+        aria-hidden
+      />
 
-      {/* Voice */}
-      <Panel title="Voice" mono>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <VoiceDot state={voiceState} enabled={voiceEnabled} />
-            <div className="flex flex-col leading-tight">
-              <span className="text-[12.5px] text-lumo-fg">
-                {labelForVoice(voiceState, voiceEnabled)}
-              </span>
-              <span className="text-[10.5px] text-lumo-fg-low uppercase tracking-wider">
-                {voiceEnabled ? (handsFree ? "hands-free" : "push to talk") : "text mode"}
-              </span>
-            </div>
-          </div>
+      <div className="flex-1 overflow-y-auto relative z-10">
+        {/* Active trip */}
+        <Panel title="Active trip">
+          {activeTrip ? (
+            <ActiveTripCard trip={activeTrip} />
+          ) : (
+            <EmptyActiveTrip />
+          )}
+        </Panel>
+
+        {/* Voice */}
+        <Panel title="Voice">
+          <VoicePanel
+            state={voiceState}
+            enabled={voiceEnabled}
+            handsFree={handsFree}
+            onToggle={onToggleVoice}
+            onToggleHandsFree={onToggleHandsFree}
+          />
+        </Panel>
+
+        {/* Smart suggestion (time-of-day aware) */}
+        <Panel title="Right now">
           <button
             type="button"
-            onClick={onToggleVoice}
-            aria-pressed={voiceEnabled}
-            className={
-              "rounded-full px-2.5 py-1 text-[11px] font-medium transition " +
-              (voiceEnabled
-                ? "bg-lumo-accent text-lumo-accent-ink"
-                : "border border-lumo-hair text-lumo-fg-mid hover:text-lumo-fg")
-            }
+            onClick={() => onSuggestion(smart.prompt)}
+            className="group w-full text-left rounded-2xl border border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg hover:from-lumo-elevated hover:to-lumo-surface transition-colors px-4 py-4"
           >
-            {voiceEnabled ? "On" : "Off"}
-          </button>
-        </div>
-        {voiceEnabled ? (
-          <button
-            type="button"
-            onClick={onToggleHandsFree}
-            className="mt-2 w-full rounded-md border border-lumo-hair px-2 py-1.5 text-[11.5px] text-lumo-fg-mid hover:bg-lumo-elevated hover:text-lumo-fg transition-colors"
-          >
-            Switch to {handsFree ? "push-to-talk" : "hands-free"}
-          </button>
-        ) : null}
-      </Panel>
-
-      {/* Connected apps */}
-      <Panel title="Connected apps" mono>
-        <ul className="space-y-1">
-          {[
-            { id: "flight", label: "Flight Agent", icon: "✈", status: "connected" },
-            { id: "hotel", label: "Hotel Agent", icon: "⌂", status: "connected" },
-            { id: "food", label: "Food Agent", icon: "◉", status: "connected" },
-            { id: "restaurant", label: "Reservation Agent", icon: "◆", status: "connected" },
-          ].map((a) => (
-            <li
-              key={a.id}
-              className="flex items-center justify-between rounded-md px-2 py-1.5 hover:bg-lumo-elevated/60 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-lumo-accent text-[13px] w-4 text-center">
-                  {a.icon}
-                </span>
-                <span className="text-[12.5px] text-lumo-fg">{a.label}</span>
+            <div className="flex items-start gap-3">
+              <div className="shrink-0 h-9 w-9 rounded-full bg-lumo-accent/15 text-lumo-accent inline-flex items-center justify-center text-[18px] group-hover:bg-lumo-accent/25 transition-colors">
+                {smart.icon}
               </div>
-              <span className="inline-flex items-center gap-1 text-[10.5px] uppercase tracking-wider text-lumo-fg-low">
-                <span className="h-1.5 w-1.5 rounded-full bg-lumo-accent shadow-[0_0_6px_rgba(94,234,172,0.6)]" />
-                {a.status}
-              </span>
-            </li>
-          ))}
-        </ul>
-        <Link
-          href="/marketplace"
-          className="mt-2 block text-center text-[11px] text-lumo-fg-low hover:text-lumo-fg underline-offset-4 hover:underline"
-        >
-          Browse marketplace →
-        </Link>
-      </Panel>
-
-      {/* Suggestions */}
-      <Panel title="Try asking" mono>
-        <ul className="space-y-1.5">
-          {SUGGESTIONS.map((s) => (
-            <li key={s.label}>
-              <button
-                type="button"
-                onClick={() => onSuggestion(s.prompt)}
-                className="w-full text-left rounded-md border border-lumo-hair px-2.5 py-1.5 text-[12px] text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge transition-colors"
-              >
-                {s.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </Panel>
+              <div className="min-w-0">
+                <div className="text-[14px] text-lumo-fg leading-snug">
+                  {smart.headline}
+                </div>
+                <div className="mt-1.5 text-[12.5px] text-lumo-fg-low leading-relaxed">
+                  {smart.sub}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 inline-flex items-center gap-1.5 text-[11.5px] text-lumo-accent group-hover:underline underline-offset-4">
+              Tap to try
+              <span aria-hidden>→</span>
+            </div>
+          </button>
+        </Panel>
+      </div>
 
       {/* Footer clock */}
-      <div className="mt-auto border-t border-lumo-hair px-4 py-3">
-        <div className="flex items-center justify-between text-[10.5px] uppercase tracking-[0.14em] text-lumo-fg-low font-mono">
+      <div className="mt-auto border-t border-lumo-hair px-5 py-4 relative z-10">
+        <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.16em] text-lumo-fg-low font-mono">
           <span>{userRegion}</span>
-          <span className="inline-flex items-center gap-1">
-            <span className="h-1 w-1 rounded-full bg-lumo-accent animate-pulse" />
-            {now}
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-lumo-accent animate-pulse" />
+            {fmtTime(now)}
           </span>
         </div>
       </div>
@@ -232,23 +168,10 @@ export default function RightRail(props: RightRailProps) {
 // Panels
 // ──────────────────────────────────────────────────────────────────
 
-function Panel({
-  title,
-  mono,
-  children,
-}: {
-  title: string;
-  mono?: boolean;
-  children: React.ReactNode;
-}) {
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="px-4 py-3 border-b border-lumo-hair">
-      <div
-        className={
-          "mb-2 text-[10px] tracking-[0.16em] text-lumo-fg-low uppercase " +
-          (mono ? "font-mono" : "")
-        }
-      >
+    <section className="px-5 py-4 border-b border-lumo-hair">
+      <div className="mb-3 text-[11px] tracking-[0.18em] text-lumo-fg-low uppercase font-medium">
         {title}
       </div>
       {children}
@@ -258,50 +181,170 @@ function Panel({
 
 function EmptyActiveTrip() {
   return (
-    <div className="rounded-lg border border-dashed border-lumo-hair px-3 py-4 text-center">
-      <div className="text-[12px] text-lumo-fg-low">No active trip.</div>
-      <div className="mt-1 text-[11px] text-lumo-fg-low/80">
-        Book one and watch it dispatch in real time.
+    <div className="rounded-2xl border border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg px-4 py-6 text-center">
+      {/* Tiny orbital illustration — planes / loops around a dot */}
+      <div className="mx-auto mb-3 relative h-12 w-12">
+        <span className="absolute inset-0 rounded-full border border-lumo-accent/25" />
+        <span className="absolute inset-2 rounded-full border border-lumo-accent/40" />
+        <span className="absolute inset-4 rounded-full bg-lumo-accent/60 animate-pulse" />
+      </div>
+      <div className="text-[14px] text-lumo-fg">No active trip</div>
+      <div className="mt-1.5 text-[12.5px] text-lumo-fg-low leading-relaxed">
+        Book one and watch every leg
+        <br />
+        dispatch in real time.
       </div>
     </div>
   );
 }
 
 function ActiveTripCard({ trip }: { trip: ActiveTripView }) {
+  const committed = trip.legs.filter((l) => l.status === "committed").length;
+  const total = trip.legs.length;
+  const pct = total > 0 ? Math.round((committed / total) * 100) : 0;
+
   return (
-    <div className="rounded-lg border border-lumo-hair bg-lumo-surface px-3 py-3 space-y-2">
+    <div className="rounded-2xl border border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg px-4 py-4 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-[12.5px] text-lumo-fg truncate">
+          <div className="text-[14px] text-lumo-fg truncate font-medium">
             {trip.trip_title ?? "Trip in progress"}
           </div>
-          <div className="mt-0.5 text-[10.5px] text-lumo-fg-low uppercase tracking-wider font-mono">
-            {trip.legs.length} leg{trip.legs.length === 1 ? "" : "s"}
+          <div className="mt-1 text-[11px] text-lumo-fg-low uppercase tracking-[0.14em] font-mono">
+            {committed}/{total} booked
           </div>
         </div>
         {trip.total_amount ? (
-          <div className="text-[13px] text-lumo-accent tabular-nums font-mono">
+          <div className="text-[15px] text-lumo-accent tabular-nums font-mono">
             {fmtMoney(trip.total_amount, trip.currency)}
           </div>
         ) : null}
       </div>
-      <ul className="space-y-1">
+
+      {/* Progress bar */}
+      <div className="h-1 rounded-full bg-lumo-elevated overflow-hidden">
+        <div
+          className="h-full bg-lumo-accent transition-all duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      <ul className="space-y-1.5">
         {trip.legs.map((leg) => (
           <li
             key={leg.order}
-            className="flex items-center gap-2 text-[11.5px]"
+            className="flex items-center gap-2.5 text-[13px]"
             title={`${leg.agent_id} — ${leg.status}`}
           >
             <LegGlyph status={leg.status} />
             <span className="text-lumo-fg-mid flex-1 truncate">
               {agentDisplay(leg.agent_id)}
             </span>
-            <span className="text-[10px] uppercase tracking-wider text-lumo-fg-low font-mono">
+            <span className="text-[10.5px] uppercase tracking-wider text-lumo-fg-low font-mono">
               {shortStatus(leg.status)}
             </span>
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function VoicePanel({
+  state,
+  enabled,
+  handsFree,
+  onToggle,
+  onToggleHandsFree,
+}: {
+  state: VoiceStateLite;
+  enabled: boolean;
+  handsFree: boolean;
+  onToggle: () => void;
+  onToggleHandsFree: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg px-4 py-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <VoiceOrb state={state} enabled={enabled} />
+          <div className="flex flex-col leading-tight">
+            <span className="text-[14px] text-lumo-fg">
+              {labelForVoice(state, enabled)}
+            </span>
+            <span className="text-[11px] text-lumo-fg-low uppercase tracking-[0.14em] mt-0.5">
+              {enabled ? (handsFree ? "hands-free" : "push to talk") : "text mode"}
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-pressed={enabled}
+          className={
+            "rounded-full px-3 py-1.5 text-[12px] font-medium transition " +
+            (enabled
+              ? "bg-lumo-accent text-lumo-accent-ink shadow-[0_0_16px_rgba(94,234,172,0.35)]"
+              : "border border-lumo-hair text-lumo-fg-mid hover:text-lumo-fg")
+          }
+        >
+          {enabled ? "On" : "Off"}
+        </button>
+      </div>
+      {enabled ? (
+        <button
+          type="button"
+          onClick={onToggleHandsFree}
+          className="mt-3 w-full rounded-xl border border-lumo-hair px-3 py-2 text-[12.5px] text-lumo-fg-mid hover:bg-lumo-elevated hover:text-lumo-fg transition-colors"
+        >
+          Switch to {handsFree ? "push-to-talk" : "hands-free"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Animated orb — calm ring when idle, pulsing glow when listening /
+ * speaking. The ears/mouth of the product.
+ */
+function VoiceOrb({
+  state,
+  enabled,
+}: {
+  state: VoiceStateLite;
+  enabled: boolean;
+}) {
+  const active =
+    enabled && (state === "listening" || state === "speaking");
+  const color =
+    !enabled || state === "off" || state === "unsupported"
+      ? "bg-lumo-fg-low/30"
+      : state === "error"
+      ? "bg-red-400"
+      : state === "thinking"
+      ? "bg-amber-400"
+      : state === "speaking"
+      ? "bg-emerald-400"
+      : "bg-lumo-accent";
+  return (
+    <div className="relative h-10 w-10 shrink-0 flex items-center justify-center">
+      {active ? (
+        <>
+          <span
+            className={`absolute inset-0 rounded-full ${color} opacity-20 animate-ping`}
+          />
+          <span
+            className={`absolute inset-1 rounded-full ${color} opacity-30 animate-pulse`}
+          />
+        </>
+      ) : null}
+      <span
+        className={`relative h-3 w-3 rounded-full ${color} ${
+          active ? "shadow-[0_0_12px_currentColor]" : ""
+        }`}
+        aria-label={enabled ? state : "off"}
+      />
     </div>
   );
 }
@@ -319,27 +362,65 @@ function LegGlyph({ status }: { status: LegStatusLite["status"] }) {
   return <span className={map[status]} aria-label={status} />;
 }
 
-function VoiceDot({
-  state,
-  enabled,
-}: {
-  state: VoiceStateLite;
-  enabled: boolean;
-}) {
-  if (!enabled) {
-    return <span className="inline-block h-2 w-2 rounded-full bg-lumo-fg-low/30" />;
+// ──────────────────────────────────────────────────────────────────
+// Smart suggestion — time-of-day aware
+// ──────────────────────────────────────────────────────────────────
+
+function smartSuggestion(d: Date): {
+  icon: string;
+  headline: string;
+  sub: string;
+  prompt: string;
+} {
+  const h = d.getHours();
+  const isFriday = d.getDay() === 5;
+
+  if (h >= 6 && h < 10) {
+    return {
+      icon: "☀",
+      headline: "Good morning.",
+      sub: "Plan your day before it plans you.",
+      prompt: "Help me plan a productive day — any meetings I should know about, and something easy for lunch near me.",
+    };
   }
-  const cls =
-    state === "listening"
-      ? "bg-lumo-accent animate-pulse shadow-[0_0_10px_rgba(94,234,172,0.8)]"
-      : state === "thinking"
-      ? "bg-amber-400 animate-pulse"
-      : state === "speaking"
-      ? "bg-emerald-400 animate-pulse shadow-[0_0_10px_rgba(52,211,153,0.6)]"
-      : state === "error"
-      ? "bg-red-400"
-      : "bg-lumo-accent/60";
-  return <span className={`inline-block h-2 w-2 rounded-full ${cls}`} aria-label={state} />;
+  if (h >= 10 && h < 14) {
+    return {
+      icon: "●",
+      headline: "Lunch hour.",
+      sub: "Want me to order something nearby?",
+      prompt: "Order me a healthy lunch from the closest place that can deliver in 30 minutes.",
+    };
+  }
+  if (h >= 14 && h < 17 && isFriday) {
+    return {
+      icon: "✈",
+      headline: "It's Friday.",
+      sub: "Weekend trip somewhere warm?",
+      prompt: "Plan a weekend trip somewhere warm — flight and a nice hotel, departing tomorrow morning, back Sunday night.",
+    };
+  }
+  if (h >= 17 && h < 22) {
+    return {
+      icon: "◆",
+      headline: "Dinner time.",
+      sub: "Book a table or order in — you pick.",
+      prompt: "Find me a reservation somewhere nice for dinner tonight around 8pm for two, within 15 minutes of me.",
+    };
+  }
+  if (h >= 22 || h < 6) {
+    return {
+      icon: "◗",
+      headline: "Late night.",
+      sub: "Need a ride, or a late bite?",
+      prompt: "Order me something light to eat — anything still open that delivers.",
+    };
+  }
+  return {
+    icon: "⌂",
+    headline: "Quiet afternoon.",
+    sub: "Somewhere you've been meaning to visit?",
+    prompt: "Plan a weekend getaway — flight and hotel — somewhere I haven't been in a while.",
+  };
 }
 
 // ──────────────────────────────────────────────────────────────────
