@@ -59,6 +59,12 @@ interface Body {
   device_kind?: "web" | "ios" | "android" | "watch";
   region?: string;
   user_first_name?: string;
+  /**
+   * "voice" when the user is hearing responses (driving, hands-busy).
+   * Forwarded to the orchestrator where the system prompt adapts
+   * output length and formatting for ears. Defaults to text.
+   */
+  mode?: "text" | "voice";
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -176,6 +182,7 @@ export async function POST(req: NextRequest): Promise<Response> {
             device_kind,
             messages: body.messages,
             user_pii,
+            mode: body.mode === "voice" ? "voice" : "text",
           },
           emit,
         );

@@ -4,12 +4,20 @@
  */
 
 import type { RegistryEntry } from "./agent-registry.js";
+import { VOICE_MODE_PROMPT } from "./voice-format.js";
 
 export function buildSystemPrompt(opts: {
   agents: RegistryEntry[];
   now: Date;
   user_first_name?: string | null;
   user_region: string;
+  /**
+   * Interaction mode. "voice" adds a speaking-specific prompt block
+   * that reshapes output for ears (short, no markdown, natural
+   * amount phrasing, narrate summaries). Default "text" keeps the
+   * prior card-first behavior.
+   */
+  mode?: "text" | "voice";
 }): string {
   const agentLines = opts.agents
     .map(
@@ -55,5 +63,7 @@ RULES:
 8. Keep responses short by default. Long responses only when the user asks for detail.
 9. If a tool returns an error, explain it in one sentence and offer the next step.
 
-Tone: concise, kind, a little dry. Think: a friend who happens to be great at logistics.`;
+Tone: concise, kind, a little dry. Think: a friend who happens to be great at logistics.
+
+${opts.mode === "voice" ? `\nVOICE MODE:\n${VOICE_MODE_PROMPT}\n` : ""}`;
 }

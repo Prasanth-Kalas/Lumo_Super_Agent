@@ -74,6 +74,18 @@ export interface OrchestratorInput {
   messages: ChatMessage[];
   /** Opaque PII bag — router will filter per-agent. */
   user_pii: Record<string, unknown>;
+  /**
+   * Interaction mode. "voice" means the user is hearing responses,
+   * not reading them — likely driving. The system prompt is tuned
+   * to keep turns short, avoid markdown, read amounts naturally,
+   * and narrate structured summaries as spoken prose instead of
+   * relying on the confirmation card UI.
+   *
+   * Defaults to "text". Only "voice" gets the adapted prompt — any
+   * unknown value is treated as text so future mode additions don't
+   * accidentally change production behavior.
+   */
+  mode?: "text" | "voice";
 }
 
 /**
@@ -190,6 +202,7 @@ export async function runTurn(
     now: new Date(),
     user_first_name: input.user_first_name ?? null,
     user_region: input.user_region,
+    mode: input.mode === "voice" ? "voice" : "text",
   });
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });

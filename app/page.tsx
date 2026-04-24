@@ -46,6 +46,7 @@ import {
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { BrandMark } from "@/components/BrandMark";
+import VoiceMode from "@/components/VoiceMode";
 
 /**
  * Local mirror of the shell's ConfirmationSummary — we re-declare it
@@ -125,6 +126,41 @@ export default function Home() {
   const [legStatusesByMsg, setLegStatusesByMsg] = useState<
     Record<string, Record<number, LegDispatchStatus>>
   >({});
+
+  // Voice mode — see components/VoiceMode.tsx. `voiceEnabled` is the
+  // master toggle, persisted across reloads. `handsFree` auto-restarts
+  // the mic after each response (JARVIS loop). `spokenStreamText` is
+  // the accumulating assistant text for the CURRENT in-flight turn;
+  // VoiceMode reads it reactively and speaks new sentences as they
+  // arrive. It resets to "" when a new turn starts.
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
+  const [handsFree, setHandsFree] = useState<boolean>(true);
+  const [spokenStreamText, setSpokenStreamText] = useState<string>("");
+  useEffect(() => {
+    try {
+      const v = window.localStorage.getItem("lumo.voiceEnabled");
+      const h = window.localStorage.getItem("lumo.handsFree");
+      if (v != null) setVoiceEnabled(v === "1");
+      if (h != null) setHandsFree(h === "1");
+    } catch {
+      // localStorage unavailable (private mode) — defaults are fine.
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("lumo.voiceEnabled", voiceEnabled ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [voiceEnabled]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("lumo.handsFree", handsFree ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [handsFree]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionIdRef = useRef<string>(
@@ -171,6 +207,9 @@ export default function Home() {
     setMessages(history);
     setInput("");
     setBusy(true);
+    // Start a fresh spoken-text buffer for this turn. VoiceMode keys
+    // off this to decide where to resume TTS.
+    setSpokenStreamText("");
 
     try {
       const res = await fetch("/api/chat", {
@@ -180,6 +219,10 @@ export default function Home() {
           session_id: sessionIdRef.current,
           device_kind: "web",
           region: "US",
+          // Tell the server we're speaking so it can adapt response
+          // length, skip markdown, and narrate structured summaries
+          // in spoken prose. See lib/voice-format.ts + system prompt.
+          mode: voiceEnabled ? "voice" : "text",
           messages: history.map((m) => ({
             role: m.role,
             content: m.content,
@@ -214,7 +257,14 @@ export default function Home() {
           }
 
           if (frame.type === "text") {
-            assistantText += String(frame.value ?? "");
+            const chunk = String(frame.value ?? "");
+            assistantText += chunk;
+            if (voiceEnabled) {
+              // Mirror into the spoken buffer so VoiceMode can start
+              // TTS as sentences land. Functional updater so rapid
+              // frames don't drop chunks on React batching.
+              setSpokenStreamText((prev) => prev + chunk);
+            }
           } else if (frame.type === "summary") {
             assistantSummary = frame.value as UISummary;
           } else if (frame.type === "selection") {
@@ -586,6 +636,25 @@ export default function Home() {
       {/* ─── Composer ───────────────────────────────────────────────── */}
       <div className="border-t border-lumo-hair bg-lumo-bg">
         <div className="mx-auto w-full max-w-3xl px-5 pb-4 pt-3">
+          {voiceEnabled ? (
+            <div className="mb-2">
+              <VoiceMode
+                enabled={voiceEnabled}
+                onToggle={setVoiceEnabled}
+                handsFree={handsFree}
+                onHandsFreeToggle={setHandsFree}
+                onUserUtterance={(t) => {
+                  // Respect busy: a late STT result after the agent
+                  // already started a new turn is dropped. The user
+                  // can retry.
+                  if (!busy) void sendText(t);
+                }}
+                spokenText={spokenStreamText}
+                busy={busy}
+              />
+            </div>
+          ) : null}
+
           <div className="group rounded-xl border border-lumo-hair bg-lumo-surface focus-within:border-lumo-edge transition-colors">
             <textarea
               ref={textareaRef}
@@ -609,10 +678,16 @@ export default function Home() {
               <div className="flex items-center gap-1 text-lumo-fg-low">
                 <button
                   type="button"
-                  aria-label="Voice (coming soon)"
-                  title="Voice (coming soon)"
-                  className="h-7 w-7 rounded-md inline-flex items-center justify-center hover:text-lumo-fg-mid hover:bg-lumo-elevated disabled:opacity-40 transition-colors"
-                  disabled
+                  aria-pressed={voiceEnabled}
+                  aria-label={voiceEnabled ? "Turn voice off" : "Turn voice on"}
+                  title={voiceEnabled ? "Voice on — click to turn off" : "Voice mode"}
+                  onClick={() => setVoiceEnabled((v) => !v)}
+                  className={
+                    "h-7 w-7 rounded-md inline-flex items-center justify-center transition-colors " +
+                    (voiceEnabled
+                      ? "bg-lumo-accent/15 text-lumo-accent"
+                      : "hover:text-lumo-fg-mid hover:bg-lumo-elevated")
+                  }
                 >
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
                     <rect x="6" y="2" width="4" height="8.4" rx="2" stroke="currentColor" strokeWidth="1.4" />
