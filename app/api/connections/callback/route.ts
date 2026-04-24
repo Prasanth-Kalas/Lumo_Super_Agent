@@ -49,8 +49,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   } catch {
     // Rare: session expired between start and callback. Send to login
     // with a next= that brings them back to this callback.
-    const login = url.clone();
-    login.pathname = "/login";
+    const login = new URL("/login", url.origin);
     login.search = `?next=${encodeURIComponent(url.pathname + url.search)}`;
     return NextResponse.redirect(login);
   }
@@ -117,9 +116,11 @@ export async function GET(req: NextRequest): Promise<Response> {
 }
 
 function redirectBack(reqUrl: URL, toPath: string): Response {
-  const dest = reqUrl.clone();
+  // Build an absolute URL using the incoming request's origin as base.
+  // We use `new URL(path, base)` rather than NextURL.clone() so the
+  // signature accepts both NextURL and plain URL.
   const [path, qs] = toPath.split("?");
-  dest.pathname = path ?? "/connections";
-  dest.search = qs ? `?${qs}` : "";
+  const dest = new URL(path ?? "/connections", reqUrl.origin);
+  if (qs) dest.search = `?${qs}`;
   return NextResponse.redirect(dest);
 }
