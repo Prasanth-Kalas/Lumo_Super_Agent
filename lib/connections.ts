@@ -462,9 +462,11 @@ function bufferToPgEscape(buf: Buffer): string {
  */
 function coerceBytes(v: Buffer | Uint8Array | string): Buffer {
   if (typeof v === "string") {
-    // PostgREST returns "\\x..." with an escaped backslash in JSON; after
-    // JSON.parse it's "\x...". Accept both defensively.
-    const hex = v.startsWith("\\x") ? v.slice(2) : v.startsWith("\x") ? v.slice(1) : v;
+    // PostgREST serializes bytea as the JSON string "\\x<hex>", which
+    // JSON.parse decodes to the two-char prefix backslash+x followed by
+    // hex digits. Strip that prefix if present; otherwise assume the
+    // caller handed us a raw hex string.
+    const hex = v.startsWith("\\x") ? v.slice(2) : v;
     return Buffer.from(hex, "hex");
   }
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
