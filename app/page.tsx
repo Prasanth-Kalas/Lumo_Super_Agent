@@ -49,6 +49,7 @@ import { BrandMark } from "@/components/BrandMark";
 import VoiceMode, { type VoiceState } from "@/components/VoiceMode";
 import LeftRail from "@/components/LeftRail";
 import RightRail, { type ActiveTripView, type LegStatusLite } from "@/components/RightRail";
+import MobileNav from "@/components/MobileNav";
 
 /**
  * Local mirror of the shell's ConfirmationSummary — we re-declare it
@@ -141,6 +142,8 @@ export default function Home() {
   const [handsFree, setHandsFree] = useState<boolean>(true);
   // Bumped after each agent turn so RightRail's MemoryPanel re-fetches.
   const [memoryRefreshKey, setMemoryRefreshKey] = useState<number>(0);
+  // Mobile drawer open/close.
+  const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
   // Mute Lumo's TTS while keeping the mic hot. Persisted.
   const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
   const [spokenStreamText, setSpokenStreamText] = useState<string>("");
@@ -493,11 +496,28 @@ export default function Home() {
     <main className="flex h-dvh flex-col bg-lumo-bg text-lumo-fg-high">
       {/* ─── Header ─────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/80 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 py-3">
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-4 sm:px-5 py-3">
           <div className="flex items-center gap-2.5">
+            {/* Mobile-only hamburger. Hidden on lg+ where LeftRail is visible. */}
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open menu"
+              className="lg:hidden h-9 w-9 -ml-1 rounded-full inline-flex items-center justify-center text-lumo-fg hover:bg-lumo-elevated transition-colors"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden>
+                <path
+                  d="M3 5h12M3 9h12M3 13h12"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+
             <BrandMark size={22} className="text-lumo-fg" />
             <div className="flex items-baseline gap-2">
-              <span className="text-[14px] font-semibold tracking-tight text-lumo-fg">
+              <span className="text-[15px] font-semibold tracking-tight text-lumo-fg">
                 Lumo
               </span>
               <span className="hidden sm:inline text-[11px] text-lumo-fg-low tracking-wide">
@@ -507,30 +527,31 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-1.5">
-            {/* Model / status chip — ambient, not a CTA. */}
-            <div className="hidden sm:inline-flex items-center gap-1.5 text-[10.5px] text-lumo-fg-mid px-2 py-1 rounded-md border border-lumo-hair num tracking-wide">
+            {/* Model / status chip — ambient, not a CTA. Hidden on mobile. */}
+            <div className="hidden md:inline-flex items-center gap-1.5 text-[10.5px] text-lumo-fg-mid px-2 py-1 rounded-md border border-lumo-hair num tracking-wide">
               <span className="h-1.5 w-1.5 rounded-full bg-lumo-ok" />
               <span>claude-opus-4.6</span>
             </div>
 
+            {/* Desktop nav buttons — hidden on mobile (drawer owns these). */}
             <button
               type="button"
               onClick={newThread}
               aria-label="New thread"
               title="New thread"
-              className="h-7 px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
+              className="hidden sm:inline-flex h-8 px-2.5 rounded-md items-center gap-1.5 text-[12.5px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
                 <path d="M6 2.5v7M2.5 6h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
               </svg>
-              <span className="hidden sm:inline">New</span>
+              <span>New</span>
             </button>
 
             <a
               href="/history"
               aria-label="History"
               title="Past trips and conversations"
-              className="h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12.5px] text-lumo-fg-low hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
+              className="hidden sm:inline-flex h-8 px-2.5 rounded-md items-center gap-1.5 text-[12.5px] text-lumo-fg-low hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
             >
               <svg
                 width="12"
@@ -547,13 +568,20 @@ export default function Home() {
                   strokeLinecap="round"
                 />
               </svg>
-              <span className="hidden sm:inline">History</span>
+              <span>History</span>
             </a>
 
             <ThemeToggle />
           </div>
         </div>
       </header>
+
+      {/* Mobile drawer — slides over the chat. Invisible on lg+. */}
+      <MobileNav
+        open={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+        onNewChat={newThread}
+      />
 
       {/* ─── 3-column operator console ──────────────────────────────
           The JARVIS dashboard layout. LeftRail hides below `lg`
@@ -714,8 +742,8 @@ export default function Home() {
                 aria-hidden
               />
 
-              <div className="space-y-5">
-                <h1 className="text-[44px] md:text-[56px] lg:text-[64px] font-semibold tracking-[-0.025em] leading-[1.02] text-lumo-fg">
+              <div className="space-y-4 sm:space-y-5">
+                <h1 className="text-[36px] sm:text-[44px] md:text-[56px] lg:text-[64px] font-semibold tracking-[-0.025em] leading-[1.02] text-lumo-fg">
                   Plan anything,
                   <br />
                   in one{" "}
@@ -728,7 +756,7 @@ export default function Home() {
                   </span>
                   .
                 </h1>
-                <p className="text-[17px] text-lumo-fg-mid max-w-2xl leading-relaxed">
+                <p className="text-[15.5px] sm:text-[17px] text-lumo-fg-mid max-w-2xl leading-relaxed">
                   Lumo is your conversational concierge. Flights, hotels, food,
                   reservations — booked by specialist agents, confirmed in one
                   place. Speak or type; it works either way.

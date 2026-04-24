@@ -16,11 +16,15 @@
   "crons": [
     {
       "path": "/api/cron/proactive-scan",
-      "schedule": "0 8 * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/evaluate-intents",
-      "schedule": "15 8 * * *"
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/detect-patterns",
+      "schedule": "0 3 * * *"
     }
   ]
 }
