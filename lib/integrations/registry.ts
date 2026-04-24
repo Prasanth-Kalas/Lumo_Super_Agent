@@ -52,6 +52,38 @@ import {
 import { gmailGetMessage, gmailSearchMessages, isGoogleApiError } from "./gmail.js";
 import { calendarCreateEvent, calendarListEvents } from "./calendar.js";
 import { contactsSearch } from "./contacts.js";
+import {
+  MICROSOFT_AGENT_ID,
+  MICROSOFT_AUTHORIZE_URL,
+  MICROSOFT_SCOPES,
+  MICROSOFT_SCOPE_DESCRIPTIONS,
+  MICROSOFT_TOKEN_URL,
+  isMicrosoftApiError,
+  isMicrosoftConfigured,
+} from "./microsoft.js";
+import {
+  msCalendarCreateEvent,
+  msCalendarListEvents,
+  msContactsSearch,
+  outlookGetMessage,
+  outlookSearchMessages,
+} from "./microsoft-handlers.js";
+import {
+  SPOTIFY_AGENT_ID,
+  SPOTIFY_AUTHORIZE_URL,
+  SPOTIFY_SCOPES,
+  SPOTIFY_SCOPE_DESCRIPTIONS,
+  SPOTIFY_TOKEN_URL,
+  isSpotifyApiError,
+  isSpotifyConfigured,
+  spotifyAddToQueue,
+  spotifyCurrentPlayback,
+  spotifyPause,
+  spotifyPlay,
+  spotifyRecentlyPlayed,
+  spotifySearch,
+  spotifySkipNext,
+} from "./spotify.js";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Public API
@@ -73,7 +105,9 @@ export function isInternalAgent(agent_id: string): boolean {
 export function getInternalAgentEntries(): RegistryEntry[] {
   const entries: RegistryEntry[] = [];
   if (isGoogleConfigured()) entries.push(buildGoogleEntry());
-  // Future: Slack, Notion, iCloud, Linear, GitHub, etc.
+  if (isMicrosoftConfigured()) entries.push(buildMicrosoftEntry());
+  if (isSpotifyConfigured()) entries.push(buildSpotifyEntry());
+  // Future: Slack, Notion, GitHub, etc.
   return entries;
 }
 
@@ -96,7 +130,11 @@ export async function dispatchInternalTool(args: {
   try {
     return await handler({ access_token: args.access_token, args: args.args });
   } catch (err) {
+    // Known API error shapes propagate as-is so router.ts can map
+    // HTTP status → AgentErrorCode uniformly.
     if (isGoogleApiError(err)) throw err;
+    if (isMicrosoftApiError(err)) throw err;
+    if (isSpotifyApiError(err)) throw err;
     throw err;
   }
 }
@@ -150,9 +188,76 @@ const INTERNAL_TOOL_HANDLERS: Record<string, InternalHandler> = {
       query: String(args.query ?? ""),
       max_results: typeof args.max_results === "number" ? args.max_results : undefined,
     }),
+
+  // ── Microsoft ────────────────────────────────────────────────
+  outlook_search_messages: async ({ access_token, args }) =>
+    outlookSearchMessages({
+      access_token,
+      query: String(args.query ?? ""),
+      max_results: typeof args.max_results === "number" ? args.max_results : undefined,
+    }),
+  outlook_get_message: async ({ access_token, args }) =>
+    outlookGetMessage({
+      access_token,
+      message_id: String(args.message_id ?? ""),
+    }),
+  ms_calendar_list_events: async ({ access_token, args }) =>
+    msCalendarListEvents({
+      access_token,
+      time_min: typeof args.time_min === "string" ? args.time_min : undefined,
+      time_max: typeof args.time_max === "string" ? args.time_max : undefined,
+      max_results: typeof args.max_results === "number" ? args.max_results : undefined,
+    }),
+  ms_calendar_create_event: async ({ access_token, args }) =>
+    msCalendarCreateEvent({
+      access_token,
+      subject: String(args.subject ?? ""),
+      body: typeof args.body === "string" ? args.body : undefined,
+      location: typeof args.location === "string" ? args.location : undefined,
+      start: String(args.start ?? ""),
+      end: String(args.end ?? ""),
+      attendees: Array.isArray(args.attendees)
+        ? (args.attendees as string[]).filter((x) => typeof x === "string")
+        : undefined,
+      is_online: typeof args.is_online === "boolean" ? args.is_online : false,
+    }),
+  ms_contacts_search: async ({ access_token, args }) =>
+    msContactsSearch({
+      access_token,
+      query: String(args.query ?? ""),
+      max_results: typeof args.max_results === "number" ? args.max_results : undefined,
+    }),
+
+  // ── Spotify ─────────────────────────────────────────────────
+  spotify_current_playback: async ({ access_token }) =>
+    spotifyCurrentPlayback({ access_token }),
+  spotify_search: async ({ access_token, args }) =>
+    spotifySearch({
+      access_token,
+      query: String(args.query ?? ""),
+      max_results: typeof args.max_results === "number" ? args.max_results : undefined,
+    }),
+  spotify_play: async ({ access_token, args }) =>
+    spotifyPlay({
+      access_token,
+      uri: typeof args.uri === "string" ? args.uri : undefined,
+    }),
+  spotify_pause: async ({ access_token }) => spotifyPause({ access_token }),
+  spotify_skip_next: async ({ access_token }) => spotifySkipNext({ access_token }),
+  spotify_add_to_queue: async ({ access_token, args }) =>
+    spotifyAddToQueue({ access_token, uri: String(args.uri ?? "") }),
+  spotify_recently_played: async ({ access_token, args }) =>
+    spotifyRecentlyPlayed({
+      access_token,
+      max_results: typeof args.max_results === "number" ? args.max_results : undefined,
+    }),
 };
 
-const INTERNAL_AGENT_IDS = new Set<string>([GOOGLE_AGENT_ID]);
+const INTERNAL_AGENT_IDS = new Set<string>([
+  GOOGLE_AGENT_ID,
+  MICROSOFT_AGENT_ID,
+  SPOTIFY_AGENT_ID,
+]);
 
 // ──────────────────────────────────────────────────────────────────────────
 // Synthesized manifests
@@ -251,7 +356,7 @@ function buildGoogleEntry(): RegistryEntry {
     base_url: `internal://${GOOGLE_AGENT_ID}`,
     manifest,
     openapi: {} as never, // placeholder — internal agents don't use this
-    last_health: { status: "ok", agent_id: GOOGLE_AGENT_ID, version: "0.1.0" },
+    last_health: { status: "ok", agent_id: GOOGLE_AGENT_ID, version: "0.1.0", checked_at: Date.now() },
     health_score: 1.0,
     manifest_loaded_at: Date.now(),
   };
@@ -352,6 +457,8 @@ function buildGoogleRouting(): Record<string, ToolRoutingEntry> {
     http_method: "POST" as const,
     cost_tier: "free" as const,
     pii_required: [] as string[],
+    operation_id: "",
+    intent_tags: [] as string[],
   };
   return {
     gmail_search_messages: {
@@ -388,6 +495,390 @@ function buildGoogleRouting(): Record<string, ToolRoutingEntry> {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Microsoft — synthesized manifest + tools + routing
+// ──────────────────────────────────────────────────────────────────────────
+
+function buildMicrosoftEntry(): RegistryEntry {
+  const manifest: AgentManifest & {
+    connect: {
+      model: "oauth2";
+      authorize_url: string;
+      token_url: string;
+      scopes: Array<{ name: string; description: string; required: boolean }>;
+      client_id_env: string;
+      client_secret_env: string;
+      client_type: "confidential";
+    };
+    listing?: {
+      category?: string;
+      pricing_note?: string;
+      about_paragraphs?: string[];
+      privacy_note?: string;
+    };
+  } = {
+    agent_id: MICROSOFT_AGENT_ID,
+    version: "0.1.0",
+    domain: "personal",
+    display_name: "Microsoft 365 (Outlook · Calendar · Contacts)",
+    one_liner:
+      "Let Lumo read your Outlook mail, see your calendar, and look up your contacts — data stays on Microsoft, never saved in Lumo.",
+    intents: [
+      "search_email",
+      "read_email",
+      "list_calendar",
+      "create_calendar_event",
+      "search_contacts",
+    ],
+    example_utterances: [
+      "did my boss reply to the proposal",
+      "block 2-3pm on Thursday for a call with alex",
+      "who's on my calendar this afternoon",
+    ],
+    openapi_url: `${process.env.LUMO_SHELL_PUBLIC_URL ?? "https://lumo-super-agent.vercel.app"}/.well-known/internal/microsoft`,
+    ui: { components: [] },
+    health_url: `${process.env.LUMO_SHELL_PUBLIC_URL ?? "https://lumo-super-agent.vercel.app"}/api/health`,
+    sla: { p50_latency_ms: 900, p95_latency_ms: 3500, availability_target: 0.99 },
+    pii_scope: ["name", "email"],
+    requires_payment: false,
+    supported_regions: [],
+    capabilities: {
+      sdk_version: "0.4.0",
+      supports_compound_bookings: false,
+      implements_cancellation: false,
+    },
+    connect: {
+      model: "oauth2",
+      authorize_url: MICROSOFT_AUTHORIZE_URL,
+      token_url: MICROSOFT_TOKEN_URL,
+      scopes: MICROSOFT_SCOPES.map((s) => ({
+        name: s,
+        description: MICROSOFT_SCOPE_DESCRIPTIONS[s] ?? s,
+        required: true,
+      })),
+      client_id_env: "LUMO_MICROSOFT_CLIENT_ID",
+      client_secret_env: "LUMO_MICROSOFT_CLIENT_SECRET",
+      client_type: "confidential",
+    },
+    listing: {
+      category: "Personal",
+      pricing_note: "Free · read-heavy by default",
+      about_paragraphs: [
+        "Lumo reads from your Microsoft 365 account at the moment you ask — Outlook mail, your calendar, and your contacts. Nothing is saved in Lumo's database.",
+        "Works for both personal Microsoft accounts and work/school Microsoft 365 (your admin may need to approve the app).",
+      ],
+      privacy_note:
+        "Outlook messages and contacts are never stored in Lumo. Calendar events you ask Lumo to create are created directly on your Outlook calendar.",
+    },
+  };
+
+  return {
+    key: "microsoft",
+    base_url: `internal://${MICROSOFT_AGENT_ID}`,
+    manifest,
+    openapi: {} as never,
+    last_health: { status: "ok", agent_id: MICROSOFT_AGENT_ID, version: "0.1.0", checked_at: Date.now() },
+    health_score: 1.0,
+    manifest_loaded_at: Date.now(),
+  };
+}
+
+function buildMicrosoftClaudeTools(): ClaudeTool[] {
+  return [
+    {
+      name: "outlook_search_messages",
+      description:
+        "Search the user's Outlook mailbox. Uses Microsoft Graph $search (full-text over from/to/subject/body). Returns up to 25 matches with sender, subject, preview, received time, read state. Does NOT return the body — call outlook_get_message for that.",
+      input_schema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Free-text query. Example: 'quarterly review from Alex'." },
+          max_results: { type: "number", description: "1..25. Default 10." },
+        },
+        required: ["query"],
+      },
+    },
+    {
+      name: "outlook_get_message",
+      description:
+        "Fetch the full text body of one Outlook message by id. HTML bodies are stripped to plain text.",
+      input_schema: {
+        type: "object",
+        properties: { message_id: { type: "string" } },
+        required: ["message_id"],
+      },
+    },
+    {
+      name: "ms_calendar_list_events",
+      description:
+        "List events on the user's primary Outlook calendar within a time window. Default window is now..now+7d. Recurrences expanded (calendarView). Returns subject, start/end, location, attendees, online-meeting join URL.",
+      input_schema: {
+        type: "object",
+        properties: {
+          time_min: { type: "string" },
+          time_max: { type: "string" },
+          max_results: { type: "number", description: "1..50. Default 10." },
+        },
+        required: [],
+      },
+    },
+    {
+      name: "ms_calendar_create_event",
+      description:
+        "Create a new event on the user's primary Outlook calendar. WRITE action — show a reservation-style confirmation card first. Supports Teams online-meeting creation via is_online=true.",
+      input_schema: {
+        type: "object",
+        properties: {
+          subject: { type: "string" },
+          body: { type: "string" },
+          location: { type: "string" },
+          start: { type: "string", description: "ISO 8601 datetime." },
+          end: { type: "string", description: "ISO 8601 datetime." },
+          attendees: { type: "array", items: { type: "string" } },
+          is_online: { type: "boolean", description: "Create a Teams meeting. Default false." },
+        },
+        required: ["subject", "start", "end"],
+      },
+    },
+    {
+      name: "ms_contacts_search",
+      description:
+        "Look up a person in the user's Outlook Contacts by name, email, phone, or company. Returns up to 25 matches.",
+      input_schema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          max_results: { type: "number", description: "1..25. Default 10." },
+        },
+        required: ["query"],
+      },
+    },
+  ];
+}
+
+function buildMicrosoftRouting(): Record<string, ToolRoutingEntry> {
+  const common = {
+    agent_id: MICROSOFT_AGENT_ID,
+    http_method: "POST" as const,
+    cost_tier: "free" as const,
+    pii_required: [] as string[],
+    operation_id: "",
+    intent_tags: [] as string[],
+  };
+  return {
+    outlook_search_messages: {
+      ...common,
+      path: "/internal/outlook_search_messages",
+      requires_confirmation: false,
+    },
+    outlook_get_message: {
+      ...common,
+      path: "/internal/outlook_get_message",
+      requires_confirmation: false,
+    },
+    ms_calendar_list_events: {
+      ...common,
+      path: "/internal/ms_calendar_list_events",
+      requires_confirmation: false,
+    },
+    ms_calendar_create_event: {
+      ...common,
+      path: "/internal/ms_calendar_create_event",
+      requires_confirmation: "structured-reservation",
+      cost_tier: "metered",
+    },
+    ms_contacts_search: {
+      ...common,
+      path: "/internal/ms_contacts_search",
+      requires_confirmation: false,
+    },
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Spotify — synthesized manifest + tools + routing
+// ──────────────────────────────────────────────────────────────────────────
+
+function buildSpotifyEntry(): RegistryEntry {
+  const manifest: AgentManifest & {
+    connect: {
+      model: "oauth2";
+      authorize_url: string;
+      token_url: string;
+      scopes: Array<{ name: string; description: string; required: boolean }>;
+      client_id_env: string;
+      client_secret_env: string;
+      client_type: "confidential";
+    };
+    listing?: {
+      category?: string;
+      pricing_note?: string;
+      about_paragraphs?: string[];
+      privacy_note?: string;
+    };
+  } = {
+    agent_id: SPOTIFY_AGENT_ID,
+    version: "0.1.0",
+    domain: "personal",
+    display_name: "Spotify",
+    one_liner:
+      "Ask Lumo what's playing, search for tracks, and control playback — Premium required for play / pause / queue.",
+    intents: [
+      "current_playback",
+      "search_tracks",
+      "play_track",
+      "pause_playback",
+      "queue_track",
+      "recently_played",
+    ],
+    example_utterances: [
+      "what's playing",
+      "play something mellow",
+      "queue that Kendrick album",
+      "pause",
+      "what was that song from yesterday",
+    ],
+    openapi_url: `${process.env.LUMO_SHELL_PUBLIC_URL ?? "https://lumo-super-agent.vercel.app"}/.well-known/internal/spotify`,
+    ui: { components: [] },
+    health_url: `${process.env.LUMO_SHELL_PUBLIC_URL ?? "https://lumo-super-agent.vercel.app"}/api/health`,
+    sla: { p50_latency_ms: 400, p95_latency_ms: 2000, availability_target: 0.99 },
+    pii_scope: ["name", "email"],
+    requires_payment: false,
+    supported_regions: [],
+    capabilities: {
+      sdk_version: "0.4.0",
+      supports_compound_bookings: false,
+      implements_cancellation: false,
+    },
+    connect: {
+      model: "oauth2",
+      authorize_url: SPOTIFY_AUTHORIZE_URL,
+      token_url: SPOTIFY_TOKEN_URL,
+      scopes: SPOTIFY_SCOPES.map((s) => ({
+        name: s,
+        description: SPOTIFY_SCOPE_DESCRIPTIONS[s] ?? s,
+        required: true,
+      })),
+      client_id_env: "LUMO_SPOTIFY_CLIENT_ID",
+      client_secret_env: "LUMO_SPOTIFY_CLIENT_SECRET",
+      client_type: "confidential",
+    },
+    listing: {
+      category: "Personal",
+      pricing_note: "Free to connect · Premium needed for playback",
+      about_paragraphs: [
+        "Lumo can tell you what's playing, search for tracks, and — with Spotify Premium — control playback and queue music on whichever device is currently active.",
+        "Free Spotify accounts can search and see history; play/pause/queue require Premium.",
+      ],
+      privacy_note:
+        "Your listening history and playlists are fetched on demand and never stored in Lumo.",
+    },
+  };
+
+  return {
+    key: "spotify",
+    base_url: `internal://${SPOTIFY_AGENT_ID}`,
+    manifest,
+    openapi: {} as never,
+    last_health: { status: "ok", agent_id: SPOTIFY_AGENT_ID, version: "0.1.0", checked_at: Date.now() },
+    health_score: 1.0,
+    manifest_loaded_at: Date.now(),
+  };
+}
+
+function buildSpotifyClaudeTools(): ClaudeTool[] {
+  return [
+    {
+      name: "spotify_current_playback",
+      description:
+        "Return what's currently playing on Spotify (track, artist, album, device, progress) or nothing-playing if there's no active session.",
+      input_schema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "spotify_search",
+      description:
+        "Search Spotify's catalog for tracks. Returns up to 20 matches with name, artist, album, URI, duration.",
+      input_schema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Natural query, e.g. 'taylor swift anti hero' or 'chill jazz'." },
+          max_results: { type: "number", description: "1..20. Default 10." },
+        },
+        required: ["query"],
+      },
+    },
+    {
+      name: "spotify_play",
+      description:
+        "Resume playback, or start a specific track / album / playlist by URI. Requires Premium. If no active device, user gets an error telling them to open Spotify first.",
+      input_schema: {
+        type: "object",
+        properties: {
+          uri: {
+            type: "string",
+            description: "Spotify URI. spotify:track:… for a single track, spotify:album:… or spotify:playlist:… for context. Omit to resume the current queue.",
+          },
+        },
+        required: [],
+      },
+    },
+    {
+      name: "spotify_pause",
+      description: "Pause playback. Requires Premium.",
+      input_schema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "spotify_skip_next",
+      description: "Skip to the next track in the queue. Requires Premium.",
+      input_schema: { type: "object", properties: {}, required: [] },
+    },
+    {
+      name: "spotify_add_to_queue",
+      description: "Append a track URI to the current playback queue. Requires Premium.",
+      input_schema: {
+        type: "object",
+        properties: {
+          uri: { type: "string", description: "spotify:track:… URI from spotify_search." },
+        },
+        required: ["uri"],
+      },
+    },
+    {
+      name: "spotify_recently_played",
+      description: "List what the user listened to recently (most recent first). Up to 50 items.",
+      input_schema: {
+        type: "object",
+        properties: { max_results: { type: "number", description: "1..50. Default 20." } },
+        required: [],
+      },
+    },
+  ];
+}
+
+function buildSpotifyRouting(): Record<string, ToolRoutingEntry> {
+  const common = {
+    agent_id: SPOTIFY_AGENT_ID,
+    http_method: "POST" as const,
+    cost_tier: "free" as const,
+    pii_required: [] as string[],
+    operation_id: "",
+    intent_tags: [] as string[],
+    requires_confirmation: false as const,
+  };
+  return {
+    spotify_current_playback: { ...common, path: "/internal/spotify_current_playback" },
+    spotify_search: { ...common, path: "/internal/spotify_search" },
+    // Playback writes are low-stakes (reversible, no $) so they skip
+    // the confirmation gate — same as a discovery tool. If users
+    // complain about accidental plays, we'll add a gate later.
+    spotify_play: { ...common, path: "/internal/spotify_play" },
+    spotify_pause: { ...common, path: "/internal/spotify_pause" },
+    spotify_skip_next: { ...common, path: "/internal/spotify_skip_next" },
+    spotify_add_to_queue: { ...common, path: "/internal/spotify_add_to_queue" },
+    spotify_recently_played: { ...common, path: "/internal/spotify_recently_played" },
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Merging helpers — loadRegistry() calls this after its HTTP fetch loop.
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -398,12 +889,15 @@ export function mergeInternalIntoBridge(
   const tools = [...bridge.tools];
   const routing = { ...bridge.routing };
   for (const e of internals) {
-    // We stashed the tools + routing on the entry via manifest helpers;
-    // but loadRegistry() won't have them. We re-derive here.
     if (e.manifest.agent_id === GOOGLE_AGENT_ID) {
       tools.push(...buildGoogleClaudeTools());
-      const r = buildGoogleRouting();
-      for (const [k, v] of Object.entries(r)) routing[k] = v;
+      for (const [k, v] of Object.entries(buildGoogleRouting())) routing[k] = v;
+    } else if (e.manifest.agent_id === MICROSOFT_AGENT_ID) {
+      tools.push(...buildMicrosoftClaudeTools());
+      for (const [k, v] of Object.entries(buildMicrosoftRouting())) routing[k] = v;
+    } else if (e.manifest.agent_id === SPOTIFY_AGENT_ID) {
+      tools.push(...buildSpotifyClaudeTools());
+      for (const [k, v] of Object.entries(buildSpotifyRouting())) routing[k] = v;
     }
   }
   return { tools, routing };
