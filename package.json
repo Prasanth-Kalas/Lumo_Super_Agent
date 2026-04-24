@@ -14,6 +14,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.3",
     "@lumo/agent-sdk": "git+https://github.com/Prasanth-Kalas/Lumo_Agent_SDK.git#cc90f7e5e2ba08729e1bff65e12d31b7b5f356b1",
+    "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.104.1",
     "@tailwindcss/typography": "^0.5.19",
     "ai": "^3.4.33",

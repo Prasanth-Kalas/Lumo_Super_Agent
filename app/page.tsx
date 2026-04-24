@@ -428,6 +428,30 @@ export default function Home() {
               <span className="hidden sm:inline">New</span>
             </button>
 
+            <a
+              href="/history"
+              aria-label="History"
+              title="Past trips and conversations"
+              className="h-8 px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12.5px] text-lumo-fg-low hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                aria-hidden
+              >
+                <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.4" />
+                <path
+                  d="M6 3.5V6l1.6 1.2"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <span className="hidden sm:inline">History</span>
+            </a>
+
             <ThemeToggle />
           </div>
         </div>
