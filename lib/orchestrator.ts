@@ -362,7 +362,11 @@ export async function runTurn(
       try {
         const trip_title = inferTripTitle(input.messages);
         const payload = assembleTripSummary({ trip_title, legs });
-        const record = createDraftTrip(input.session_id, payload);
+        const record = await createDraftTrip(
+          input.session_id,
+          input.user_id,
+          payload,
+        );
         const turn_id = `${input.session_id}:${Date.now()}`;
         const tripSummary: ConfirmationSummary = {
           kind: "structured-trip",
@@ -442,7 +446,7 @@ export async function dispatchConfirmedTrip(
 
   // Mark the trip as dispatching. confirmTrip was already called by the
   // route handler (it needs the hash equality check wired into the gate).
-  let trip = beginDispatch(input.trip_id);
+  let trip = await beginDispatch(input.trip_id);
 
   // Seed UI with every leg in `pending` so the card lights up immediately.
   for (const leg of trip.legs) {
@@ -471,7 +475,7 @@ export async function dispatchConfirmedTrip(
       (d) => trip.legs.find((x) => x.order === d)?.status === "committed",
     );
     if (!allDepsOk) {
-      trip = updateLeg(input.trip_id, leg.order, {
+      trip = await updateLeg(input.trip_id, leg.order, {
         status: "failed",
         error_detail: { reason: "dependency_failed" },
       });
@@ -481,7 +485,7 @@ export async function dispatchConfirmedTrip(
     }
 
     // In-flight.
-    trip = updateLeg(input.trip_id, leg.order, { status: "in_flight" });
+    trip = await updateLeg(input.trip_id, leg.order, { status: "in_flight" });
     emit({ type: "leg_status", value: { order: leg.order, status: "in_flight" } });
 
     // Build args for the bookable tool. The leg's AttachedSummary hash
@@ -527,13 +531,13 @@ export async function dispatchConfirmedTrip(
 
     if (outcome.ok) {
       const booking_id = extractBookingId(outcome.result);
-      trip = updateLeg(input.trip_id, leg.order, {
+      trip = await updateLeg(input.trip_id, leg.order, {
         status: "committed",
         booking_id,
       });
       emit({ type: "leg_status", value: { order: leg.order, status: "committed" } });
     } else {
-      trip = updateLeg(input.trip_id, leg.order, {
+      trip = await updateLeg(input.trip_id, leg.order, {
         status: "failed",
         error_detail: {
           code: outcome.error.code,
@@ -549,7 +553,7 @@ export async function dispatchConfirmedTrip(
   }
 
   if (!forwardFailed) {
-    finalizeTrip(input.trip_id, "committed");
+    await finalizeTrip(input.trip_id, "committed");
     emit({
       type: "text",
       value: "Trip booked. You'll see a confirmation for each leg in your inbox.",
@@ -558,7 +562,7 @@ export async function dispatchConfirmedTrip(
   }
 
   // ─── Saga rollback ────────────────────────────────────────────────
-  const state = snapshot(input.trip_id);
+  const state = await snapshot(input.trip_id);
   const plan = planRollback(state, { routing: registry.bridge.routing });
 
   emit({
@@ -597,13 +601,13 @@ export async function dispatchConfirmedTrip(
     );
 
     if (outcome.ok) {
-      updateLeg(input.trip_id, step.order, { status: "rolled_back" });
+      await updateLeg(input.trip_id, step.order, { status: "rolled_back" });
       emit({
         type: "leg_status",
         value: { order: step.order, status: "rolled_back" },
       });
     } else {
-      updateLeg(input.trip_id, step.order, {
+      await updateLeg(input.trip_id, step.order, {
         status: "rollback_failed",
         error_detail: {
           code: outcome.error.code,
@@ -618,7 +622,7 @@ export async function dispatchConfirmedTrip(
     }
   }
 
-  finalizeTrip(
+  await finalizeTrip(
     input.trip_id,
     anyRollbackFailed ? "rollback_failed" : "rolled_back",
   );
