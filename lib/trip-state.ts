@@ -68,6 +68,13 @@ export interface TripRecord {
   legs: LegExecutionSnapshot[];
   created_at: string;
   updated_at: string;
+  /**
+   * ISO timestamp set when the user pressed Cancel on this trip. Null
+   * if no cancel has been requested. The forward-dispatch loop checks
+   * this between legs and stops dispatching new ones, letting Saga
+   * compensate whatever already committed.
+   */
+  cancel_requested_at: string | null;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -169,6 +176,7 @@ export async function createDraftTrip(
     legs,
     created_at: now(),
     updated_at: now(),
+    cancel_requested_at: null,
   };
 
   // Cache first so a failed DB write still returns something the
@@ -304,6 +312,74 @@ export async function finalizeTrip(
 
   await updateTripStatus(trip_id, terminal);
   return t;
+}
+
+/**
+ * User pressed Cancel. Sets a sticky flag the dispatch loop checks
+ * between legs; once set, the forward pass stops dispatching new legs
+ * and falls through to Saga. For trips that haven't started
+ * dispatching yet (draft/confirmed), finalizing is the caller's job
+ * (the cancel route handles that directly — no legs committed, so
+ * there's nothing to roll back). Idempotent: re-requesting a cancel
+ * is a no-op if the flag is already set.
+ *
+ * Returns the updated record so the caller can branch on current
+ * status without a second round-trip.
+ */
+export async function requestCancel(trip_id: string): Promise<TripRecord> {
+  const t = await requireTrip(trip_id);
+  if (t.cancel_requested_at) return t; // idempotent
+
+  t.cancel_requested_at = now();
+  t.updated_at = now();
+  byTripId.set(trip_id, t);
+
+  const db = getSupabase();
+  if (db) {
+    const { error } = await db
+      .from("trips")
+      .update({ cancel_requested_at: t.cancel_requested_at })
+      .eq("trip_id", trip_id);
+    if (error) {
+      console.error(
+        `[trip-state] requestCancel persist failed (trip=${trip_id}):`,
+        error.message,
+      );
+    }
+  }
+  return t;
+}
+
+/**
+ * Fresh read — bypasses the cache to pick up a cancel_requested_at
+ * set by a /cancel request running on a different function instance.
+ * Only the `cancel_requested_at` column is fetched; cheap.
+ *
+ * In-memory mode falls back to the cached copy, which is fine because
+ * single-process has no cross-instance coherence problem.
+ */
+export async function isCancelRequested(trip_id: string): Promise<boolean> {
+  const db = getSupabase();
+  if (!db) {
+    const cached = byTripId.get(trip_id);
+    return cached?.cancel_requested_at != null;
+  }
+  const { data, error } = await db
+    .from("trips")
+    .select("cancel_requested_at")
+    .eq("trip_id", trip_id)
+    .limit(1);
+  if (error) {
+    console.error(
+      `[trip-state] isCancelRequested read failed (trip=${trip_id}):`,
+      error.message,
+    );
+    // Fallback: trust cache rather than blocking dispatch on a read failure.
+    const cached = byTripId.get(trip_id);
+    return cached?.cancel_requested_at != null;
+  }
+  const row = data?.[0];
+  return row?.cancel_requested_at != null;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -501,7 +577,9 @@ async function loadTripFromDb(
 
   let query = db
     .from("trips")
-    .select("trip_id, session_id, status, hash, payload, created_at, updated_at");
+    .select(
+      "trip_id, session_id, status, hash, payload, created_at, updated_at, cancel_requested_at",
+    );
 
   if ("trip_id" in key) {
     query = query.eq("trip_id", key.trip_id);
@@ -553,6 +631,10 @@ async function loadTripFromDb(
     legs,
     created_at: String(tripRow.created_at),
     updated_at: String(tripRow.updated_at),
+    cancel_requested_at:
+      tripRow.cancel_requested_at == null
+        ? null
+        : String(tripRow.cancel_requested_at),
   };
 }
 

@@ -37,6 +37,7 @@ import {
   createDraftTrip,
   finalizeTrip,
   getTripBySession,
+  isCancelRequested,
   snapshot,
   updateLeg,
 } from "./trip-state.js";
@@ -479,6 +480,24 @@ export async function dispatchConfirmedTrip(
 
   let forwardFailed = false;
   for (const leg of forwardOrder) {
+    // Cooperative cancellation check. The /api/trip/[id]/cancel route
+    // sets cancel_requested_at on the trip row; we poll it at each
+    // leg boundary (never mid-HTTP call — that would strand a
+    // committed booking with no leg row update). If the user cancelled,
+    // stop forward dispatch and let Saga compensate whatever committed.
+    if (await isCancelRequested(input.trip_id)) {
+      emit({
+        type: "internal",
+        value: { kind: "user_cancel_observed", detail: { at_leg_order: leg.order } },
+      });
+      emit({
+        type: "text",
+        value: "Cancellation requested. Stopping dispatch and rolling back committed legs.",
+      });
+      forwardFailed = true;
+      break;
+    }
+
     // Preflight: every dependency must have committed. If a dependency
     // failed we mark this leg `failed` (dependency abort) and carry on —
     // rollback below will compensate only truly-committed legs.
