@@ -44,6 +44,7 @@ const PROTECTED_PAGE_PREFIXES = [
   "/memory",
   "/intents",
   "/autonomy",
+  "/ops",
 ];
 const PROTECTED_API_PREFIXES = [
   "/api/connections",
@@ -51,6 +52,7 @@ const PROTECTED_API_PREFIXES = [
   "/api/intents",
   "/api/notifications",
   "/api/autonomy",
+  "/api/ops",
 ];
 
 export async function middleware(req: NextRequest) {

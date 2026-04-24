@@ -35,6 +35,7 @@ import type { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { randomBytes } from "node:crypto";
 import { getSupabase } from "@/lib/db";
+import { recordCronRun } from "@/lib/ops";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -124,8 +125,20 @@ export async function GET(req: NextRequest): Promise<Response> {
     if (Date.now() - started > 50_000) break;
   }
 
+  const ok = errors.length === 0;
+  void recordCronRun({
+    endpoint: "/api/cron/detect-patterns",
+    started_at: new Date(started),
+    ok,
+    counts: {
+      users_scanned: usersScanned,
+      patterns_upserted: patternsUpserted,
+      candidate_users: userIds.length,
+    },
+    errors: errors.slice(0, 10),
+  });
   return json({
-    ok: errors.length === 0,
+    ok,
     users_scanned: usersScanned,
     patterns_upserted: patternsUpserted,
     latency_ms: Date.now() - started,

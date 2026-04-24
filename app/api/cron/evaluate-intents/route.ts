@@ -34,6 +34,7 @@ import {
   toolKindFor,
 } from "@/lib/autonomy";
 import { dispatchToolCall, type DispatchContext } from "@/lib/router";
+import { recordCronRun } from "@/lib/ops";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -136,8 +137,20 @@ export async function GET(req: NextRequest): Promise<Response> {
     }
   }
 
+  const ok = errors.length === 0;
+  void recordCronRun({
+    endpoint: "/api/cron/evaluate-intents",
+    started_at: new Date(started),
+    ok,
+    counts: {
+      candidates: due.length,
+      auto_dispatched: autoDispatched,
+      notified,
+    },
+    errors,
+  });
   return json({
-    ok: errors.length === 0,
+    ok,
     candidates: due.length,
     auto_dispatched: autoDispatched,
     notified,

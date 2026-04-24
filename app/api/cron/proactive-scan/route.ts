@@ -32,6 +32,7 @@
 import type { NextRequest } from "next/server";
 import { getSupabase } from "@/lib/db";
 import { deliver } from "@/lib/notifications";
+import { recordCronRun } from "@/lib/ops";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -154,8 +155,18 @@ export async function GET(req: NextRequest): Promise<Response> {
     errors.push(`R3:${err instanceof Error ? err.message : String(err)}`);
   }
 
+  const ok = errors.length === 0;
+  // Fire-and-forget — observability must never flip a successful
+  // cron run into a failed one if the insert errors.
+  void recordCronRun({
+    endpoint: "/api/cron/proactive-scan",
+    started_at: new Date(started),
+    ok,
+    counts: { trip_stuck: r1, trip_rolled_back: r2, token_expiring: r3 },
+    errors,
+  });
   return json({
-    ok: errors.length === 0,
+    ok,
     delivered: { trip_stuck: r1, trip_rolled_back: r2, token_expiring: r3 },
     latency_ms: Date.now() - started,
     errors: errors.length ? errors : undefined,
