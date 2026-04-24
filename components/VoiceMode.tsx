@@ -242,6 +242,16 @@ export default function VoiceMode(props: VoiceModeProps) {
   // Refs — mutable state that shouldn't re-render.
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
+  // Premium TTS state — starts "unknown", flips to "available" after
+  // first successful /api/tts call, or "unavailable" after 503/auth
+  // fail (falls back to speechSynthesis for the rest of the session).
+  const premiumStatusRef = useRef<"unknown" | "available" | "unavailable">(
+    "unknown",
+  );
+  // The <audio> element playing the current premium TTS chunk, if
+  // any. We keep it so mute / cancel / barge-in can stop it.
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const activeAudioUrlRef = useRef<string | null>(null);
   const spokenSoFarRef = useRef<number>(0); // index into spokenText already sent to TTS
   const lastSpokenTextRef = useRef<string>(spokenText);
   const userStoppedListeningRef = useRef<boolean>(false); // user intent to be off
@@ -299,6 +309,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     } catch {
       // ignore
     }
+    stopPremiumAudio();
 
     const rec: SpeechRecognitionLike = new Ctor();
     rec.lang = "en-US";
@@ -371,6 +382,201 @@ export default function VoiceMode(props: VoiceModeProps) {
     setState("idle");
   }, []);
 
+  // Muting mid-speech should kill in-flight audio immediately; the
+  // next TTS effect run will skip speaking (muted branch).
+  useEffect(() => {
+    if (muted) {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          // ignore
+        }
+      }
+      // stopPremiumAudio is declared below; inline the cleanup so
+      // hoisting doesn't bite us.
+      const a = activeAudioRef.current;
+      if (a) {
+        try {
+          a.pause();
+          a.src = "";
+        } catch {
+          // ignore
+        }
+      }
+      const url = activeAudioUrlRef.current;
+      if (url) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          // ignore
+        }
+      }
+      activeAudioRef.current = null;
+      activeAudioUrlRef.current = null;
+    }
+  }, [muted]);
+
+  // ─── Premium TTS (ElevenLabs via /api/tts) ────────────────────
+  //
+  // Tries the server-side proxy first. On 503 (key not configured)
+  // or any other non-2xx, permanently flips to "unavailable" and
+  // falls back to browser speechSynthesis — no thrashing per chunk.
+  // Returns a promise that resolves when playback ends OR when
+  // premium is unavailable (caller should fall back then).
+  const playPremiumTts = useCallback(
+    async (
+      text: string,
+      onStart: () => void,
+    ): Promise<"played" | "unavailable" | "aborted"> => {
+      if (premiumStatusRef.current === "unavailable") return "unavailable";
+      if (typeof window === "undefined") return "unavailable";
+
+      let res: Response;
+      try {
+        res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+      } catch (e) {
+        console.warn("[voice] /api/tts network failure, falling back:", e);
+        premiumStatusRef.current = "unavailable";
+        return "unavailable";
+      }
+
+      if (!res.ok || !res.body) {
+        // 503 = not configured; 502 = upstream error. Both fall back.
+        // 401 shouldn't reach us (proxy translates to 503) but treat
+        // any non-2xx the same: flip to unavailable for the session.
+        if (premiumStatusRef.current === "unknown") {
+          console.info(
+            "[voice] premium TTS unavailable (status",
+            res.status + "), using browser fallback",
+          );
+        }
+        premiumStatusRef.current = "unavailable";
+        return "unavailable";
+      }
+
+      // First successful call — remember so we skip the probe next
+      // chunk.
+      premiumStatusRef.current = "available";
+
+      // Buffer the audio stream to a Blob then play. A future
+      // optimization: use MediaSource Extensions for true streaming
+      // playback (start audio before bytes finish arriving). For
+      // v1 we keep it simple — a 2-sentence chunk is a few hundred
+      // KB of MP3 and arrives in well under a second.
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      activeAudioUrlRef.current = url;
+
+      const audio = new Audio(url);
+      audio.preload = "auto";
+      activeAudioRef.current = audio;
+
+      return new Promise<"played" | "aborted">((resolve) => {
+        let started = false;
+        audio.onplaying = () => {
+          if (!started) {
+            started = true;
+            onStart();
+          }
+        };
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          if (activeAudioRef.current === audio) {
+            activeAudioRef.current = null;
+            activeAudioUrlRef.current = null;
+          }
+          resolve("played");
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          if (activeAudioRef.current === audio) {
+            activeAudioRef.current = null;
+            activeAudioUrlRef.current = null;
+          }
+          // Audio decode / network error mid-stream. Don't flip to
+          // "unavailable" for one bad chunk; the next attempt may
+          // succeed. Resolve as "aborted" so caller can decide.
+          resolve("aborted");
+        };
+        audio.play().catch((e) => {
+          // play() rejects on autoplay-policy violation. Browsers
+          // usually allow it after the first user gesture, which
+          // we already have (they tapped the mic). Still — fail
+          // safe.
+          console.warn("[voice] audio.play() rejected:", e);
+          URL.revokeObjectURL(url);
+          activeAudioRef.current = null;
+          activeAudioUrlRef.current = null;
+          resolve("aborted");
+        });
+      });
+    },
+    [],
+  );
+
+  // Stop any in-flight premium audio (used when user cancels /
+  // mutes mid-speech / starts a new turn).
+  const stopPremiumAudio = useCallback(() => {
+    const a = activeAudioRef.current;
+    if (a) {
+      try {
+        a.pause();
+        a.src = "";
+      } catch {
+        // ignore
+      }
+    }
+    const url = activeAudioUrlRef.current;
+    if (url) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // ignore
+      }
+    }
+    activeAudioRef.current = null;
+    activeAudioUrlRef.current = null;
+  }, []);
+
+  // Speak with auto-fallback: tries premium first, falls through
+  // to speechSynthesis on failure. onStart fires once audio starts
+  // playing; returns a promise that resolves when playback ends.
+  const speakWithFallback = useCallback(
+    async (text: string, onStart: () => void): Promise<void> => {
+      if (!text.trim()) return;
+      const speakable = toSpeakable(text);
+
+      // Try premium first.
+      const premium = await playPremiumTts(speakable, onStart);
+      if (premium === "played" || premium === "aborted") return;
+
+      // Premium unavailable — fall back to browser speechSynthesis.
+      if (
+        typeof window === "undefined" ||
+        !("speechSynthesis" in window)
+      ) {
+        return;
+      }
+      const u = new SpeechSynthesisUtterance(speakable);
+      if (voiceRef.current) u.voice = voiceRef.current;
+      u.rate = 1.05;
+      u.pitch = 1.0;
+      u.volume = 1.0;
+      await new Promise<void>((resolve) => {
+        u.onstart = onStart;
+        u.onend = () => resolve();
+        u.onerror = () => resolve();
+        window.speechSynthesis.speak(u);
+      });
+    },
+    [playPremiumTts],
+  );
+
   // ─── TTS: speak the next sentence as assistant text grows ────
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return;
@@ -395,33 +601,24 @@ export default function VoiceMode(props: VoiceModeProps) {
     // tail-flush effect below.
     if (muted) return;
 
-    const u = new SpeechSynthesisUtterance(toSpeakable(chunk));
-    if (voiceRef.current) u.voice = voiceRef.current;
-    u.rate = 1.05;
-    u.pitch = 1.0;
-    u.volume = 1.0;
-    u.onstart = () => setState("speaking");
-    u.onend = () => {
-      // If no more utterances are pending, decide what to do next.
-      if (
-        !window.speechSynthesis.speaking &&
-        !window.speechSynthesis.pending
-      ) {
-        if (busy) {
-          setState("thinking");
-        } else if (wantHandsFreeRef.current && enabled) {
-          // Auto-resume listening for the next user turn — classic
-          // hands-free conversational loop.
-          setState("idle");
-          setTimeout(() => startListening(), 200);
-        } else {
-          setState("idle");
-        }
+    // Fire and forget. speakWithFallback tries premium first, falls
+    // back to speechSynthesis on failure. State transitions fire
+    // when playback actually starts + when it ends.
+    void speakWithFallback(chunk, () => setState("speaking")).then(() => {
+      // Decide next state. For speechSynthesis we used to check
+      // the global queue here — with the Audio-element path there's
+      // no global queue, so we just act on the in-flight promise's
+      // completion.
+      if (busy) {
+        setState("thinking");
+      } else if (wantHandsFreeRef.current && enabled) {
+        setState("idle");
+        setTimeout(() => startListening(), 200);
+      } else {
+        setState("idle");
       }
-    };
-    u.onerror = () => setState("idle");
-    window.speechSynthesis.speak(u);
-  }, [spokenText, enabled, busy, startListening, muted]);
+    });
+  }, [spokenText, enabled, busy, startListening, muted, speakWithFallback]);
 
   // Flush the tail once the agent turn ends (!busy) so we don't
   // drop the last sentence if it didn't end with punctuation.
@@ -447,20 +644,15 @@ export default function VoiceMode(props: VoiceModeProps) {
       return;
     }
 
-    const u = new SpeechSynthesisUtterance(toSpeakable(tail));
-    if (voiceRef.current) u.voice = voiceRef.current;
-    u.rate = 1.05;
-    u.onstart = () => setState("speaking");
-    u.onend = () => {
+    void speakWithFallback(tail, () => setState("speaking")).then(() => {
       if (wantHandsFreeRef.current && enabled) {
         setState("idle");
         setTimeout(() => startListening(), 200);
       } else {
         setState("idle");
       }
-    };
-    window.speechSynthesis.speak(u);
-  }, [busy, spokenText, enabled, startListening, muted]);
+    });
+  }, [busy, spokenText, enabled, startListening, muted, speakWithFallback]);
 
   // While the network is busy, reflect "thinking" if we're not mid-TTS.
   useEffect(() => {
@@ -496,6 +688,7 @@ export default function VoiceMode(props: VoiceModeProps) {
                 // ignore
               }
             }
+            stopPremiumAudio();
             startListening();
           },
         });
@@ -586,6 +779,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
+      stopPremiumAudio();
       setState("off");
       setInterim("");
       return;
@@ -700,6 +894,7 @@ export default function VoiceMode(props: VoiceModeProps) {
               if (typeof window !== "undefined") {
                 window.speechSynthesis?.cancel();
               }
+              stopPremiumAudio();
               setState("idle");
               if (wantHandsFreeRef.current) {
                 setTimeout(() => startListening(), 100);
