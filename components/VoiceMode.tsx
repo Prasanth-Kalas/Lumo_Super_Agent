@@ -266,6 +266,19 @@ export default function VoiceMode(props: VoiceModeProps) {
   // Active streaming-audio handle for the in-flight premium TTS
   // chunk, if any. Mute / cancel / barge-in call .stop() on it.
   const activeStreamRef = useRef<StreamingAudioHandle | null>(null);
+  // Serialized TTS queue. The root cause of "multiple voices"
+  // playing over each other was that every spokenText change that
+  // produced a speakable chunk called speakWithFallback() directly,
+  // kicking off a fresh /api/tts fetch + new <Audio> element without
+  // waiting for the previous one to finish. Audio elements don't
+  // cooperate — they all just play. The fix: every caller enqueues,
+  // and a single worker (runTtsWorker) drains the queue one chunk at
+  // a time, awaiting each chunk's playback before starting the next.
+  // Mute, turn-reset, and mode-exit clear the queue AND stop the
+  // active stream so nothing lingers.
+  const ttsQueueRef = useRef<string[]>([]);
+  const ttsWorkerRunningRef = useRef<boolean>(false);
+  const ttsTurnIdRef = useRef<number>(0); // bumped on every fresh turn
   const spokenSoFarRef = useRef<number>(0); // index into spokenText already sent to TTS
   const lastSpokenTextRef = useRef<string>(spokenText);
   const userStoppedListeningRef = useRef<boolean>(false); // user intent to be off
@@ -309,140 +322,14 @@ export default function VoiceMode(props: VoiceModeProps) {
     };
   }, []);
 
-  // ─── STT lifecycle ───────────────────────────────────────────
-  const startListening = useCallback(() => {
-    if (!supportedRef.current) return;
-    if (typeof window === "undefined") return;
-    const Ctor =
-      window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
-    if (!Ctor) return;
-
-    // Idempotency guard. The hands-free loop can race — both the
-    // chunk-speak effect AND the tail-flush effect schedule a
-    // setTimeout(() => startListening(), 200) when TTS ends. Without
-    // this guard, two SpeechRecognition instances end up running
-    // simultaneously and each emits the user's utterance → duplicate
-    // turns ("from Chicago" appearing twice in the thread).
-    if (recognitionRef.current) {
-      return;
-    }
-
-    // Stop any current TTS first — user wants to speak now.
-    try {
-      window.speechSynthesis?.cancel();
-    } catch {
-      // ignore
-    }
-    stopPremiumAudio();
-
-    const rec: SpeechRecognitionLike = new Ctor();
-    rec.lang = "en-US";
-    rec.continuous = false;
-    rec.interimResults = true;
-    rec.maxAlternatives = 1;
-
-    rec.onstart = () => {
-      setState("listening");
-      setInterim("");
-    };
-    rec.onresult = (e) => {
-      let finalText = "";
-      let interimText = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        if (!r) continue;
-        const alt = r[0];
-        if (!alt) continue;
-        if (r.isFinal) finalText += alt.transcript;
-        else interimText += alt.transcript;
-      }
-      if (interimText) setInterim(interimText);
-      if (finalText) {
-        const clean = finalText.trim();
-        setInterim("");
-        if (clean) {
-          userStoppedListeningRef.current = false;
-          onUserUtterance(clean);
-        }
-      }
-    };
-    rec.onerror = (e) => {
-      const code = e.error ?? "unknown";
-      if (code === "no-speech" || code === "aborted") {
-        // Benign — the user stopped without saying anything. Back to
-        // idle without scaring them with a red error state.
-        setState("idle");
-        return;
-      }
-      setErrorMessage(code);
-      setState("error");
-    };
-    rec.onend = () => {
-      // Release the guard so the next startListening call (on the
-      // next agent turn) can create a fresh recognizer.
-      if (recognitionRef.current === rec) {
-        recognitionRef.current = null;
-      }
-      // If we're still listening by state (e.g. hands-free loop), no
-      // action needed — whoever transitioned us out will handle it.
-      // If we ended unexpectedly, drop back to idle.
-      setState((prev) => (prev === "listening" ? "idle" : prev));
-    };
-
-    recognitionRef.current = rec;
-    try {
-      rec.start();
-    } catch (err) {
-      // Calling start() while recognition is already running throws
-      // "InvalidStateError" — treat as a no-op.
-      console.warn("[voice] start failed:", err);
-    }
-  }, [onUserUtterance]);
-
-  const stopListening = useCallback(() => {
-    const rec = recognitionRef.current;
-    if (!rec) return;
-    userStoppedListeningRef.current = true;
-    try {
-      rec.stop();
-    } catch {
-      // ignore
-    }
-    setState("idle");
-  }, []);
-
-  // Muting mid-speech should kill in-flight audio immediately; the
-  // next TTS effect run will skip speaking (muted branch).
-  useEffect(() => {
-    if (!muted) return;
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch {
-        // ignore
-      }
-    }
-    const h = activeStreamRef.current;
-    if (h) {
-      try {
-        h.stop();
-      } catch {
-        // ignore
-      }
-    }
-    activeStreamRef.current = null;
-  }, [muted]);
-
   // ─── Premium TTS (ElevenLabs via /api/tts) ────────────────────
   //
-  // Tries the server-side proxy first. On 503 (key not configured),
-  // 502 (upstream error, e.g. ElevenLabs 402), or network failure,
-  // marks "unavailable" and records the timestamp. Subsequent turns
-  // within PREMIUM_TTS_COOLDOWN_MS skip the probe and fall straight
-  // back to browser speechSynthesis (no thrashing). Once the cooldown
-  // has elapsed, the next turn re-probes — if upstream is healthy
-  // again we resume premium audio transparently. Falls back to
-  // speechSynthesis whenever premium can't play.
+  // Declared BEFORE the STT lifecycle because startListening needs
+  // to call cancelTts() to stop any in-flight audio when the user
+  // begins speaking. The six functions below (playPremiumTts,
+  // stopPremiumAudio, playOneChunk, runTtsWorker, enqueueTts,
+  // cancelTts) are all useCallback-stable refs so the dependency
+  // arrays downstream don't trigger unnecessary re-renders.
   const playPremiumTts = useCallback(
     async (
       text: string,
@@ -450,15 +337,11 @@ export default function VoiceMode(props: VoiceModeProps) {
     ): Promise<"played" | "unavailable" | "aborted"> => {
       if (typeof window === "undefined") return "unavailable";
 
-      // Cooldown gate: honor a recent "unavailable" verdict, but let
-      // it expire so a brief upstream blip doesn't lock out the rest
-      // of the session.
       if (premiumStatusRef.current === "unavailable") {
         const sinceMs = Date.now() - premiumUnavailableSinceRef.current;
         if (sinceMs < PREMIUM_TTS_COOLDOWN_MS) {
           return "unavailable";
         }
-        // Cooldown expired — flip back to "unknown" so we re-probe.
         premiumStatusRef.current = "unknown";
       }
 
@@ -480,12 +363,6 @@ export default function VoiceMode(props: VoiceModeProps) {
       }
 
       if (!res.ok || !res.body) {
-        // 503 = not configured; 502 = upstream error. Both fall back.
-        // 401 shouldn't reach us (proxy translates to 503) but treat
-        // any non-2xx the same: flip to unavailable with a cooldown
-        // so we'll silently recover when upstream heals. (The earlier
-        // cooldown gate already reset the status ref to "unknown" if
-        // we got this far, so this is always a first-or-fresh log.)
         console.info(
           "[voice] premium TTS unavailable (status",
           res.status + "), using browser fallback; will re-probe in",
@@ -496,17 +373,9 @@ export default function VoiceMode(props: VoiceModeProps) {
         return "unavailable";
       }
 
-      // First successful call — remember so we skip the probe next
-      // chunk. Clear the cooldown marker so we don't accidentally
-      // honor a stale timestamp later.
       premiumStatusRef.current = "available";
       premiumUnavailableSinceRef.current = 0;
 
-      // Play via the streaming audio player. With MSE available,
-      // playback starts after the first MP3 frame lands in the
-      // SourceBuffer — typically within ~400ms of the fetch start
-      // for Turbo v2.5. Blob fallback buffers the full response
-      // first (same as the prior implementation).
       return new Promise<"played" | "aborted">((resolve) => {
         const handle = playAudioStream(res, {
           onStart: () => onStart(),
@@ -523,34 +392,33 @@ export default function VoiceMode(props: VoiceModeProps) {
     [],
   );
 
-  // Stop any in-flight premium audio (used when user cancels /
-  // mutes mid-speech / starts a new turn). Delegates to the
-  // streaming player's stop() which handles both MSE + blob paths.
+  // Stop any in-flight premium audio. Used by cancelTts and as a
+  // cheap direct call when we know there's no queue to drain.
   const stopPremiumAudio = useCallback(() => {
     const h = activeStreamRef.current;
     if (h) {
       try {
         h.stop();
       } catch {
-        // ignore
+        /* ignore */
       }
     }
     activeStreamRef.current = null;
   }, []);
 
-  // Speak with auto-fallback: tries premium first, falls through
-  // to speechSynthesis on failure. onStart fires once audio starts
-  // playing; returns a promise that resolves when playback ends.
-  const speakWithFallback = useCallback(
+  // Play ONE chunk to completion. Tries premium first, falls back
+  // to speechSynthesis only on premium failure. Resolves ONLY when
+  // the audio has actually finished — runTtsWorker depends on that
+  // to serialize. Never call this from a render effect directly;
+  // enqueue via enqueueTts().
+  const playOneChunk = useCallback(
     async (text: string, onStart: () => void): Promise<void> => {
       if (!text.trim()) return;
       const speakable = toSpeakable(text);
 
-      // Try premium first.
       const premium = await playPremiumTts(speakable, onStart);
       if (premium === "played" || premium === "aborted") return;
 
-      // Premium unavailable — fall back to browser speechSynthesis.
       if (
         typeof window === "undefined" ||
         !("speechSynthesis" in window)
@@ -572,14 +440,285 @@ export default function VoiceMode(props: VoiceModeProps) {
     [playPremiumTts],
   );
 
+  // Drain the queue one chunk at a time. ttsWorkerRunningRef
+  // guards against concurrent workers (which would re-introduce
+  // the overlap bug). The worker captures the turn id at entry;
+  // if cancelTts bumps it mid-drain, the loop exits instead of
+  // grabbing the next queued chunk.
+  const runTtsWorker = useCallback(
+    async (onFinalChunkEnd?: () => void) => {
+      if (ttsWorkerRunningRef.current) return;
+      ttsWorkerRunningRef.current = true;
+      const myTurn = ttsTurnIdRef.current;
+      try {
+        while (
+          ttsQueueRef.current.length > 0 &&
+          myTurn === ttsTurnIdRef.current
+        ) {
+          const next = ttsQueueRef.current.shift();
+          if (!next) continue;
+          await playOneChunk(next, () => setState("speaking"));
+        }
+      } finally {
+        ttsWorkerRunningRef.current = false;
+      }
+      if (
+        myTurn === ttsTurnIdRef.current &&
+        ttsQueueRef.current.length === 0
+      ) {
+        onFinalChunkEnd?.();
+      }
+    },
+    [playOneChunk],
+  );
+
+  const enqueueTts = useCallback(
+    (text: string, onFinalChunkEnd?: () => void) => {
+      if (!text.trim()) return;
+      ttsQueueRef.current.push(text);
+      void runTtsWorker(onFinalChunkEnd);
+    },
+    [runTtsWorker],
+  );
+
+  // Kill everything in flight: empty the queue, stop active stream,
+  // cancel browser speechSynthesis, and bump turn id so any worker
+  // mid-loop exits before grabbing another chunk. Called on mute,
+  // turn-reset (new user utterance), and master-toggle-off.
+  const cancelTts = useCallback(() => {
+    ttsTurnIdRef.current += 1;
+    ttsQueueRef.current.length = 0;
+    stopPremiumAudio();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [stopPremiumAudio]);
+
+  // ─── STT lifecycle ───────────────────────────────────────────
+  //
+  // We run Web Speech in CONTINUOUS mode with interim results and
+  // roll our own end-of-turn detection via a silence timer. The
+  // default continuous=false mode fires isFinal after ~700 ms of
+  // silence, which splits natural pauses mid-sentence ("Flight to
+  // Chicago… for next Friday") into two user turns. Continuous
+  // mode lets us accumulate final segments and only dispatch the
+  // combined transcript when SILENCE_END_MS has elapsed since the
+  // last result — i.e. the user actually stopped talking.
+  const SILENCE_END_MS = 1200;
+  const finalBufferRef = useRef<string>("");
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }, []);
+
+  const startListening = useCallback(() => {
+    if (!supportedRef.current) return;
+    if (typeof window === "undefined") return;
+    const Ctor =
+      window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
+    if (!Ctor) return;
+
+    // Idempotency guard. The hands-free loop can race — both the
+    // chunk-speak effect AND the tail-flush effect schedule a
+    // setTimeout(() => startListening(), 200) when TTS ends. Without
+    // this guard, two SpeechRecognition instances end up running
+    // simultaneously and each emits the user's utterance → duplicate
+    // turns ("from Chicago" appearing twice in the thread).
+    if (recognitionRef.current) {
+      return;
+    }
+
+    // Stop any current TTS first — user wants to speak now. This
+    // also empties the queue and bumps the turn id so any in-flight
+    // worker exits before grabbing another chunk.
+    cancelTts();
+
+    // Fresh buffer for this listening session.
+    finalBufferRef.current = "";
+    clearSilenceTimer();
+
+    const rec: SpeechRecognitionLike = new Ctor();
+    // Prefer the browser's declared UI language when available; a
+    // user who set their laptop to en-GB shouldn't get en-US STT.
+    // Defaults to en-US when navigator.language is missing or not
+    // an "en-*" tag (we don't guess non-English for now — would
+    // need a proper user-preferred_language plumb).
+    const navLang =
+      typeof navigator !== "undefined" ? navigator.language : "";
+    rec.lang = /^en(-|$)/i.test(navLang) ? navLang : "en-US";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+
+    // Dispatch whatever we've accumulated and end the session. Used
+    // by both the silence timer and the explicit stop button. Safe
+    // to call multiple times — the buffer is cleared before dispatch
+    // so the second call is a no-op.
+    const dispatchAndStop = () => {
+      clearSilenceTimer();
+      const finalText = finalBufferRef.current.trim();
+      finalBufferRef.current = "";
+      setInterim("");
+      if (finalText) {
+        userStoppedListeningRef.current = false;
+        onUserUtterance(finalText);
+      }
+      try {
+        rec.stop();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    rec.onstart = () => {
+      setState("listening");
+      setInterim("");
+    };
+    rec.onresult = (e) => {
+      let interimText = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (!r) continue;
+        const alt = r[0];
+        if (!alt) continue;
+        if (r.isFinal) {
+          // Accumulate into the turn buffer — do NOT dispatch yet.
+          // Web Speech fires a fresh final on every short pause;
+          // we want the full sentence, joined with spaces.
+          const seg = alt.transcript.trim();
+          if (seg) {
+            finalBufferRef.current = finalBufferRef.current
+              ? `${finalBufferRef.current} ${seg}`
+              : seg;
+          }
+        } else {
+          interimText += alt.transcript;
+        }
+      }
+
+      // Show current-state transcript in the "Heard:" pill —
+      // combination of committed finals + what the user is still
+      // saying. Reads more naturally than just the latest interim.
+      const committed = finalBufferRef.current;
+      setInterim(
+        committed && interimText
+          ? `${committed} ${interimText}`
+          : committed || interimText,
+      );
+
+      // Reset the silence timer. End-of-turn fires only if no new
+      // result arrives within SILENCE_END_MS.
+      clearSilenceTimer();
+      silenceTimerRef.current = setTimeout(() => {
+        dispatchAndStop();
+      }, SILENCE_END_MS);
+    };
+    rec.onerror = (e) => {
+      const code = e.error ?? "unknown";
+      if (code === "no-speech" || code === "aborted") {
+        // Benign. If we have buffered text, dispatch it; otherwise
+        // just drop back to idle.
+        clearSilenceTimer();
+        const buffered = finalBufferRef.current.trim();
+        finalBufferRef.current = "";
+        if (buffered) onUserUtterance(buffered);
+        setState("idle");
+        return;
+      }
+      setErrorMessage(code);
+      setState("error");
+    };
+    rec.onend = () => {
+      clearSilenceTimer();
+      // If the recognizer ended with anything still buffered —
+      // browser sometimes ends the session unprompted, e.g. tab
+      // visibility change — flush it so we don't lose the turn.
+      const pending = finalBufferRef.current.trim();
+      finalBufferRef.current = "";
+      if (pending) {
+        try {
+          onUserUtterance(pending);
+        } catch {
+          /* ignore */
+        }
+      }
+      if (recognitionRef.current === rec) {
+        recognitionRef.current = null;
+      }
+      setState((prev) => (prev === "listening" ? "idle" : prev));
+    };
+
+    recognitionRef.current = rec;
+    try {
+      rec.start();
+    } catch (err) {
+      // Calling start() while recognition is already running throws
+      // "InvalidStateError" — treat as a no-op.
+      console.warn("[voice] start failed:", err);
+    }
+  }, [onUserUtterance, cancelTts, clearSilenceTimer]);
+
+  const stopListening = useCallback(() => {
+    const rec = recognitionRef.current;
+    if (!rec) return;
+    userStoppedListeningRef.current = true;
+    // Flush anything we've heard so far — otherwise the user's
+    // mid-sentence Stop click loses the transcript silently.
+    clearSilenceTimer();
+    const buffered = finalBufferRef.current.trim();
+    finalBufferRef.current = "";
+    setInterim("");
+    if (buffered) {
+      try {
+        onUserUtterance(buffered);
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      rec.stop();
+    } catch {
+      // ignore
+    }
+    setState("idle");
+  }, [clearSilenceTimer, onUserUtterance]);
+
+  // Muting mid-speech should kill in-flight audio immediately,
+  // drain the queue so nothing resumes on un-mute, and bump the
+  // turn id so any worker mid-loop exits instead of grabbing the
+  // next chunk.
+  useEffect(() => {
+    if (!muted) return;
+    cancelTts();
+  }, [muted, cancelTts]);
+
   // ─── TTS: speak the next sentence as assistant text grows ────
+  //
+  // We NEVER call play directly from this effect. Every speakable
+  // chunk is pushed onto ttsQueueRef and the worker drains them
+  // serially. The fix for the "multiple voices" bug lives entirely
+  // in that serialization — if two chunks become ready before the
+  // first finishes playing, they wait their turn instead of
+  // starting a second parallel <Audio>.
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return;
     if (!("speechSynthesis" in window)) return;
 
-    // Agent turn just started (spokenText reset). Clear buffer.
+    // Agent turn just started (spokenText reset to something
+    // shorter than what we'd seen). Clear speak-index AND cancel
+    // any leftover audio/queue from the previous turn — otherwise
+    // the tail of turn N-1 plays over the head of turn N.
     if (spokenText.length < lastSpokenTextRef.current.length) {
       spokenSoFarRef.current = 0;
+      cancelTts();
     }
     lastSpokenTextRef.current = spokenText;
 
@@ -596,14 +735,11 @@ export default function VoiceMode(props: VoiceModeProps) {
     // tail-flush effect below.
     if (muted) return;
 
-    // Fire and forget. speakWithFallback tries premium first, falls
-    // back to speechSynthesis on failure. State transitions fire
-    // when playback actually starts + when it ends.
-    void speakWithFallback(chunk, () => setState("speaking")).then(() => {
-      // Decide next state. For speechSynthesis we used to check
-      // the global queue here — with the Audio-element path there's
-      // no global queue, so we just act on the in-flight promise's
-      // completion.
+    // Enqueue. The onFinalChunkEnd callback fires only when the
+    // worker has drained the queue AND the turn id still matches —
+    // i.e. no newer chunk has been added behind us. That's the
+    // right moment to transition state.
+    enqueueTts(chunk, () => {
       if (busy) {
         setState("thinking");
       } else if (wantHandsFreeRef.current && enabled) {
@@ -613,22 +749,36 @@ export default function VoiceMode(props: VoiceModeProps) {
         setState("idle");
       }
     });
-  }, [spokenText, enabled, busy, startListening, muted, speakWithFallback]);
+  }, [spokenText, enabled, busy, startListening, muted, enqueueTts, cancelTts]);
 
   // Flush the tail once the agent turn ends (!busy) so we don't
-  // drop the last sentence if it didn't end with punctuation.
+  // drop the last sentence if it didn't end with punctuation. Also
+  // enqueued — the worker will pick it up after any chunks still
+  // in flight, which prevents the race where the tail flush used
+  // to start its own concurrent fetch.
   useEffect(() => {
     if (busy) return;
     if (!enabled || typeof window === "undefined") return;
     if (!("speechSynthesis" in window)) return;
 
     const tail = spokenText.slice(spokenSoFarRef.current).trim();
-    if (!tail) return;
+    if (!tail) {
+      // Nothing to speak, but we may still need to resume the mic
+      // if all chunks are already done.
+      if (
+        !ttsWorkerRunningRef.current &&
+        wantHandsFreeRef.current &&
+        enabled &&
+        !muted
+      ) {
+        setState("idle");
+        setTimeout(() => startListening(), 200);
+      }
+      return;
+    }
 
     spokenSoFarRef.current = spokenText.length;
 
-    // Muted tail: skip TTS, still resume listening so the
-    // conversational loop keeps working.
     if (muted) {
       if (wantHandsFreeRef.current && enabled) {
         setState("idle");
@@ -639,7 +789,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       return;
     }
 
-    void speakWithFallback(tail, () => setState("speaking")).then(() => {
+    enqueueTts(tail, () => {
       if (wantHandsFreeRef.current && enabled) {
         setState("idle");
         setTimeout(() => startListening(), 200);
@@ -647,7 +797,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         setState("idle");
       }
     });
-  }, [busy, spokenText, enabled, startListening, muted, speakWithFallback]);
+  }, [busy, spokenText, enabled, startListening, muted, enqueueTts]);
 
   // While the network is busy, reflect "thinking" if we're not mid-TTS.
   useEffect(() => {
@@ -771,17 +921,14 @@ export default function VoiceMode(props: VoiceModeProps) {
         // ignore
       }
       wakeWordRef.current = null;
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-      stopPremiumAudio();
+      cancelTts();
       setState("off");
       setInterim("");
       return;
     }
     if (state === "off" && supportedRef.current) setState("idle");
     if (state === "off" && !supportedRef.current) setState("unsupported");
-  }, [enabled, state]);
+  }, [enabled, state, cancelTts]);
 
   // ─── Presentation ────────────────────────────────────────────
   if (state === "unsupported" && enabled) {
