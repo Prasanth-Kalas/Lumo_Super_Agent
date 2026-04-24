@@ -5,9 +5,21 @@
  *  - building the system prompt from the registry,
  *  - running the Claude tool-use loop,
  *  - dispatching each tool_use to the correct agent via router.ts,
- *  - streaming assistant text back to the client,
+ *  - streaming assistant text (and SSE frames) back to the client,
  *  - persisting the turn (stubbed — wire to Supabase in follow-up PR),
  *  - failing over to OpenAI (GPT-4o) when Anthropic is unhealthy.
+ *
+ * Compound orchestration (task #29, 2026-04):
+ *  - After the tool-use loop, if Claude priced ≥2 legs in a single turn
+ *    (each one's tool result carried a v0.1 `_lumo_summary` envelope and
+ *    we can resolve a bookable counterpart + monetary total), we build a
+ *    compound TripSummary via `lib/trip-planner` and stash a draft trip
+ *    in `lib/trip-state`. The shell then renders a single TripConfirmationCard.
+ *  - When the user affirms on the next turn, `/api/chat` doesn't re-enter
+ *    the Claude loop — it calls `dispatchConfirmedTrip` from this module,
+ *    which walks legs in forward-topological order, emits `leg_status`
+ *    frames live, and on any failure invokes the Saga (`lib/saga`) and
+ *    emits rollback `leg_status` frames.
  *
  * This file is intentionally self-contained. The money-gate lives inside
  * router.dispatchToolCall — not here — so we cannot accidentally bypass it.
@@ -17,12 +29,27 @@ import Anthropic from "@anthropic-ai/sdk";
 import { ensureRegistry, healthyBridge } from "./agent-registry.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { buildSystemPrompt } from "./system-prompt.js";
+import { assembleTripSummary, TripAssemblyError, type PricedLeg } from "./trip-planner.js";
+import {
+  beginDispatch,
+  confirmTrip,
+  createDraftTrip,
+  finalizeTrip,
+  getTripBySession,
+  snapshot,
+  updateLeg,
+} from "./trip-state.js";
+import { planRollback } from "./saga.js";
 import {
   isAffirmative,
   hashSummary,
+  hashTripSummary,
   extractAttachedSummary,
   stripAttachedSummary,
+  type AttachedSummary,
+  type ConfirmationKind,
   type ConfirmationSummary,
+  type TripSummaryPayload,
 } from "@lumo/agent-sdk";
 
 export interface ChatMessage {
@@ -79,7 +106,45 @@ export interface OrchestratorTurn {
    * turn (unusual), the last one wins.
    */
   selections: InteractiveSelection[];
+  /**
+   * When the turn materialised a compound trip draft, the trip_id. The
+   * route handler uses this to bind SSE `leg_status` frames to the right
+   * summary on the next (confirm) turn.
+   */
+  draft_trip_id?: string;
 }
+
+/** Anything the route handler wants to surface as an SSE frame. Structured. */
+export type OrchestratorFrame =
+  | { type: "text"; value: string }
+  | {
+      type: "tool";
+      value: {
+        name: string;
+        agent_id: string;
+        latency_ms: number;
+        ok: boolean;
+        error_code?: string;
+      };
+    }
+  | { type: "selection"; value: InteractiveSelection }
+  | { type: "summary"; value: ConfirmationSummary }
+  | {
+      type: "leg_status";
+      value: {
+        order: number;
+        status:
+          | "pending"
+          | "in_flight"
+          | "committed"
+          | "failed"
+          | "rolled_back"
+          | "rollback_failed";
+      };
+    }
+  | { type: "error"; value: { message: string } };
+
+export type EmitFrame = (frame: OrchestratorFrame) => void;
 
 const MAX_TOOL_LOOP = 6;
 // Sonnet 4.6 is the orchestrator brain. Originally ran on Opus 4.6 for
@@ -95,7 +160,14 @@ const MAX_TOOL_LOOP = 6;
 // for their own in-house flows.
 const MODEL = "claude-sonnet-4-6";
 
-export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTurn> {
+// ──────────────────────────────────────────────────────────────────────────
+// runTurn — one Claude turn, optionally emitting live SSE frames
+// ──────────────────────────────────────────────────────────────────────────
+
+export async function runTurn(
+  input: OrchestratorInput,
+  emit: EmitFrame = () => {},
+): Promise<OrchestratorTurn> {
   const registry = await ensureRegistry();
   const bridge = healthyBridge(registry);
   const system = buildSystemPrompt({
@@ -122,9 +194,22 @@ export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTur
 
   const toolCalls: OrchestratorTurn["tool_calls"] = [];
   const selections: InteractiveSelection[] = [];
+
+  // Candidates for compound trip assembly. Every successful tool call whose
+  // result carried a v0.1 `_lumo_summary` envelope is a potential leg. We
+  // decide post-loop whether there are enough (≥2) to fold into a trip.
+  interface TripLegCandidate {
+    agent_id: string;
+    pricing_tool_name: string;
+    summary: AttachedSummary;
+    /** The stripped-of-envelope pricing result body, used to extract total_amount/currency. */
+    result_body: Record<string, unknown>;
+  }
+  const tripLegCandidates: TripLegCandidate[] = [];
+
   let assistantText = "";
   let renderedSummary: ConfirmationSummary | null = null;
-  let loopAssistantMessages: Anthropic.MessageParam[] = [];
+  const loopAssistantMessages: Anthropic.MessageParam[] = [];
 
   for (let i = 0; i < MAX_TOOL_LOOP; i++) {
     const response = await anthropic.messages.create({
@@ -135,12 +220,17 @@ export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTur
       messages: [...messages, ...loopAssistantMessages],
     });
 
-    // Collect any text Claude emitted this pass.
+    // Collect any text Claude emitted this pass — and stream it live.
+    let passText = "";
     for (const block of response.content) {
-      if (block.type === "text") assistantText += block.text;
+      if (block.type === "text") passText += block.text;
+    }
+    if (passText) {
+      assistantText += passText;
+      emit({ type: "text", value: passText });
     }
 
-    // If Claude embedded a structured summary tag, capture it.
+    // If Claude embedded a structured summary tag, capture it (legacy path).
     const parsed = extractSummary(assistantText);
     if (parsed) renderedSummary = parsed;
 
@@ -178,13 +268,15 @@ export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTur
       );
 
       const routing = registry.bridge.routing[tu.name];
-      toolCalls.push({
+      const traceFrame = {
         name: tu.name,
         agent_id: routing?.agent_id ?? "unknown",
         latency_ms: outcome.latency_ms,
         ok: outcome.ok,
         error_code: outcome.ok ? undefined : outcome.error.code,
-      });
+      };
+      toolCalls.push(traceFrame);
+      emit({ type: "tool", value: traceFrame });
 
       // If this tool result carries an agent-authoritative confirmation
       // envelope, adopt it as the turn's summary. This is the primary
@@ -203,12 +295,23 @@ export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTur
             turn_id,
             rendered_at: new Date().toISOString(),
           };
-          // Don't send the envelope to Claude — it's shell-internal
-          // metadata, not domain data the model should reason over.
-          resultForModel =
+          // Stash as a trip-leg candidate — we may fold ≥2 of these into
+          // a compound TripSummary after the loop exits. The `result_body`
+          // is stripped of the envelope so we can safely spread it into a
+          // bookable tool's args on the confirm turn.
+          const stripped =
             typeof outcome.result === "object" && outcome.result !== null
               ? stripAttachedSummary(outcome.result as Record<string, unknown>)
-              : outcome.result;
+              : {};
+          tripLegCandidates.push({
+            agent_id: routing?.agent_id ?? "unknown",
+            pricing_tool_name: tu.name,
+            summary: env,
+            result_body: stripped as Record<string, unknown>,
+          });
+          // Don't send the envelope to Claude — it's shell-internal
+          // metadata, not domain data the model should reason over.
+          resultForModel = stripped;
         }
       }
 
@@ -239,6 +342,7 @@ export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTur
           };
           if (idx >= 0) selections[idx] = entry;
           else selections.push(entry);
+          emit({ type: "selection", value: entry });
         }
       }
     }
@@ -246,12 +350,464 @@ export async function runTurn(input: OrchestratorInput): Promise<OrchestratorTur
     loopAssistantMessages.push(toolResults);
   }
 
+  // ─── Compound trip assembly (post-loop) ──────────────────────────────
+  // If Claude priced ≥2 specialist legs in this turn, upgrade the single-
+  // leg summary (if any) to a compound `structured-trip` summary. The
+  // user sees one confirmation card; the next turn's dispatch flow
+  // (dispatchConfirmedTrip, below) walks the legs in DAG order.
+  let draft_trip_id: string | undefined;
+  if (tripLegCandidates.length >= 2) {
+    const legs = resolveTripLegs(tripLegCandidates, registry.bridge.routing);
+    if (legs.length >= 2) {
+      try {
+        const trip_title = inferTripTitle(input.messages);
+        const payload = assembleTripSummary({ trip_title, legs });
+        const record = createDraftTrip(input.session_id, payload);
+        const turn_id = `${input.session_id}:${Date.now()}`;
+        const tripSummary: ConfirmationSummary = {
+          kind: "structured-trip",
+          payload: payload as unknown,
+          hash: record.hash,
+          session_id: input.session_id,
+          turn_id,
+          rendered_at: new Date().toISOString(),
+        };
+        renderedSummary = tripSummary;
+        draft_trip_id = record.trip_id;
+        emit({ type: "summary", value: tripSummary });
+      } catch (err) {
+        if (err instanceof TripAssemblyError) {
+          console.warn(
+            `[orchestrator] trip assembly failed (${err.code}): ${err.message}`,
+          );
+          // Fall through — leave renderedSummary as the last single-leg
+          // summary (if any) so the user still gets something actionable.
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
+
+  // If we didn't compose a compound trip but we DID capture a single-
+  // leg summary from a tool result, emit it now. (For compound trips the
+  // emit happens above; the route handler only emits this frame once.)
+  if (!draft_trip_id && renderedSummary) {
+    emit({ type: "summary", value: renderedSummary });
+  }
+
   return {
     assistant_text: assistantText.trim(),
     tool_calls: toolCalls,
     summary: renderedSummary,
     selections,
+    draft_trip_id,
   };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// dispatchConfirmedTrip — user affirmed; walk legs in DAG order
+// ──────────────────────────────────────────────────────────────────────────
+
+export interface DispatchTripInput {
+  trip_id: string;
+  session_id: string;
+  user_id: string;
+  user_region: string;
+  device_kind: "web" | "ios" | "android" | "watch";
+  user_pii: Record<string, unknown>;
+}
+
+/**
+ * Called by `/api/chat` when the user affirms a draft compound trip.
+ * Walks every leg of the trip in forward-topological order (dependencies
+ * first), dispatching the bookable tool for each. Emits `leg_status`
+ * frames live so the TripConfirmationCard can animate progress.
+ *
+ * On any leg failure the forward pass stops, we snapshot the trip, and
+ * hand the snapshot to `planRollback` from `lib/saga`. Each rollback
+ * step is then dispatched, again with live `leg_status` frames (the card
+ * uses the same state field for both forward and backward status —
+ * `rolled_back` / `rollback_failed` are distinct statuses so the UI can
+ * colour them differently).
+ *
+ * This function has side-effects (state-store mutations, HTTP calls) but
+ * doesn't log; leave that to the route handler, which sees every frame.
+ */
+export async function dispatchConfirmedTrip(
+  input: DispatchTripInput,
+  emit: EmitFrame,
+): Promise<void> {
+  const registry = await ensureRegistry();
+
+  // Mark the trip as dispatching. confirmTrip was already called by the
+  // route handler (it needs the hash equality check wired into the gate).
+  let trip = beginDispatch(input.trip_id);
+
+  // Seed UI with every leg in `pending` so the card lights up immediately.
+  for (const leg of trip.legs) {
+    emit({ type: "leg_status", value: { order: leg.order, status: "pending" } });
+  }
+
+  // Forward-topological walk. We compute depths once and dispatch in
+  // ascending depth order (ties broken by ascending `order`). If any leg
+  // fails, we stop forward dispatch and flip to Saga rollback.
+  const depthMap = computeLegDepths(trip.legs);
+  const forwardOrder = trip.legs
+    .slice()
+    .sort((a, b) => {
+      const da = depthMap.get(a.order) ?? 0;
+      const db = depthMap.get(b.order) ?? 0;
+      if (da !== db) return da - db;
+      return a.order - b.order;
+    });
+
+  let forwardFailed = false;
+  for (const leg of forwardOrder) {
+    // Preflight: every dependency must have committed. If a dependency
+    // failed we mark this leg `failed` (dependency abort) and carry on —
+    // rollback below will compensate only truly-committed legs.
+    const allDepsOk = leg.depends_on.every(
+      (d) => trip.legs.find((x) => x.order === d)?.status === "committed",
+    );
+    if (!allDepsOk) {
+      trip = updateLeg(input.trip_id, leg.order, {
+        status: "failed",
+        error_detail: { reason: "dependency_failed" },
+      });
+      emit({ type: "leg_status", value: { order: leg.order, status: "failed" } });
+      forwardFailed = true;
+      continue;
+    }
+
+    // In-flight.
+    trip = updateLeg(input.trip_id, leg.order, { status: "in_flight" });
+    emit({ type: "leg_status", value: { order: leg.order, status: "in_flight" } });
+
+    // Build args for the bookable tool. The leg's AttachedSummary hash
+    // is the summary_hash the confirmation gate checks. We also pass
+    // `trip_hash` + `trip_leg_order` so compound-aware agents can use
+    // `evaluateCompoundConfirmation` instead of the single-leg gate.
+    //
+    // The pricing tool's result body is NOT stored on the leg (trip-
+    // state intentionally keeps only DAG-level info). For v1 we inline
+    // the minimum the bookable tool needs: the leg summary's payload
+    // (each agent knows how to read back its own shape from the payload).
+    const legRef = trip.payload.legs.find((l) => l.order === leg.order);
+    if (!legRef) continue; // unreachable — snapshot matches payload
+    const legSummaryPayload = legRef.summary.payload as Record<string, unknown>;
+    const args: Record<string, unknown> = {
+      ...legSummaryPayload,
+      summary_hash: legRef.summary.hash,
+      trip_hash: trip.hash,
+      trip_leg_order: leg.order,
+    };
+
+    const turn_id = `${input.session_id}:${Date.now()}`;
+    const legPriorSummary: ConfirmationSummary = {
+      kind: legRef.summary.kind,
+      payload: legRef.summary.payload as unknown,
+      hash: legRef.summary.hash,
+      session_id: input.session_id,
+      turn_id,
+      rendered_at: new Date().toISOString(),
+    };
+
+    const outcome = await dispatchToolCall(leg.tool_name, args, {
+      user_id: input.user_id,
+      session_id: input.session_id,
+      turn_id,
+      idempotency_key: `${input.session_id}:trip_${input.trip_id}:leg_${leg.order}`,
+      region: input.user_region,
+      device_kind: input.device_kind,
+      prior_summary: legPriorSummary,
+      user_confirmed: true,
+      user_pii: input.user_pii,
+    });
+
+    if (outcome.ok) {
+      const booking_id = extractBookingId(outcome.result);
+      trip = updateLeg(input.trip_id, leg.order, {
+        status: "committed",
+        booking_id,
+      });
+      emit({ type: "leg_status", value: { order: leg.order, status: "committed" } });
+    } else {
+      trip = updateLeg(input.trip_id, leg.order, {
+        status: "failed",
+        error_detail: {
+          code: outcome.error.code,
+          message: outcome.error.message,
+        },
+      });
+      emit({ type: "leg_status", value: { order: leg.order, status: "failed" } });
+      forwardFailed = true;
+      // Fail-fast: stop forward dispatch. Subsequent legs that haven't
+      // run yet stay in `pending`. Rollback only touches `committed`.
+      break;
+    }
+  }
+
+  if (!forwardFailed) {
+    finalizeTrip(input.trip_id, "committed");
+    emit({
+      type: "text",
+      value: "Trip booked. You'll see a confirmation for each leg in your inbox.",
+    });
+    return;
+  }
+
+  // ─── Saga rollback ────────────────────────────────────────────────
+  const state = snapshot(input.trip_id);
+  const plan = planRollback(state, { routing: registry.bridge.routing });
+
+  emit({
+    type: "text",
+    value:
+      plan.steps.length > 0
+        ? "One leg failed — rolling back the parts I already committed."
+        : "One leg failed. The committed parts cannot be auto-cancelled; I'll flag this to support.",
+  });
+
+  let anyRollbackFailed = plan.manual_escalations.length > 0;
+  for (const step of plan.steps) {
+    emit({
+      type: "leg_status",
+      value: { order: step.order, status: "in_flight" },
+    });
+
+    const turn_id = `${input.session_id}:${Date.now()}`;
+    const outcome = await dispatchToolCall(
+      step.tool_name,
+      step.body as unknown as Record<string, unknown>,
+      {
+        user_id: input.user_id,
+        session_id: input.session_id,
+        turn_id,
+        idempotency_key: `${input.session_id}:trip_${input.trip_id}:rollback_leg_${step.order}`,
+        region: input.user_region,
+        device_kind: input.device_kind,
+        prior_summary: null,
+        // Cancel tools are idempotent and do not go through the
+        // money-gate (cost_tier !== "money"), so user_confirmed is not
+        // meaningful — we pass true defensively.
+        user_confirmed: true,
+        user_pii: input.user_pii,
+      },
+    );
+
+    if (outcome.ok) {
+      updateLeg(input.trip_id, step.order, { status: "rolled_back" });
+      emit({
+        type: "leg_status",
+        value: { order: step.order, status: "rolled_back" },
+      });
+    } else {
+      updateLeg(input.trip_id, step.order, {
+        status: "rollback_failed",
+        error_detail: {
+          code: outcome.error.code,
+          message: outcome.error.message,
+        },
+      });
+      emit({
+        type: "leg_status",
+        value: { order: step.order, status: "rollback_failed" },
+      });
+      anyRollbackFailed = true;
+    }
+  }
+
+  finalizeTrip(
+    input.trip_id,
+    anyRollbackFailed ? "rollback_failed" : "rolled_back",
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Trip-leg resolution
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Turn raw TripLegCandidates (one per AttachedSummary captured during
+ * the tool-use loop) into validated `PricedLeg`s ready for
+ * `assembleTripSummary`. Drops any candidate that:
+ *   - has no resolvable bookable counterpart (pricing tool without a
+ *     matching money tool on the same agent), or
+ *   - lacks an extractable decimal amount + ISO currency.
+ *
+ * Order is assigned densely (1..N) in the order Claude called the
+ * pricing tools. For v1 every leg's `depends_on` is `[]` — legs commit
+ * independently. Saga rollback still works because it orders by `order`
+ * descending as the tiebreaker when depths are equal (see `lib/saga.ts`
+ * :: computeDepths). A future task can widen this to chain / fork DAGs
+ * inferred from the user utterance.
+ */
+function resolveTripLegs(
+  candidates: Array<{
+    agent_id: string;
+    pricing_tool_name: string;
+    summary: AttachedSummary;
+    result_body: Record<string, unknown>;
+  }>,
+  routing: Record<string, import("@lumo/agent-sdk").ToolRoutingEntry>,
+): PricedLeg[] {
+  const legs: PricedLeg[] = [];
+  let nextOrder = 1;
+  for (const c of candidates) {
+    const bookable = resolveBookableTool(c.agent_id, c.summary.kind, routing);
+    if (!bookable) continue;
+    const amounts = extractLegAmount(c.result_body, c.summary.payload);
+    if (!amounts) continue;
+    legs.push({
+      agent_id: c.agent_id,
+      tool_name: bookable,
+      order: nextOrder++,
+      depends_on: [],
+      summary: c.summary,
+      leg_amount: amounts.amount,
+      currency: amounts.currency,
+    });
+  }
+  return legs;
+}
+
+/**
+ * Given a pricing tool's agent + the confirmation `kind` it emits, find
+ * the bookable (money-tier) tool on the same agent that requires that
+ * kind. This is the pairing the SDK already enforces — we just look it
+ * up reflectively rather than hardcoding `flight_price_offer →
+ * flight_book_offer` etc.
+ *
+ * Returns the bookable tool name, or `null` if none found.
+ */
+function resolveBookableTool(
+  agent_id: string,
+  kind: ConfirmationKind,
+  routing: Record<string, import("@lumo/agent-sdk").ToolRoutingEntry>,
+): string | null {
+  for (const [toolName, entry] of Object.entries(routing)) {
+    if (entry.agent_id !== agent_id) continue;
+    if (entry.cost_tier !== "money") continue;
+    if (entry.requires_confirmation !== kind) continue;
+    return toolName;
+  }
+  return null;
+}
+
+/**
+ * Extract a decimal amount + ISO currency for a leg. Tries the stripped
+ * pricing body first (where agents typically surface `total_amount` as
+ * a top-level field), falling back to the AttachedSummary's payload.
+ *
+ * Currency is ISO 4217 (3 letters, uppercase).
+ */
+function extractLegAmount(
+  body: Record<string, unknown>,
+  payload: unknown,
+): { amount: string; currency: string } | null {
+  const sources: Array<Record<string, unknown> | null> = [
+    body,
+    isRecord(payload) ? payload : null,
+  ];
+  for (const src of sources) {
+    if (!src) continue;
+    const amount = firstDecimalString(src, [
+      "total_amount",
+      "subtotal",
+      "total",
+      "price",
+      "amount",
+    ]);
+    const currency = firstCurrency(src);
+    if (amount && currency) return { amount, currency };
+  }
+  return null;
+}
+
+function firstDecimalString(src: Record<string, unknown>, keys: string[]): string | null {
+  for (const k of keys) {
+    const v = src[k];
+    if (typeof v === "string" && /^\d+(\.\d+)?$/.test(v)) return v;
+    if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
+      // Reject floats with more than 4 decimal places — those almost
+      // certainly came from IEEE-754 drift and shouldn't be trusted as
+      // money. Agents that emit numeric amounts should string-format.
+      const s = String(v);
+      if (/^\d+(\.\d{1,4})?$/.test(s)) return s;
+    }
+  }
+  return null;
+}
+
+function firstCurrency(src: Record<string, unknown>): string | null {
+  const c = src["currency"];
+  if (typeof c === "string" && /^[A-Z]{3}$/.test(c)) return c;
+  return null;
+}
+
+/**
+ * Best-effort booking_id extraction from a bookable-tool result body.
+ * Tried in order: `booking_id`, `order_id`, `reservation_id`, `id`.
+ * Returns undefined if none present — saga.ts escalates that leg to
+ * manual rather than auto-compensating.
+ */
+function extractBookingId(result: unknown): string | undefined {
+  if (!isRecord(result)) return undefined;
+  for (const k of ["booking_id", "order_id", "reservation_id", "id"]) {
+    const v = result[k];
+    if (typeof v === "string" && v.length > 0) return v;
+  }
+  return undefined;
+}
+
+/**
+ * Synthesize a trip title from the user's last intent-carrying message.
+ * Intentionally dumb for v1 — we just take up to 60 chars of the latest
+ * user message with trailing punctuation stripped. A future task can
+ * route this through a cheap LLM call for prettier titles.
+ */
+function inferTripTitle(messages: ChatMessage[]): string {
+  const lastUser = messages.findLast((m) => m.role === "user")?.content?.trim() ?? "";
+  if (!lastUser) return "Your trip";
+  const firstLine = lastUser.split("\n")[0] ?? "";
+  const trimmed = firstLine.replace(/[.!?]+$/, "").trim();
+  if (!trimmed) return "Your trip";
+  return trimmed.length > 60 ? trimmed.slice(0, 57).trim() + "…" : trimmed;
+}
+
+/**
+ * Legal depths for per-leg forward dispatch. Mirrors saga.ts' reverse-
+ * topological depth computation but runs it ascending (dep-free legs
+ * first). Guards cycles defensively even though assembleTripSummary /
+ * attachTripSummary already reject them.
+ */
+function computeLegDepths(
+  legs: Array<{ order: number; depends_on: number[] }>,
+): Map<number, number> {
+  const byOrder = new Map<number, { order: number; depends_on: number[] }>();
+  for (const l of legs) byOrder.set(l.order, l);
+
+  const depths = new Map<number, number>();
+  function depth(order: number, seen: Set<number>): number {
+    if (depths.has(order)) return depths.get(order)!;
+    if (seen.has(order)) return 0;
+    const leg = byOrder.get(order);
+    if (!leg || leg.depends_on.length === 0) {
+      depths.set(order, 0);
+      return 0;
+    }
+    const next = new Set(seen);
+    next.add(order);
+    let d = 0;
+    for (const dep of leg.depends_on) {
+      d = Math.max(d, depth(dep, next) + 1);
+    }
+    depths.set(order, d);
+    return d;
+  }
+  for (const l of legs) depth(l.order, new Set());
+  return depths;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -328,3 +884,16 @@ function extractSummary(text: string): ConfirmationSummary | null {
     return null;
   }
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Tiny utils
+// ──────────────────────────────────────────────────────────────────────────
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+// Re-exported so route handlers don't need to import the state store directly
+// to check "does this session have a draft trip waiting for confirmation".
+export { getTripBySession, confirmTrip, hashTripSummary };
+export type { TripSummaryPayload };

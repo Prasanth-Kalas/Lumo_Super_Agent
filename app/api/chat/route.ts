@@ -3,18 +3,40 @@
  *
  * Body: { session_id, messages: ChatMessage[], device_kind?, region? }
  * Response: text/event-stream (SSE) emitting frames of these types:
- *   - { type: "text",      value: string }
- *   - { type: "tool",      value: ToolCallTrace }             (debug only)
- *   - { type: "selection", value: { kind, payload } }         (rich UI)
- *   - { type: "summary",   value: ConfirmationSummary }       (money gate)
- *   - { type: "error",     value: { message } }
+ *   - { type: "text",       value: string }
+ *   - { type: "tool",       value: ToolCallTrace }           (debug only)
+ *   - { type: "selection",  value: { kind, payload } }       (rich UI)
+ *   - { type: "summary",    value: ConfirmationSummary }     (money gate)
+ *   - { type: "leg_status", value: { order, status } }       (compound trip)
+ *   - { type: "error",      value: { message } }
  *   Terminates with { type: "done" }.
+ *
+ * Two turn shapes are handled here:
+ *
+ *  1. Normal turn — call `runTurn` with a live emit closure. Frames stream
+ *     out as Claude produces them (text deltas, tool traces, selection
+ *     cards, and — last — the summary).
+ *
+ *  2. Compound-trip confirm turn — the previous turn produced a draft
+ *     TripSummary (via `orchestrator`'s post-loop assembly). If the user's
+ *     latest message is affirmative AND a draft trip exists for this
+ *     session, we skip the Claude loop entirely and hand off to
+ *     `dispatchConfirmedTrip`, which walks the legs in DAG order and
+ *     streams `leg_status` frames — plus Saga rollback on any leg failure.
  *
  * Auth is stubbed — wire Clerk in a follow-up PR.
  */
 
 import { NextRequest } from "next/server";
-import { runTurn, type ChatMessage } from "@/lib/orchestrator";
+import { isAffirmative } from "@lumo/agent-sdk";
+import {
+  confirmTrip,
+  dispatchConfirmedTrip,
+  getTripBySession,
+  runTurn,
+  type ChatMessage,
+  type EmitFrame,
+} from "@/lib/orchestrator";
 
 export const runtime = "nodejs"; // orchestrator uses Anthropic SDK + node:crypto
 export const dynamic = "force-dynamic";
@@ -50,30 +72,64 @@ export async function POST(req: NextRequest): Promise<Response> {
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
-      const send = (frame: unknown) =>
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
+      let closed = false;
+      const send = (frame: unknown) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`));
+        } catch {
+          // Client disconnected mid-stream. Swallow — nothing to do.
+        }
+      };
+
+      // Emit closure the orchestrator uses to stream frames live. The
+      // orchestrator owns the frame types (see OrchestratorFrame); we
+      // just forward them over SSE.
+      const emit: EmitFrame = (frame) => send(frame);
 
       try {
-        const turn = await runTurn({
-          session_id: body.session_id,
-          user_id,
-          user_first_name: body.user_first_name ?? null,
-          user_region,
-          device_kind,
-          messages: body.messages,
-          user_pii,
-        });
+        // ─── Compound-trip confirm turn ──────────────────────────────
+        // If the prior turn drafted a TripSummary for this session AND
+        // the user just said yes, we bypass the Claude loop and go
+        // straight to leg dispatch + Saga.
+        const lastUserMessage =
+          body.messages.findLast((m) => m.role === "user")?.content ?? "";
+        const draft = getTripBySession(body.session_id);
+        if (draft && draft.status === "draft" && isAffirmative(lastUserMessage)) {
+          // Promote draft → confirmed. Hash is already canonical on the
+          // trip record; we pass it back as the equality check (any future
+          // payload mutation would change the hash and trip.ts would reject).
+          confirmTrip(draft.trip_id, draft.hash);
+          await dispatchConfirmedTrip(
+            {
+              trip_id: draft.trip_id,
+              session_id: body.session_id,
+              user_id,
+              user_region,
+              device_kind,
+              user_pii,
+            },
+            emit,
+          );
+          send({ type: "done" });
+          return;
+        }
 
-        // For v0 we return the full assistant text as one frame. Real streaming
-        // from Anthropic (messages.stream) is wired in the next PR.
-        send({ type: "text", value: turn.assistant_text });
-        for (const tc of turn.tool_calls) {
-          send({ type: "tool", value: tc });
-        }
-        for (const s of turn.selections) {
-          send({ type: "selection", value: s });
-        }
-        if (turn.summary) send({ type: "summary", value: turn.summary });
+        // ─── Normal turn ─────────────────────────────────────────────
+        // runTurn now streams frames via `emit` as they arrive.
+        await runTurn(
+          {
+            session_id: body.session_id,
+            user_id,
+            user_first_name: body.user_first_name ?? null,
+            user_region,
+            device_kind,
+            messages: body.messages,
+            user_pii,
+          },
+          emit,
+        );
+
         send({ type: "done" });
       } catch (err) {
         console.error("[/api/chat] error:", err);
@@ -82,7 +138,12 @@ export async function POST(req: NextRequest): Promise<Response> {
           value: { message: err instanceof Error ? err.message : String(err) },
         });
       } finally {
-        controller.close();
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
       }
     },
   });
