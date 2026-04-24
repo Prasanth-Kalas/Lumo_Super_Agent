@@ -304,6 +304,16 @@ export default function VoiceMode(props: VoiceModeProps) {
       window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
     if (!Ctor) return;
 
+    // Idempotency guard. The hands-free loop can race — both the
+    // chunk-speak effect AND the tail-flush effect schedule a
+    // setTimeout(() => startListening(), 200) when TTS ends. Without
+    // this guard, two SpeechRecognition instances end up running
+    // simultaneously and each emits the user's utterance → duplicate
+    // turns ("from Chicago" appearing twice in the thread).
+    if (recognitionRef.current) {
+      return;
+    }
+
     // Stop any current TTS first — user wants to speak now.
     try {
       window.speechSynthesis?.cancel();
@@ -355,6 +365,11 @@ export default function VoiceMode(props: VoiceModeProps) {
       setState("error");
     };
     rec.onend = () => {
+      // Release the guard so the next startListening call (on the
+      // next agent turn) can create a fresh recognizer.
+      if (recognitionRef.current === rec) {
+        recognitionRef.current = null;
+      }
       // If we're still listening by state (e.g. hands-free loop), no
       // action needed — whoever transitioned us out will handle it.
       // If we ended unexpectedly, drop back to idle.

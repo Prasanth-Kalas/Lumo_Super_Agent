@@ -322,7 +322,17 @@ export default function Home() {
           }
 
           if (frame.type === "text") {
-            const chunk = String(frame.value ?? "");
+            const rawChunk = String(frame.value ?? "");
+            // Claude sometimes emits consecutive text blocks with no
+            // whitespace between them — e.g. an ack + the main
+            // response, where the tail of block 1 ends "...now!" and
+            // block 2 starts "Got a few...". Result: "now!Got".
+            // Fix: if the new chunk starts with a capital letter and
+            // the accumulated text ends with sentence punctuation
+            // without trailing whitespace, insert a space.
+            const needsSpace =
+              /[.!?](["')\]]*)$/.test(assistantText) && /^[A-Z]/.test(rawChunk);
+            const chunk = needsSpace ? " " + rawChunk : rawChunk;
             assistantText += chunk;
             if (voiceEnabled) {
               // Mirror into the spoken buffer so VoiceMode can start
