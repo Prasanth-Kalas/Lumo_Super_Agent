@@ -42,12 +42,19 @@ import {
 } from "@/lib/streaming-audio";
 
 type PreviewState = "idle" | "loading" | "playing";
+// Three-valued diagnostic instead of a simple boolean: we split the
+// "not configured" case (admin hasn't plugged in ElevenLabs) from the
+// "upstream blip" case (proxy is wired up, but ElevenLabs itself is
+// refusing — billing issue, 402, or transient outage). Same fallback
+// behavior; clearer copy so the operator isn't chasing a missing key
+// when the real problem is a declined card.
+type PremiumStatus = "available" | "not-configured" | "upstream-issue";
 
 export default function VoicePicker() {
   const [selectedId, setSelectedIdState] = useState<string>(VOICE_CATALOG[0]!.id);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>("idle");
-  const [premiumAvailable, setPremiumAvailable] = useState<boolean>(true);
+  const [premiumStatus, setPremiumStatus] = useState<PremiumStatus>("available");
   const activeRef = useRef<StreamingAudioHandle | null>(null);
 
   // Hydrate the selected id from localStorage after mount.
@@ -93,24 +100,31 @@ export default function VoicePicker() {
           }),
         });
       } catch (e) {
+        // Pure network failure before the proxy could answer. Treat
+        // as an upstream/transport issue rather than misconfiguration.
         console.warn("[voice-picker] /api/tts failed:", e);
-        setPremiumAvailable(false);
+        setPremiumStatus("upstream-issue");
         setPreviewState("idle");
         setPreviewId(null);
         return;
       }
 
       if (!res.ok) {
-        // 503 = not configured. Surface once so the user knows why
-        // preview isn't working — but don't stop them from picking
-        // a voice for when the key is eventually set.
-        setPremiumAvailable(false);
+        // Distinguish between the two failure classes so the banner
+        // tells the operator what to actually do:
+        //   503 → ELEVENLABS_API_KEY isn't set, or upstream returned
+        //         401 (which the proxy re-maps to 503). Admin config
+        //         issue.
+        //   everything else (502 upstream_error / upstream_unreachable,
+        //         5xx) → proxy is wired up but ElevenLabs itself is
+        //         refusing. Usually billing (402) or a brief outage.
+        setPremiumStatus(res.status === 503 ? "not-configured" : "upstream-issue");
         setPreviewState("idle");
         setPreviewId(null);
         return;
       }
 
-      setPremiumAvailable(true);
+      setPremiumStatus("available");
 
       const handle = playAudioStream(res, {
         onStart: () => setPreviewState("playing"),
@@ -134,11 +148,18 @@ export default function VoicePicker() {
 
   return (
     <div className="space-y-4">
-      {!premiumAvailable ? (
+      {premiumStatus === "not-configured" ? (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-[13px] text-amber-600 dark:text-amber-400">
           Premium voice previews aren&apos;t available — your admin
           hasn&apos;t configured ElevenLabs yet. Pick a voice now and
           it&apos;ll take effect once they do.
+        </div>
+      ) : premiumStatus === "upstream-issue" ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-[13px] text-amber-600 dark:text-amber-400">
+          Premium voice is temporarily unavailable — ElevenLabs refused
+          the request (often a billing or quota issue). Your admin can
+          check the subscription; Lumo will pick it up as soon as
+          upstream recovers.
         </div>
       ) : null}
 

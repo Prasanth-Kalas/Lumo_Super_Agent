@@ -46,6 +46,13 @@ import { startWakeWord, type WakeWordHandle } from "@/lib/wake-word";
 import { playAudioStream, type StreamingAudioHandle } from "@/lib/streaming-audio";
 import { getSelectedVoiceId } from "@/lib/voice-catalog";
 
+// How long to honor a "premium TTS unavailable" verdict before
+// re-probing. Tuned for transient upstream issues (ElevenLabs 402
+// while billing bumps through, brief 5xx, network glitch) — 60 s is
+// long enough to avoid thrash on every chunk, short enough to recover
+// within a single conversation once upstream heals.
+const PREMIUM_TTS_COOLDOWN_MS = 60_000;
+
 // ─── Types for the Web Speech API that TS doesn't ship ────────────
 // We declare only what we touch. See:
 // https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition
@@ -245,11 +252,17 @@ export default function VoiceMode(props: VoiceModeProps) {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   // Premium TTS state — starts "unknown", flips to "available" after
-  // first successful /api/tts call, or "unavailable" after 503/auth
-  // fail (falls back to speechSynthesis for the rest of the session).
+  // first successful /api/tts call, or "unavailable" after a network
+  // or non-2xx response. Crucially NOT a session-permanent lock: we
+  // hold the "unavailable" verdict for `PREMIUM_TTS_COOLDOWN_MS` then
+  // quietly re-probe on the next speech turn. This means a transient
+  // upstream blip (ElevenLabs 402/timeout, short outage) no longer
+  // condemns the rest of the session to browser TTS — we recover as
+  // soon as the upstream does.
   const premiumStatusRef = useRef<"unknown" | "available" | "unavailable">(
     "unknown",
   );
+  const premiumUnavailableSinceRef = useRef<number>(0);
   // Active streaming-audio handle for the in-flight premium TTS
   // chunk, if any. Mute / cancel / barge-in call .stop() on it.
   const activeStreamRef = useRef<StreamingAudioHandle | null>(null);
@@ -422,18 +435,32 @@ export default function VoiceMode(props: VoiceModeProps) {
 
   // ─── Premium TTS (ElevenLabs via /api/tts) ────────────────────
   //
-  // Tries the server-side proxy first. On 503 (key not configured)
-  // or any other non-2xx, permanently flips to "unavailable" and
-  // falls back to browser speechSynthesis — no thrashing per chunk.
-  // Returns a promise that resolves when playback ends OR when
-  // premium is unavailable (caller should fall back then).
+  // Tries the server-side proxy first. On 503 (key not configured),
+  // 502 (upstream error, e.g. ElevenLabs 402), or network failure,
+  // marks "unavailable" and records the timestamp. Subsequent turns
+  // within PREMIUM_TTS_COOLDOWN_MS skip the probe and fall straight
+  // back to browser speechSynthesis (no thrashing). Once the cooldown
+  // has elapsed, the next turn re-probes — if upstream is healthy
+  // again we resume premium audio transparently. Falls back to
+  // speechSynthesis whenever premium can't play.
   const playPremiumTts = useCallback(
     async (
       text: string,
       onStart: () => void,
     ): Promise<"played" | "unavailable" | "aborted"> => {
-      if (premiumStatusRef.current === "unavailable") return "unavailable";
       if (typeof window === "undefined") return "unavailable";
+
+      // Cooldown gate: honor a recent "unavailable" verdict, but let
+      // it expire so a brief upstream blip doesn't lock out the rest
+      // of the session.
+      if (premiumStatusRef.current === "unavailable") {
+        const sinceMs = Date.now() - premiumUnavailableSinceRef.current;
+        if (sinceMs < PREMIUM_TTS_COOLDOWN_MS) {
+          return "unavailable";
+        }
+        // Cooldown expired — flip back to "unknown" so we re-probe.
+        premiumStatusRef.current = "unknown";
+      }
 
       let res: Response;
       try {
@@ -448,26 +475,32 @@ export default function VoiceMode(props: VoiceModeProps) {
       } catch (e) {
         console.warn("[voice] /api/tts network failure, falling back:", e);
         premiumStatusRef.current = "unavailable";
+        premiumUnavailableSinceRef.current = Date.now();
         return "unavailable";
       }
 
       if (!res.ok || !res.body) {
         // 503 = not configured; 502 = upstream error. Both fall back.
         // 401 shouldn't reach us (proxy translates to 503) but treat
-        // any non-2xx the same: flip to unavailable for the session.
-        if (premiumStatusRef.current === "unknown") {
-          console.info(
-            "[voice] premium TTS unavailable (status",
-            res.status + "), using browser fallback",
-          );
-        }
+        // any non-2xx the same: flip to unavailable with a cooldown
+        // so we'll silently recover when upstream heals. (The earlier
+        // cooldown gate already reset the status ref to "unknown" if
+        // we got this far, so this is always a first-or-fresh log.)
+        console.info(
+          "[voice] premium TTS unavailable (status",
+          res.status + "), using browser fallback; will re-probe in",
+          Math.round(PREMIUM_TTS_COOLDOWN_MS / 1000) + "s",
+        );
         premiumStatusRef.current = "unavailable";
+        premiumUnavailableSinceRef.current = Date.now();
         return "unavailable";
       }
 
       // First successful call — remember so we skip the probe next
-      // chunk.
+      // chunk. Clear the cooldown marker so we don't accidentally
+      // honor a stale timestamp later.
       premiumStatusRef.current = "available";
+      premiumUnavailableSinceRef.current = 0;
 
       // Play via the streaming audio player. With MSE available,
       // playback starts after the first MP3 frame lands in the
