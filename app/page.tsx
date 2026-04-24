@@ -46,7 +46,9 @@ import {
 import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { BrandMark } from "@/components/BrandMark";
-import VoiceMode from "@/components/VoiceMode";
+import VoiceMode, { type VoiceState } from "@/components/VoiceMode";
+import LeftRail from "@/components/LeftRail";
+import RightRail, { type ActiveTripView, type LegStatusLite } from "@/components/RightRail";
 
 /**
  * Local mirror of the shell's ConfirmationSummary — we re-declare it
@@ -136,6 +138,9 @@ export default function Home() {
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
   const [handsFree, setHandsFree] = useState<boolean>(true);
   const [spokenStreamText, setSpokenStreamText] = useState<string>("");
+  // Mirror of VoiceMode's internal state so the right-rail HUD can
+  // show a matching pulse without owning the state machine.
+  const [voiceState, setVoiceState] = useState<VoiceState>("off");
   useEffect(() => {
     try {
       const v = window.localStorage.getItem("lumo.voiceEnabled");
@@ -391,6 +396,37 @@ export default function Home() {
     );
   }, [messages]);
 
+  // Derive the active trip for the right-rail HUD. We scan backwards
+  // through the thread looking for the most recent assistant message
+  // that carries a structured-trip summary. Legs merge with live
+  // statuses from legStatusesByMsg (set by SSE leg_status frames).
+  const activeTrip: ActiveTripView | null = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (!m || m.role !== "assistant") continue;
+      if (m.summary?.kind !== "structured-trip") continue;
+      const p = (m.summary.payload ?? {}) as {
+        trip_title?: string;
+        total_amount?: string;
+        currency?: string;
+        legs?: Array<{ order: number; agent_id: string }>;
+      };
+      const statuses = legStatusesByMsg[m.id] ?? {};
+      const legs: LegStatusLite[] = (p.legs ?? []).map((l) => ({
+        order: l.order,
+        agent_id: l.agent_id,
+        status: (statuses[l.order] ?? "pending") as LegStatusLite["status"],
+      }));
+      return {
+        trip_title: p.trip_title,
+        total_amount: p.total_amount,
+        currency: p.currency,
+        legs,
+      };
+    }
+    return null;
+  }, [messages, legStatusesByMsg]);
+
   return (
     <main className="flex h-dvh flex-col bg-lumo-bg text-lumo-fg-high">
       {/* ─── Header ─────────────────────────────────────────────────── */}
@@ -457,6 +493,18 @@ export default function Home() {
         </div>
       </header>
 
+      {/* ─── 3-column operator console ──────────────────────────────
+          The JARVIS dashboard layout. LeftRail hides below `lg`
+          (1024); RightRail hides below `xl` (1280). Center column
+          always renders.
+      ──────────────────────────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden">
+        <LeftRail
+          onNewChat={newThread}
+          currentSessionId={sessionIdRef.current}
+        />
+
+        <div className="flex flex-1 flex-col min-w-0">
       {/* ─── Thread ─────────────────────────────────────────────────── */}
       <div
         ref={scrollRef}
@@ -675,6 +723,7 @@ export default function Home() {
                 }}
                 spokenText={spokenStreamText}
                 busy={busy}
+                onStateChange={setVoiceState}
               />
             </div>
           ) : null}
@@ -755,6 +804,21 @@ export default function Home() {
             Lumo can make mistakes. Confirmations are tamper-resistant — review before booking.
           </div>
         </div>
+      </div>
+        </div>
+        {/* ─── Right rail — live operator HUD ───────────────────── */}
+        <RightRail
+          activeTrip={activeTrip}
+          voiceState={voiceState}
+          voiceEnabled={voiceEnabled}
+          handsFree={handsFree}
+          onToggleVoice={() => setVoiceEnabled((v) => !v)}
+          onToggleHandsFree={() => setHandsFree((h) => !h)}
+          userRegion="US"
+          onSuggestion={(t) => {
+            if (!busy) void sendText(t);
+          }}
+        />
       </div>
     </main>
   );

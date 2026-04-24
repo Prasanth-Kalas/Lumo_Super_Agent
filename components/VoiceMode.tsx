@@ -115,6 +115,13 @@ export interface VoiceModeProps {
 
   /** True while the shell's fetch('/api/chat') is in flight. */
   busy: boolean;
+
+  /**
+   * Optional mirror of internal state so the shell (or right rail
+   * HUD) can render its own "Listening…" / "Speaking…" indicator
+   * without owning the state machine. Called on every transition.
+   */
+  onStateChange?: (state: VoiceState) => void;
 }
 
 /**
@@ -204,6 +211,17 @@ export default function VoiceMode(props: VoiceModeProps) {
   const [state, setState] = useState<VoiceState>(enabled ? "idle" : "off");
   const [interim, setInterim] = useState<string>(""); // what user is currently saying
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Mirror every transition to the shell-provided callback so the
+  // right-rail HUD can render a matching dot. Ref-latched so a
+  // callback change doesn't retrigger the effect.
+  const onStateChangeRef = useRef(props.onStateChange);
+  useEffect(() => {
+    onStateChangeRef.current = props.onStateChange;
+  }, [props.onStateChange]);
+  useEffect(() => {
+    onStateChangeRef.current?.(state);
+  }, [state]);
 
   // Refs — mutable state that shouldn't re-render.
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
