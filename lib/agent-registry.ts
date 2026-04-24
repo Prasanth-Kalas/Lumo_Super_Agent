@@ -153,7 +153,31 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
   // no-op. See lib/integrations/registry.ts.
   const internals = getInternalAgentEntries();
   for (const e of internals) entries.push(e);
-  const withInternals = mergeInternalIntoBridge(bridge, internals);
+  let withInternals = mergeInternalIntoBridge(bridge, internals);
+
+  // Partner agents — rows in partner_agents with status = 'approved'.
+  // Loaded the same way static agents are (manifest + openapi fetch,
+  // bridge validation) but the manifest URL comes from the DB instead
+  // of config/agents.registry.json. One flaky partner can't break the
+  // shell: each loadPartnerAgent is try/caught.
+  const partners = await loadApprovedPartnerAgents();
+  if (partners.length > 0) {
+    const partnerBridges = [];
+    for (const p of partners) {
+      try {
+        partnerBridges.push(openApiToClaudeTools(p.manifest.agent_id, p.openapi));
+        entries.push(p);
+      } catch (err) {
+        console.error(
+          `[registry] partner agent "${p.manifest.agent_id}" failed bridge validation — dropping:`,
+          err,
+        );
+      }
+    }
+    if (partnerBridges.length > 0) {
+      withInternals = mergeBridges([withInternals, ...partnerBridges]);
+    }
+  }
 
   const registry: Registry = {
     agents: Object.fromEntries(entries.map((e) => [e.key, e])),
@@ -262,6 +286,85 @@ async function loadAgent(key: string, base_url: string): Promise<RegistryEntry> 
     health_score: 1.0, // optimistic — first probe corrects
     manifest_loaded_at: Date.now(),
   };
+}
+
+/**
+ * Load every row in partner_agents that has status = 'approved'.
+ *
+ * The manifest is already stored (approved rows had their manifest
+ * parsed during /api/publisher/submit) so we skip the manifest fetch.
+ * The openapi is not stored — fetching it keeps the wire-free and
+ * ensures a partner who pushed a bad openapi after approval drops out
+ * on the next boot instead of breaking the bridge.
+ *
+ * The Supabase read is done through a lazy import so this module
+ * stays usable in contexts that don't have a DB configured (tests,
+ * build-time analysis). A missing client just returns an empty list
+ * — the shell then boots with only static + internal agents, which
+ * is the correct "no partners configured yet" behaviour.
+ */
+async function loadApprovedPartnerAgents(): Promise<RegistryEntry[]> {
+  let sb: ReturnType<typeof import("./db.js").getSupabase>;
+  try {
+    const mod = await import("./db.js");
+    sb = mod.getSupabase();
+  } catch {
+    return [];
+  }
+  if (!sb) return [];
+
+  let rows: Array<{
+    id: string;
+    manifest_url: string;
+    parsed_manifest: unknown;
+  }> = [];
+  try {
+    const { data, error } = await sb
+      .from("partner_agents")
+      .select("id, manifest_url, parsed_manifest")
+      .eq("status", "approved");
+    if (error) {
+      console.warn("[registry] partner_agents read failed:", error.message);
+      return [];
+    }
+    rows = data ?? [];
+  } catch (err) {
+    console.warn("[registry] partner_agents read threw:", err);
+    return [];
+  }
+
+  const out: RegistryEntry[] = [];
+  for (const row of rows) {
+    try {
+      const manifest = parseManifest(row.parsed_manifest);
+      // Derive the agent's base URL from the manifest URL. A well-
+      // formed partner serves the manifest at <base>/.well-known/
+      // agent.json, so the origin is the base.
+      const origin = new URL(row.manifest_url).origin;
+      const openapiUrl = manifest.openapi_url.startsWith("http")
+        ? manifest.openapi_url
+        : new URL(manifest.openapi_url, origin).toString();
+      const openapiRes = await fetchWithTimeout(openapiUrl, 5_000);
+      const openapi = (await openapiRes.json()) as OpenApiDocument;
+      out.push({
+        // Namespace partner keys so they don't collide with static
+        // config keys if a partner picks a name we use internally.
+        key: `partner:${row.id}`,
+        base_url: origin,
+        manifest,
+        openapi,
+        last_health: null,
+        health_score: 1.0,
+        manifest_loaded_at: Date.now(),
+      });
+    } catch (err) {
+      console.error(
+        `[registry] partner agent "${row.manifest_url}" failed to load — dropping:`,
+        err,
+      );
+    }
+  }
+  return out;
 }
 
 /**
