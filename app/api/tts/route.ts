@@ -28,13 +28,13 @@
  * friendly enough for "I found three options". Overridable per-call
  * via `voice_id` in the body.
  *
- * Model: eleven_v3 — experimental bump from turbo_v2_5 (Apr 2026).
- * v3 has the richest emotional range and widest language coverage,
- * at the cost of higher + more variable first-chunk latency. We're
- * trialling whether the extra expressiveness is worth the perceived
- * "waiting for the voice" on short concierge replies. If turn-feel
- * degrades, flip back to eleven_turbo_v2_5 (275 ms, proven) or step
- * down to eleven_flash_v2_5 (75 ms, slightly flatter).
+ * Model: eleven_turbo_v2_5 — reverted from the eleven_v3 trial
+ * after users reported the v3 output was rushed and breaking up
+ * mid-stream. Turbo v2.5 has a proven ~275 ms first-chunk latency
+ * and very consistent prosody. If we want to re-trial v3 later,
+ * flip the MODEL_ID constant back. Flash v2.5 (75 ms) is the
+ * other one-liner if latency ever becomes more important than
+ * expressiveness — the flatter delivery is the tradeoff.
  */
 
 import type { NextRequest } from "next/server";
@@ -43,10 +43,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // Rachel
-// Experimental: trying v3. Fallback candidates (one-line revert):
-//   - "eleven_turbo_v2_5" — balanced (prior default, proven)
-//   - "eleven_flash_v2_5" — 75 ms, slightly lower quality
-const MODEL_ID = "eleven_v3";
+// Reverted from "eleven_v3" — v3's variable first-chunk latency
+// plus occasional mid-stream artifacts made the voice feel
+// rushed and broken. Turbo v2.5 is our stable ground truth.
+//   - "eleven_v3"         — experimental, richer prosody but
+//                           inconsistent streaming. Revisit later.
+//   - "eleven_flash_v2_5" — 75 ms, flatter delivery.
+const MODEL_ID = "eleven_turbo_v2_5";
 
 // Hard caps so a runaway turn doesn't burn through the ElevenLabs
 // character quota. Speech at ~150wpm ≈ 13 chars/sec, so 5000 chars
@@ -105,23 +108,27 @@ export async function POST(req: NextRequest): Promise<Response> {
       body: JSON.stringify({
         text,
         model_id: MODEL_ID,
-        // Voice settings retuned for naturalness (task #91). The prior
-        // defaults (stability 0.5, style 0) produced a flat "narrator"
-        // read — technically clean but felt like a bot.
+        // Voice settings retuned after the v3 revert. The prior
+        // aggressive settings (stability 0.35, style 0.45) were
+        // calibrated for v3's wider expressive range — on turbo
+        // v2.5 they produced a rushed, "racing through the
+        // sentence" cadence with audible cracks on plosives.
         //
-        //   stability 0.35 — lower = more pitch/pace variation. 0.35
-        //     is the sweet spot for conversational speech; below 0.3
-        //     starts sounding erratic.
-        //   similarity_boost 0.85 — bumped to hold voice identity
-        //     while the lower stability lets expression breathe.
-        //   style 0.45 — was 0, which disables emotional inference
-        //     entirely. 0.45 lets the model pick up cues from
-        //     punctuation and context. Above 0.7 starts over-acting.
+        //   stability 0.5 — back to the ElevenLabs default. Holds
+        //     a steady pace on turbo v2.5 without sounding flat;
+        //     below 0.4 on this model the delivery speeds up and
+        //     you start hearing glottal artifacts.
+        //   similarity_boost 0.75 — default. Higher values (0.85+)
+        //     overfit the source voice and can introduce clicks
+        //     on chunk boundaries.
+        //   style 0.3 — some emotional inference but less than
+        //     v3 wanted. Keeps the concierge tone warm without
+        //     the over-acted delivery at 0.45.
         //   use_speaker_boost — keeps clarity on small speakers.
         voice_settings: {
-          stability: 0.35,
-          similarity_boost: 0.85,
-          style: 0.45,
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.3,
           use_speaker_boost: true,
         },
       }),
