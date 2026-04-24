@@ -27,6 +27,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
+import { seedProfile } from "@/lib/seed-profile";
 
 /**
  * NEXT_PUBLIC_* vars are inlined at BUILD time. If the Vercel project
@@ -106,6 +107,10 @@ function LoginForm() {
         setError(err.message);
         return;
       }
+      // Idempotent profile seed — fills in timezone/language from the
+      // browser and display_name from auth metadata on first login
+      // per session. No-ops if the profile is already complete.
+      void seedProfile();
       // Middleware will see the new cookie on the next request; we can
       // push straight to `next`.
       router.replace(next);

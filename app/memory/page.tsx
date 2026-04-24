@@ -21,6 +21,13 @@ import { BrandMark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import VoicePicker from "@/components/VoicePicker";
 
+interface Me {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  first_name: string | null;
+}
+
 interface UserProfile {
   id: string;
   display_name: string | null;
@@ -81,8 +88,25 @@ export default function MemoryPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [facts, setFacts] = useState<UserFact[]>([]);
   const [patterns, setPatterns] = useState<BehaviorPattern[]>([]);
+  const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Lightweight identity fetch — runs in parallel with the memory
+    // load. Non-fatal if it fails (shows email-only or generic
+    // greeting).
+    void (async () => {
+      try {
+        const res = await fetch("/api/me", { cache: "no-store" });
+        if (!res.ok) return;
+        const j = (await res.json()) as { user?: Me };
+        if (j.user) setMe(j.user);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -183,6 +207,35 @@ export default function MemoryPage() {
           <div className="text-[13px] text-lumo-fg-mid">Loading…</div>
         ) : (
           <>
+            {/* ─── Account — read-only auth identity ─────────────── */}
+            {me ? (
+              <section className="space-y-3">
+                <h2 className="text-[16px] font-semibold text-lumo-fg">Account</h2>
+                <div className="rounded-xl border border-lumo-hair bg-lumo-surface p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-[15px] text-lumo-fg">
+                        {me.full_name ?? (
+                          <em className="text-lumo-fg-low">Name not set</em>
+                        )}
+                      </div>
+                      <div className="mt-0.5 text-[12.5px] text-lumo-fg-low truncate">
+                        {me.email ?? ""}
+                      </div>
+                    </div>
+                    <span className="shrink-0 inline-flex items-center gap-1 text-[11px] uppercase tracking-wider text-lumo-accent">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-lumo-accent shadow-[0_0_6px_rgba(94,234,172,0.6)]" />
+                      Signed in
+                    </span>
+                  </div>
+                  <p className="mt-2 text-[11.5px] text-lumo-fg-low">
+                    Your name is set from your account. Tell Lumo &ldquo;call
+                    me Alex&rdquo; in chat to override for voice.
+                  </p>
+                </div>
+              </section>
+            ) : null}
+
             {/* ─── Profile ────────────────────────────────────────────── */}
             <section className="space-y-3">
               <h2 className="text-[16px] font-semibold text-lumo-fg">Profile</h2>
@@ -293,20 +346,15 @@ function ProfileEditor({
   }
   return (
     <div className="rounded-xl border border-lumo-hair bg-lumo-surface p-4 space-y-3">
-      <Row label="Name">
-        <TextField
-          value={profile.display_name ?? ""}
-          onCommit={(v) => onChange({ display_name: v || null })}
-          placeholder="Alex Rivera"
-        />
-      </Row>
-      <Row label="Timezone">
-        <TextField
-          value={profile.timezone ?? ""}
-          onCommit={(v) => onChange({ timezone: v || null })}
-          placeholder="America/Los_Angeles"
-        />
-      </Row>
+      {/* Name + timezone used to be editable rows here. They're now
+          owned by Supabase Auth (name = user_metadata.full_name, set
+          at signup) and the browser (timezone auto-detected via
+          seedProfile on login). Asking for them here was duplicate
+          data entry. If the user needs to change their name they
+          do it at the account level, not here. The underlying
+          user_profile.display_name column remains for Lumo to write
+          an override via the memory_save meta-tool if it hears
+          "call me Alex" in conversation. */}
       <Row label="Home">
         <TextField
           value={addrToLine(profile.home_address)}

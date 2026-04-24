@@ -50,6 +50,7 @@ import VoiceMode, { type VoiceState } from "@/components/VoiceMode";
 import LeftRail from "@/components/LeftRail";
 import RightRail, { type ActiveTripView, type LegStatusLite } from "@/components/RightRail";
 import MobileNav from "@/components/MobileNav";
+import { seedProfile } from "@/lib/seed-profile";
 
 /**
  * Local mirror of the shell's ConfirmationSummary — we re-declare it
@@ -144,6 +145,64 @@ export default function Home() {
   const [memoryRefreshKey, setMemoryRefreshKey] = useState<number>(0);
   // Mobile drawer open/close.
   const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
+  // Auth'd user (id/email/full_name/first_name) — populated from
+  // /api/me on mount. Null while loading or when signed out.
+  const [me, setMe] = useState<{
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    first_name: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    // Fetch the auth user once on mount. When signed in, trigger the
+    // idempotent profile seed so timezone/language/display_name land
+    // on the first turn. When signed out, /api/me 401s and we leave
+    // me=null.
+    void (async () => {
+      try {
+        const res = await fetch("/api/me", { cache: "no-store" });
+        if (!res.ok) return;
+        const j = (await res.json()) as {
+          user?: {
+            id: string;
+            email: string | null;
+            full_name: string | null;
+            first_name: string | null;
+          };
+        };
+        if (j.user) {
+          setMe(j.user);
+          // Fire-and-forget — the seed helper is itself idempotent
+          // and gated by sessionStorage.
+          void seedProfile();
+        }
+      } catch {
+        /* ignore — sign-out or network blip */
+      }
+    })();
+  }, []);
+
+  // Personalize the opening hello with the user's first name once
+  // we have it. We mutate the "hello" message's content in place so
+  // the user sees the greeting update from generic → personal
+  // within a beat of the page loading. Only touches the message if
+  // it's still the original scaffold text (we don't want to
+  // overwrite a user's own turn or a prior assistant reply).
+  useEffect(() => {
+    if (!me?.first_name) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === "hello" &&
+        m.content.startsWith("I can book flights")
+          ? {
+              ...m,
+              content: `Hey ${me.first_name} — I can book flights, order food, reserve hotels, and string them together into a single trip. What do you need?`,
+            }
+          : m,
+      ),
+    );
+  }, [me?.first_name]);
   // Mute Lumo's TTS while keeping the mic hot. Persisted.
   const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
   const [spokenStreamText, setSpokenStreamText] = useState<string>("");

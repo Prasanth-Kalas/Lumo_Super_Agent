@@ -59,6 +59,12 @@ interface Body {
   messages: ChatMessage[];
   device_kind?: "web" | "ios" | "android" | "watch";
   region?: string;
+  /**
+   * Deprecated — the server now derives the user's first name from
+   * the auth user's metadata. Kept optional for client-side
+   * compatibility but any value passed is ignored in favor of the
+   * server-side derivation.
+   */
   user_first_name?: string;
   /**
    * "voice" when the user is hearing responses (driving, hands-busy).
@@ -209,7 +215,19 @@ export async function POST(req: NextRequest): Promise<Response> {
           {
             session_id: body.session_id,
             user_id,
-            user_first_name: body.user_first_name ?? null,
+            // Source-of-truth for the user's first name is the auth
+            // metadata, not the client. We split on whitespace so
+            // "Alex Rivera" → "Alex" for the system prompt's USER:
+            // line. Falls back to null if no full_name exists.
+            user_first_name:
+              (() => {
+                const full =
+                  (authedUser?.user_metadata as { full_name?: string } | null)
+                    ?.full_name ?? null;
+                if (!full) return null;
+                const first = full.trim().split(/\s+/)[0];
+                return first && first.length > 0 ? first : null;
+              })(),
             user_region,
             device_kind,
             messages: body.messages,

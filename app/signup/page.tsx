@@ -22,6 +22,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
+import { seedProfile } from "@/lib/seed-profile";
 
 function supabaseEnv(): { url: string; anonKey: string } {
   return {
@@ -100,6 +101,12 @@ function SignupForm() {
         setAwaitingConfirm(true);
         return;
       }
+
+      // Signed in immediately (email confirm disabled). Seed the
+      // profile with derivable values so /memory isn't asking for
+      // things we already know. Fire-and-forget — redirect happens
+      // regardless.
+      void seedProfile({ fullName: fullName.trim() });
 
       router.replace(next);
       router.refresh();
