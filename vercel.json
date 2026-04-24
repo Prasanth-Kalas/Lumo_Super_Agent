@@ -11,6 +11,9 @@
     },
     "app/api/cron/evaluate-intents/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/detect-patterns/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
