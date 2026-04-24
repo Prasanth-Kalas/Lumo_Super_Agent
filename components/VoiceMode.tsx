@@ -41,6 +41,8 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { startBargeInMonitor, type BargeInHandle } from "@/lib/barge-in";
+import { startWakeWord, type WakeWordHandle } from "@/lib/wake-word";
 
 // ─── Types for the Web Speech API that TS doesn't ship ────────────
 // We declare only what we touch. See:
@@ -247,6 +249,15 @@ export default function VoiceMode(props: VoiceModeProps) {
   useEffect(() => {
     wantHandsFreeRef.current = handsFree;
   }, [handsFree]);
+
+  // J5 — barge-in: a second mic pipeline that stays open while TTS is
+  // playing. When it detects user speech, we cancel TTS and pivot to
+  // STT. Lives only while state === "speaking" so we don't hold a
+  // mic open unnecessarily.
+  const bargeInRef = useRef<BargeInHandle | null>(null);
+  // J5 — wake word: optional Porcupine scaffold. active=false when no
+  // access key is present, so this is a no-op in most environments.
+  const wakeWordRef = useRef<WakeWordHandle | null>(null);
 
   // ─── Capability detection ────────────────────────────────────
   const supportedRef = useRef<boolean>(false);
@@ -463,6 +474,95 @@ export default function VoiceMode(props: VoiceModeProps) {
     }
   }, [busy, enabled]);
 
+  // ─── J5 — barge-in lifecycle ─────────────────────────────────
+  // Open a dedicated mic pipeline while Lumo is speaking. If the user
+  // starts talking, cancel TTS and swap to STT. Mic is closed the
+  // moment we leave the speaking state so we're never holding a live
+  // stream we don't need.
+  useEffect(() => {
+    if (!enabled) return;
+    if (state !== "speaking") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const h = await startBargeInMonitor({
+          onBargeIn: () => {
+            // User started speaking over Lumo — stop TTS immediately
+            // and hand off to the normal listening path.
+            if (typeof window !== "undefined") {
+              try {
+                window.speechSynthesis?.cancel();
+              } catch {
+                // ignore
+              }
+            }
+            startListening();
+          },
+        });
+        if (cancelled) {
+          h.stop();
+          return;
+        }
+        bargeInRef.current = h;
+      } catch (err) {
+        // Mic permission denied or browser too old — silent fallback.
+        // The existing "tap mic to talk" UX still works; barge-in just
+        // won't interrupt. No user-visible error.
+        console.info("[voice] barge-in unavailable:", err instanceof Error ? err.message : err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      const h = bargeInRef.current;
+      bargeInRef.current = null;
+      try {
+        h?.stop();
+      } catch {
+        // ignore
+      }
+    };
+  }, [enabled, state, startListening]);
+
+  // ─── J5 — wake word lifecycle ───────────────────────────────
+  // When voice is enabled AND we're idle, listen for "Hey Lumo" (or
+  // the default "computer" keyword) and auto-start listening on
+  // detection. No-op unless NEXT_PUBLIC_PORCUPINE_ACCESS_KEY is set
+  // AND @picovoice/porcupine-web is installed — see lib/wake-word.ts.
+  useEffect(() => {
+    if (!enabled) return;
+    if (state !== "idle") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const h = await startWakeWord({
+          onWake: () => {
+            // Wake word fired — jump to listening. Clear any interim
+            // from a previous aborted attempt.
+            setInterim("");
+            startListening();
+          },
+        });
+        if (cancelled) {
+          h.stop();
+          return;
+        }
+        wakeWordRef.current = h;
+      } catch {
+        // ignore — scaffold swallows its own errors
+      }
+    })();
+    return () => {
+      cancelled = true;
+      const h = wakeWordRef.current;
+      wakeWordRef.current = null;
+      try {
+        h?.stop();
+      } catch {
+        // ignore
+      }
+    };
+  }, [enabled, state, startListening]);
+
   // Master toggle — clean shutdown when leaving voice mode.
   useEffect(() => {
     if (!enabled) {
@@ -471,6 +571,18 @@ export default function VoiceMode(props: VoiceModeProps) {
       } catch {
         // ignore
       }
+      try {
+        bargeInRef.current?.stop();
+      } catch {
+        // ignore
+      }
+      bargeInRef.current = null;
+      try {
+        wakeWordRef.current?.stop();
+      } catch {
+        // ignore
+      }
+      wakeWordRef.current = null;
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
