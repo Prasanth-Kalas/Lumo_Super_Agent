@@ -42,6 +42,12 @@ import {
   type UserFact,
 } from "./memory.js";
 import { META_TOOLS, isMetaToolName } from "./meta-tools.js";
+import {
+  createIntent,
+  deleteIntent,
+  updateIntent,
+  IntentError,
+} from "./standing-intents.js";
 import { assembleTripSummary, TripAssemblyError, type PricedLeg } from "./trip-planner.js";
 import {
   beginDispatch,
@@ -1370,6 +1376,102 @@ async function handleMetaTool(
       return {
         ok: true,
         result: updated ? { id: updated.id, updated: true } : { ok: false },
+        latency_ms: Date.now() - started,
+      };
+    }
+
+    if (name === "intent_create") {
+      const description = typeof input.description === "string" ? input.description : "";
+      const schedule_cron = typeof input.schedule_cron === "string" ? input.schedule_cron : "";
+      const timezone = typeof input.timezone === "string" ? input.timezone : undefined;
+      const guardrails =
+        input.guardrails && typeof input.guardrails === "object"
+          ? (input.guardrails as Record<string, unknown>)
+          : undefined;
+      const action_plan =
+        input.action_plan && typeof input.action_plan === "object"
+          ? (input.action_plan as Record<string, unknown>)
+          : undefined;
+      try {
+        const intent = await createIntent({
+          user_id,
+          description,
+          schedule_cron,
+          timezone,
+          guardrails,
+          action_plan,
+        });
+        return {
+          ok: true,
+          result: {
+            id: intent.id,
+            next_fire_at: intent.next_fire_at,
+          },
+          latency_ms: Date.now() - started,
+        };
+      } catch (err) {
+        if (err instanceof IntentError) {
+          return {
+            ok: false,
+            result: { error: err.code, detail: err.message },
+            error_code: err.code === "invalid_cron" ? "invalid_input" : "internal_error",
+            latency_ms: Date.now() - started,
+          };
+        }
+        throw err;
+      }
+    }
+
+    if (name === "intent_update") {
+      const intent_id = typeof input.intent_id === "string" ? input.intent_id : "";
+      if (!intent_id) {
+        return {
+          ok: false,
+          result: { error: "intent_id required" },
+          error_code: "invalid_input",
+          latency_ms: Date.now() - started,
+        };
+      }
+      const patch = { ...input } as Record<string, unknown>;
+      delete patch.intent_id;
+      try {
+        const updated = await updateIntent({
+          user_id,
+          id: intent_id,
+          patch: patch as Parameters<typeof updateIntent>[0]["patch"],
+        });
+        return {
+          ok: !!updated,
+          result: updated ? { id: updated.id, next_fire_at: updated.next_fire_at } : { error: "not_found" },
+          latency_ms: Date.now() - started,
+        };
+      } catch (err) {
+        if (err instanceof IntentError) {
+          return {
+            ok: false,
+            result: { error: err.code, detail: err.message },
+            error_code: err.code === "invalid_cron" ? "invalid_input" : "internal_error",
+            latency_ms: Date.now() - started,
+          };
+        }
+        throw err;
+      }
+    }
+
+    if (name === "intent_delete") {
+      const intent_id = typeof input.intent_id === "string" ? input.intent_id : "";
+      if (!intent_id) {
+        return {
+          ok: false,
+          result: { error: "intent_id required" },
+          error_code: "invalid_input",
+          latency_ms: Date.now() - started,
+        };
+      }
+      await deleteIntent(user_id, intent_id);
+      return {
+        ok: true,
+        result: { id: intent_id, deleted: true },
         latency_ms: Date.now() - started,
       };
     }

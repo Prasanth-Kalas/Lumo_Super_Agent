@@ -32,6 +32,9 @@ export const META_TOOL_NAMES = [
   "memory_save",
   "memory_forget",
   "profile_update",
+  "intent_create",
+  "intent_update",
+  "intent_delete",
 ] as const;
 export type MetaToolName = (typeof META_TOOL_NAMES)[number];
 
@@ -177,6 +180,80 @@ export const META_TOOLS: Anthropic.Tool[] = [
       },
       // No required fields — every call is a partial patch.
       required: [],
+    },
+  },
+  {
+    name: "intent_create",
+    description:
+      "Save a standing intent (a recurring routine) so Lumo fires it on a schedule. Use this " +
+      "when the user says things like 'every Friday at 6pm, book me a bike ride' or 'on flight " +
+      "days, order a car 2 hours before'. Keep the description user-friendly — Lumo will " +
+      "surface it on /intents and in the notification that fires when it's due. For MVP, " +
+      "firing creates a notification the user confirms; Lumo does NOT auto-dispatch actions. " +
+      "If you can express the trigger as 5-field cron (minute hour dom month dow, * wildcards, " +
+      "comma lists), do it. Otherwise leave the schedule_cron blank and ask the user to " +
+      "clarify — do NOT invent.",
+    input_schema: {
+      type: "object",
+      properties: {
+        description: {
+          type: "string",
+          minLength: 6,
+          maxLength: 500,
+          description: "Human-readable description of the routine.",
+        },
+        schedule_cron: {
+          type: "string",
+          description:
+            "5-field cron. Examples: '0 18 * * 5' = every Friday 6pm; '30 9 * * 1,2,3,4,5' = 9:30am weekdays.",
+        },
+        timezone: {
+          type: "string",
+          description: "IANA zone the cron is interpreted in. Default 'UTC'. Prefer the user's timezone if known.",
+        },
+        guardrails: {
+          type: "object",
+          description:
+            "Optional predicates the evaluator checks before firing. Shape is open-ended; known keys: max_spend_cents, weather_min_temp_f, require_confirm (default true).",
+        },
+        action_plan: {
+          type: "object",
+          description:
+            "Optional shape describing WHAT to do when fired. For MVP, leave blank or pass { tool_sequence: [...] } — the evaluator notifies the user either way.",
+        },
+      },
+      required: ["description", "schedule_cron"],
+    },
+  },
+  {
+    name: "intent_update",
+    description:
+      "Edit a standing intent in place — toggle enabled, change the schedule, update the description. " +
+      "Use this when the user says 'pause my Friday routine' or 'move bike ride to 7pm'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        intent_id: { type: "string" },
+        description: { type: "string" },
+        schedule_cron: { type: "string" },
+        timezone: { type: "string" },
+        guardrails: { type: "object" },
+        action_plan: { type: "object" },
+        enabled: { type: "boolean" },
+      },
+      required: ["intent_id"],
+    },
+  },
+  {
+    name: "intent_delete",
+    description:
+      "Permanently delete a standing intent. Use this only when the user explicitly says they don't want the routine anymore. Prefer intent_update with enabled=false for soft pauses.",
+    input_schema: {
+      type: "object",
+      properties: {
+        intent_id: { type: "string" },
+      },
+      required: ["intent_id"],
     },
   },
 ];

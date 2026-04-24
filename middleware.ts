@@ -38,8 +38,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseMiddlewareClient } from "@/lib/auth";
 
-const PROTECTED_PAGE_PREFIXES = ["/marketplace", "/connections", "/memory"];
-const PROTECTED_API_PREFIXES = ["/api/connections", "/api/memory"];
+const PROTECTED_PAGE_PREFIXES = [
+  "/marketplace",
+  "/connections",
+  "/memory",
+  "/intents",
+];
+const PROTECTED_API_PREFIXES = [
+  "/api/connections",
+  "/api/memory",
+  "/api/intents",
+  "/api/notifications",
+];
 
 export async function middleware(req: NextRequest) {
   // Start with a pass-through response. Supabase SSR will attach updated

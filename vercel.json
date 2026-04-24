@@ -5,6 +5,22 @@
   "functions": {
     "app/api/chat/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/proactive-scan/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/cron/evaluate-intents/route.ts": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/proactive-scan",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/evaluate-intents",
+      "schedule": "*/15 * * * *"
+    }
+  ]
 }
