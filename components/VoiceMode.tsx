@@ -43,6 +43,8 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { startBargeInMonitor, type BargeInHandle } from "@/lib/barge-in";
 import { startWakeWord, type WakeWordHandle } from "@/lib/wake-word";
+import { playAudioStream, type StreamingAudioHandle } from "@/lib/streaming-audio";
+import { getSelectedVoiceId } from "@/lib/voice-catalog";
 
 // ─── Types for the Web Speech API that TS doesn't ship ────────────
 // We declare only what we touch. See:
@@ -248,10 +250,9 @@ export default function VoiceMode(props: VoiceModeProps) {
   const premiumStatusRef = useRef<"unknown" | "available" | "unavailable">(
     "unknown",
   );
-  // The <audio> element playing the current premium TTS chunk, if
-  // any. We keep it so mute / cancel / barge-in can stop it.
-  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
-  const activeAudioUrlRef = useRef<string | null>(null);
+  // Active streaming-audio handle for the in-flight premium TTS
+  // chunk, if any. Mute / cancel / barge-in call .stop() on it.
+  const activeStreamRef = useRef<StreamingAudioHandle | null>(null);
   const spokenSoFarRef = useRef<number>(0); // index into spokenText already sent to TTS
   const lastSpokenTextRef = useRef<string>(spokenText);
   const userStoppedListeningRef = useRef<boolean>(false); // user intent to be off
@@ -385,36 +386,23 @@ export default function VoiceMode(props: VoiceModeProps) {
   // Muting mid-speech should kill in-flight audio immediately; the
   // next TTS effect run will skip speaking (muted branch).
   useEffect(() => {
-    if (muted) {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        try {
-          window.speechSynthesis.cancel();
-        } catch {
-          // ignore
-        }
+    if (!muted) return;
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
       }
-      // stopPremiumAudio is declared below; inline the cleanup so
-      // hoisting doesn't bite us.
-      const a = activeAudioRef.current;
-      if (a) {
-        try {
-          a.pause();
-          a.src = "";
-        } catch {
-          // ignore
-        }
-      }
-      const url = activeAudioUrlRef.current;
-      if (url) {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {
-          // ignore
-        }
-      }
-      activeAudioRef.current = null;
-      activeAudioUrlRef.current = null;
     }
+    const h = activeStreamRef.current;
+    if (h) {
+      try {
+        h.stop();
+      } catch {
+        // ignore
+      }
+    }
+    activeStreamRef.current = null;
   }, [muted]);
 
   // ─── Premium TTS (ElevenLabs via /api/tts) ────────────────────
@@ -437,7 +425,10 @@ export default function VoiceMode(props: VoiceModeProps) {
         res = await fetch("/api/tts", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({
+            text,
+            voice_id: getSelectedVoiceId(),
+          }),
         });
       } catch (e) {
         console.warn("[voice] /api/tts network failure, falling back:", e);
@@ -463,84 +454,40 @@ export default function VoiceMode(props: VoiceModeProps) {
       // chunk.
       premiumStatusRef.current = "available";
 
-      // Buffer the audio stream to a Blob then play. A future
-      // optimization: use MediaSource Extensions for true streaming
-      // playback (start audio before bytes finish arriving). For
-      // v1 we keep it simple — a 2-sentence chunk is a few hundred
-      // KB of MP3 and arrives in well under a second.
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      activeAudioUrlRef.current = url;
-
-      const audio = new Audio(url);
-      audio.preload = "auto";
-      activeAudioRef.current = audio;
-
+      // Play via the streaming audio player. With MSE available,
+      // playback starts after the first MP3 frame lands in the
+      // SourceBuffer — typically within ~400ms of the fetch start
+      // for Turbo v2.5. Blob fallback buffers the full response
+      // first (same as the prior implementation).
       return new Promise<"played" | "aborted">((resolve) => {
-        let started = false;
-        audio.onplaying = () => {
-          if (!started) {
-            started = true;
-            onStart();
-          }
-        };
-        audio.onended = () => {
-          URL.revokeObjectURL(url);
-          if (activeAudioRef.current === audio) {
-            activeAudioRef.current = null;
-            activeAudioUrlRef.current = null;
-          }
-          resolve("played");
-        };
-        audio.onerror = () => {
-          URL.revokeObjectURL(url);
-          if (activeAudioRef.current === audio) {
-            activeAudioRef.current = null;
-            activeAudioUrlRef.current = null;
-          }
-          // Audio decode / network error mid-stream. Don't flip to
-          // "unavailable" for one bad chunk; the next attempt may
-          // succeed. Resolve as "aborted" so caller can decide.
-          resolve("aborted");
-        };
-        audio.play().catch((e) => {
-          // play() rejects on autoplay-policy violation. Browsers
-          // usually allow it after the first user gesture, which
-          // we already have (they tapped the mic). Still — fail
-          // safe.
-          console.warn("[voice] audio.play() rejected:", e);
-          URL.revokeObjectURL(url);
-          activeAudioRef.current = null;
-          activeAudioUrlRef.current = null;
-          resolve("aborted");
+        const handle = playAudioStream(res, {
+          onStart: () => onStart(),
+          onEnd: (reason) => {
+            if (activeStreamRef.current === handle) {
+              activeStreamRef.current = null;
+            }
+            resolve(reason === "played" ? "played" : "aborted");
+          },
         });
+        activeStreamRef.current = handle;
       });
     },
     [],
   );
 
   // Stop any in-flight premium audio (used when user cancels /
-  // mutes mid-speech / starts a new turn).
+  // mutes mid-speech / starts a new turn). Delegates to the
+  // streaming player's stop() which handles both MSE + blob paths.
   const stopPremiumAudio = useCallback(() => {
-    const a = activeAudioRef.current;
-    if (a) {
+    const h = activeStreamRef.current;
+    if (h) {
       try {
-        a.pause();
-        a.src = "";
+        h.stop();
       } catch {
         // ignore
       }
     }
-    const url = activeAudioUrlRef.current;
-    if (url) {
-      try {
-        URL.revokeObjectURL(url);
-      } catch {
-        // ignore
-      }
-    }
-    activeAudioRef.current = null;
-    activeAudioUrlRef.current = null;
+    activeStreamRef.current = null;
   }, []);
 
   // Speak with auto-fallback: tries premium first, falls through

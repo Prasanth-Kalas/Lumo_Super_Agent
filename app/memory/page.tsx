@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { BrandMark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import VoicePicker from "@/components/VoicePicker";
 
 interface UserProfile {
   id: string;
@@ -186,6 +187,18 @@ export default function MemoryPage() {
             <section className="space-y-3">
               <h2 className="text-[16px] font-semibold text-lumo-fg">Profile</h2>
               <ProfileEditor profile={profile} onChange={updateProfile} />
+            </section>
+
+            {/* ─── Voice ──────────────────────────────────────────────── */}
+            <section className="space-y-3">
+              <div className="space-y-1">
+                <h2 className="text-[16px] font-semibold text-lumo-fg">Voice</h2>
+                <p className="text-[13px] text-lumo-fg-low leading-relaxed">
+                  How Lumo sounds when it speaks to you. Preview each
+                  voice and pick the one that feels right.
+                </p>
+              </div>
+              <VoicePicker />
             </section>
 
             {/* ─── Facts ──────────────────────────────────────────────── */}
