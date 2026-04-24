@@ -37,7 +37,14 @@ interface AgentHealth {
   agent_id: string;
   display_name: string;
   icon: string;
+  /**
+   * "ok" = registry healthy AND user has an active connection.
+   * "degraded" = registry healthy but connection is expired/errored.
+   * "offline" = registry says unhealthy OR user has no connection.
+   */
   health: "ok" | "degraded" | "offline";
+  /** Real OAuth status from /api/connections, or null if never connected. */
+  connection_status: "active" | "expired" | "revoked" | "error" | null;
 }
 
 export interface LeftRailProps {
@@ -50,7 +57,7 @@ export interface LeftRailProps {
 // Static baseline — we render these even if /api/registry is empty
 // so the user always knows what Lumo can do. Health gets overlaid
 // from the registry when available.
-const BASELINE_AGENTS: Omit<AgentHealth, "health">[] = [
+const BASELINE_AGENTS: Omit<AgentHealth, "health" | "connection_status">[] = [
   { agent_id: "lumo.flight", display_name: "Flight", icon: "✈" },
   { agent_id: "lumo.hotel", display_name: "Hotel", icon: "⌂" },
   { agent_id: "lumo.food", display_name: "Food", icon: "◉" },
@@ -60,7 +67,11 @@ const BASELINE_AGENTS: Omit<AgentHealth, "health">[] = [
 export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps) {
   const [recents, setRecents] = useState<RecentSession[]>([]);
   const [agents, setAgents] = useState<AgentHealth[]>(
-    BASELINE_AGENTS.map((a) => ({ ...a, health: "offline" as const })),
+    BASELINE_AGENTS.map((a) => ({
+      ...a,
+      health: "offline" as const,
+      connection_status: null,
+    })),
   );
 
   // Lazy-load recents. We don't block the first paint waiting for
@@ -97,39 +108,85 @@ export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps)
     };
   }, []);
 
-  // Registry health — also lazy. The registry endpoint returns the
-  // agent manifests + last-seen times; we map to ok/degraded/offline.
+  // Registry + connection health — both lazy, fused into one effect
+  // so we compute final health with both signals. Registry tells us
+  // "is the agent up"; connections tells us "is the user linked".
+  // A green dot means BOTH. An amber dot means the agent is up but
+  // the user's token is expired/errored. Gray means not connected
+  // at all (with a Connect CTA), or the agent itself is offline.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      try {
-        const res = await fetch("/api/registry", { cache: "no-store" });
-        if (!res.ok) return;
-        const j = (await res.json()) as {
-          agents?: Array<{
-            agent_id?: string;
-            display_name?: string;
-            health_score?: number;
-          }>;
-        };
-        if (cancelled) return;
-        const byId = new Map<string, number>();
-        for (const a of j.agents ?? []) {
-          if (a.agent_id && typeof a.health_score === "number") {
-            byId.set(a.agent_id, a.health_score);
+      const [regRes, connRes] = await Promise.allSettled([
+        fetch("/api/registry", { cache: "no-store" }),
+        fetch("/api/connections", { cache: "no-store" }),
+      ]);
+
+      const scoreById = new Map<string, number>();
+      if (regRes.status === "fulfilled" && regRes.value.ok) {
+        try {
+          const j = (await regRes.value.json()) as {
+            agents?: Array<{
+              agent_id?: string;
+              health_score?: number;
+            }>;
+          };
+          for (const a of j.agents ?? []) {
+            if (a.agent_id && typeof a.health_score === "number") {
+              scoreById.set(a.agent_id, a.health_score);
+            }
           }
+        } catch {
+          /* ignore parse error — leave registry empty */
         }
-        setAgents(
-          BASELINE_AGENTS.map((a) => {
-            const score = byId.get(a.agent_id) ?? 0;
-            const health: AgentHealth["health"] =
-              score > 0.8 ? "ok" : score > 0.4 ? "degraded" : "offline";
-            return { ...a, health };
-          }),
-        );
-      } catch {
-        // registry endpoint not available — rail stays offline.
       }
+
+      const connById = new Map<string, AgentHealth["connection_status"]>();
+      if (connRes.status === "fulfilled" && connRes.value.ok) {
+        try {
+          const j = (await connRes.value.json()) as {
+            connections?: Array<{ agent_id: string; status: string }>;
+          };
+          for (const c of j.connections ?? []) {
+            connById.set(
+              c.agent_id,
+              c.status as AgentHealth["connection_status"],
+            );
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      // /api/connections 401s when auth isn't configured — treat as
+      // "we can't know", don't overlay connection state. Registry
+      // health alone drives the dot in that mode.
+      const haveConnections = connRes.status === "fulfilled" && connRes.value.ok;
+
+      if (cancelled) return;
+      setAgents(
+        BASELINE_AGENTS.map((a) => {
+          const score = scoreById.get(a.agent_id) ?? 0;
+          const registryUp = score > 0.4;
+          const conn = connById.get(a.agent_id) ?? null;
+
+          let health: AgentHealth["health"];
+          if (!haveConnections) {
+            // No auth / no connections endpoint — fall back to
+            // registry-only, same as the pre-J5 behavior.
+            health = score > 0.8 ? "ok" : score > 0.4 ? "degraded" : "offline";
+          } else if (conn === "active" && registryUp) {
+            health = "ok";
+          } else if (conn === "active" && !registryUp) {
+            health = "degraded"; // agent itself is down
+          } else if (conn === "expired" || conn === "error") {
+            health = "degraded"; // reconnect required
+          } else {
+            health = "offline"; // not connected
+          }
+
+          return { ...a, health, connection_status: conn };
+        }),
+      );
     })();
     return () => {
       cancelled = true;
@@ -227,19 +284,38 @@ export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps)
         <div className="px-4 pt-2 pb-3 mt-1 border-t border-lumo-hair">
           <SectionHeader>Agents</SectionHeader>
           <ul className="mt-2 space-y-0.5">
-            {agents.map((a) => (
-              <li
-                key={a.agent_id}
-                className="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13.5px] text-lumo-fg-mid hover:bg-lumo-elevated/60 hover:text-lumo-fg transition-colors"
-                title={`${a.display_name} — ${a.health}`}
-              >
-                <span className="w-5 text-center text-[15px] text-lumo-accent opacity-90">
-                  {a.icon}
-                </span>
-                <span className="flex-1 truncate">{a.display_name}</span>
-                <HealthDot health={a.health} />
-              </li>
-            ))}
+            {agents.map((a) => {
+              const needsConnect =
+                a.connection_status === null ||
+                a.connection_status === "revoked" ||
+                a.connection_status === "expired" ||
+                a.connection_status === "error";
+              const needsReconnect =
+                a.connection_status === "expired" ||
+                a.connection_status === "error";
+              return (
+                <li
+                  key={a.agent_id}
+                  className="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13.5px] text-lumo-fg-mid hover:bg-lumo-elevated/60 hover:text-lumo-fg transition-colors group"
+                  title={tooltipForAgent(a)}
+                >
+                  <span className="w-5 text-center text-[15px] text-lumo-accent opacity-90">
+                    {a.icon}
+                  </span>
+                  <span className="flex-1 truncate">{a.display_name}</span>
+                  {needsConnect ? (
+                    <Link
+                      href="/marketplace"
+                      className="text-[11px] text-lumo-fg-low group-hover:text-lumo-accent underline-offset-4 hover:underline"
+                    >
+                      {needsReconnect ? "Reconnect" : "Connect"}
+                    </Link>
+                  ) : (
+                    <HealthDot health={a.health} />
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       </div>
@@ -271,6 +347,29 @@ function FooterLink({ href, label }: { href: string; label: string }) {
       {label}
     </Link>
   );
+}
+
+function tooltipForAgent(a: AgentHealth): string {
+  const parts: string[] = [a.display_name];
+  switch (a.connection_status) {
+    case "active":
+      parts.push("connected");
+      break;
+    case "expired":
+      parts.push("token expired — reconnect");
+      break;
+    case "revoked":
+      parts.push("revoked — reconnect to use again");
+      break;
+    case "error":
+      parts.push("connection error");
+      break;
+    case null:
+      parts.push("not connected");
+      break;
+  }
+  if (a.health === "degraded") parts.push("agent degraded");
+  return parts.join(" · ");
 }
 
 function HealthDot({ health }: { health: AgentHealth["health"] }) {

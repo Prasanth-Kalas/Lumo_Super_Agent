@@ -139,6 +139,8 @@ export default function Home() {
   // Hands-free is always-on when voice is enabled (#85 removed
   // push-to-talk). State kept for VoiceMode API compatibility.
   const [handsFree, setHandsFree] = useState<boolean>(true);
+  // Bumped after each agent turn so RightRail's MemoryPanel re-fetches.
+  const [memoryRefreshKey, setMemoryRefreshKey] = useState<number>(0);
   // Mute Lumo's TTS while keeping the mic hot. Persisted.
   const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
   const [spokenStreamText, setSpokenStreamText] = useState<string>("");
@@ -396,6 +398,11 @@ export default function Home() {
       console.error(err);
     } finally {
       setBusy(false);
+      // Bump memory refresh key — the orchestrator may have called
+      // memory_save / profile_update / memory_forget during this
+      // turn. RightRail's MemoryPanel re-fetches /api/memory when
+      // this changes.
+      setMemoryRefreshKey((k) => k + 1);
     }
   }
 
@@ -885,6 +892,7 @@ export default function Home() {
           onSuggestion={(t) => {
             if (!busy) void sendText(t);
           }}
+          memoryRefreshKey={memoryRefreshKey}
         />
       </div>
     </main>

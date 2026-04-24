@@ -3,32 +3,23 @@
 /**
  * RightRail — live operator HUD.
  *
- * Redesigned (2026-04) to cut the duplication with LeftRail. The
- * previous "Connected apps" panel mirrored LeftRail's Agents list —
- * dead weight. "Try asking" duplicated the center hero's suggestions.
- * Both removed. What remains, and why:
+ * Panels, top to bottom:
  *
- *   ACTIVE TRIP
- *     The one thing LeftRail doesn't show — live leg-by-leg dispatch
- *     status. Bigger empty state: an ambient illustration and a
- *     friendly prompt, not just a dashed border.
+ *   ACTIVE TRIP    — live leg-by-leg dispatch, cinematic empty state.
+ *   VOICE          — mic + mute + state pulse.
+ *   WHAT LUMO KNOWS — profile snippet + top facts (task #86).
+ *                    Makes the memory layer that the J1 stream wrote
+ *                    visible so users trust it. Fetches /api/memory.
+ *   RIGHT NOW      — time-of-day smart suggestion.
+ *   CLOCK          — region + ticking local time.
  *
- *   VOICE
- *     Animated waveform when listening / speaking, calmer ring when
- *     idle. Bigger, more alive — the ears of the product.
- *
- *   RIGHT NOW
- *     Time-of-day aware smart suggestion ("It's almost dinner —
- *     want me to order?"). Calm by default, warm by context.
- *
- *   CLOCK
- *     Region + ticking local time, monospace. The ambient HUD.
- *
- * Warmer than the prior pass: subtle radial accent at the top,
- * rounded-2xl panels, more generous padding, typography up a notch.
+ * When Supabase Auth isn't configured, /api/memory returns 401 and
+ * the memory panel silently hides (degrades gracefully). Same story
+ * for connections in LeftRail.
  */
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 export interface LegStatusLite {
   order: number;
@@ -68,6 +59,13 @@ export interface RightRailProps {
   onToggleMuted: () => void;
   userRegion: string;
   onSuggestion: (text: string) => void;
+  /**
+   * Increment this whenever the shell wants the memory panel to
+   * re-fetch /api/memory — typically after the agent turn finishes
+   * (a tool_use to memory_save may have landed). Value is opaque;
+   * any change re-triggers the fetch.
+   */
+  memoryRefreshKey?: number | string;
 }
 
 export default function RightRail(props: RightRailProps) {
@@ -80,6 +78,7 @@ export default function RightRail(props: RightRailProps) {
     onToggleMuted,
     userRegion,
     onSuggestion,
+    memoryRefreshKey,
   } = props;
 
   const [now, setNow] = useState<Date>(() => new Date());
@@ -122,6 +121,9 @@ export default function RightRail(props: RightRailProps) {
             onToggleMuted={onToggleMuted}
           />
         </Panel>
+
+        {/* What Lumo knows about you — memory surface (J1 stream) */}
+        <MemoryPanel refreshKey={memoryRefreshKey} />
 
         {/* Smart suggestion (time-of-day aware) */}
         <Panel title="Right now">
@@ -178,6 +180,147 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
       {children}
     </section>
   );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Memory panel — "what Lumo knows about you"
+// ──────────────────────────────────────────────────────────────────
+
+interface MemoryFact {
+  id: string;
+  fact: string;
+  category: string;
+  confidence: number;
+  last_confirmed_at: string;
+}
+interface MemoryProfile {
+  display_name: string | null;
+  home_address: { city?: string; region?: string; country?: string } | null;
+  dietary_flags: string[];
+  allergies: string[];
+  preferred_airline_seat: string | null;
+  budget_tier: string | null;
+}
+interface MemoryPayload {
+  profile: MemoryProfile | null;
+  facts: MemoryFact[];
+}
+
+/**
+ * Fetches /api/memory on mount and whenever refreshKey changes. When
+ * Supabase Auth isn't configured the endpoint 401s; we hide the
+ * panel entirely rather than showing a broken state — matches the
+ * "graceful degrade when env unset" pattern the rest of the app uses.
+ */
+function MemoryPanel({ refreshKey }: { refreshKey?: number | string }) {
+  const [data, setData] = useState<MemoryPayload | null>(null);
+  const [hidden, setHidden] = useState<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/memory", { cache: "no-store" });
+        if (!res.ok) {
+          // 401 / 500 / anything non-2xx → hide the panel silently.
+          if (!cancelled) setHidden(true);
+          return;
+        }
+        const j = (await res.json()) as MemoryPayload;
+        if (!cancelled) {
+          setData(j);
+          setHidden(false);
+        }
+      } catch {
+        if (!cancelled) setHidden(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
+  if (hidden) return null;
+
+  const topFacts = (data?.facts ?? [])
+    .slice()
+    .sort((a, b) => {
+      // Primary: higher confidence wins. Tiebreak: more recently confirmed.
+      if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+      return b.last_confirmed_at.localeCompare(a.last_confirmed_at);
+    })
+    .slice(0, 3);
+
+  const profile = data?.profile;
+  const chips = buildProfileChips(profile);
+
+  const empty = !profile && topFacts.length === 0;
+
+  return (
+    <Panel title="What Lumo knows">
+      {empty ? (
+        <div className="rounded-2xl border border-dashed border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg px-4 py-4">
+          <div className="text-[13px] text-lumo-fg">Nothing saved yet.</div>
+          <div className="mt-1 text-[12px] text-lumo-fg-low leading-relaxed">
+            Tell me about yourself — preferences, allergies, where you
+            live — and I'll remember. Try: <em className="text-lumo-fg">&ldquo;I'm vegetarian and I prefer aisle seats.&rdquo;</em>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg px-4 py-4 space-y-3">
+          {chips.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {chips.map((c) => (
+                <span
+                  key={c}
+                  className="inline-flex items-center rounded-full border border-lumo-accent/30 bg-lumo-accent/5 px-2 py-0.5 text-[11px] text-lumo-accent"
+                >
+                  {c}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          {topFacts.length > 0 ? (
+            <ul className="space-y-1.5">
+              {topFacts.map((f) => (
+                <li key={f.id} className="flex items-start gap-2 text-[13px]">
+                  <span className="mt-[0.45rem] inline-block h-1 w-1 rounded-full bg-lumo-accent shrink-0" />
+                  <span className="text-lumo-fg-mid leading-snug">
+                    {f.fact}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          <Link
+            href="/memory"
+            className="block text-center text-[11.5px] text-lumo-fg-low hover:text-lumo-fg underline-offset-4 hover:underline pt-1"
+          >
+            All memories →
+          </Link>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function buildProfileChips(p: MemoryProfile | null | undefined): string[] {
+  if (!p) return [];
+  const out: string[] = [];
+  if (p.home_address?.city) out.push(`📍 ${p.home_address.city}`);
+  for (const d of p.dietary_flags ?? []) out.push(prettify(d));
+  for (const a of (p.allergies ?? []).slice(0, 2))
+    out.push(`⚠ ${prettify(a)}`);
+  if (p.preferred_airline_seat && p.preferred_airline_seat !== "any")
+    out.push(`${p.preferred_airline_seat} seat`);
+  if (p.budget_tier) out.push(prettify(p.budget_tier));
+  return out.slice(0, 6);
+}
+
+function prettify(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function EmptyActiveTrip() {
