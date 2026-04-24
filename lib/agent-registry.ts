@@ -18,6 +18,10 @@ import {
   type HealthReport,
   type OpenApiDocument,
 } from "@lumo/agent-sdk";
+import {
+  getInternalAgentEntries,
+  mergeInternalIntoBridge,
+} from "./integrations/registry.js";
 
 // Static JSON imports so Next.js' file tracer pulls these into the
 // serverless bundle. We had been reading the registry via
@@ -144,9 +148,16 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
   entries.length = 0;
   entries.push(...healthyEntries);
 
+  // Fold internal integrations (Google, etc.) into the registry + bridge.
+  // Zero impact on external agents — if none are configured, this is a
+  // no-op. See lib/integrations/registry.ts.
+  const internals = getInternalAgentEntries();
+  for (const e of internals) entries.push(e);
+  const withInternals = mergeInternalIntoBridge(bridge, internals);
+
   const registry: Registry = {
     agents: Object.fromEntries(entries.map((e) => [e.key, e])),
-    bridge,
+    bridge: withInternals,
     loaded_at: Date.now(),
   };
 

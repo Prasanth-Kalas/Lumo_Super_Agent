@@ -29,6 +29,7 @@ import {
   touchLastUsed,
   ConnectionError,
 } from "./connections.js";
+import { dispatchInternalTool, isInternalAgent } from "./integrations/registry.js";
 
 export interface DispatchContext {
   user_id: string;
@@ -146,6 +147,47 @@ export async function dispatchToolCall(
         });
       }
       throw err;
+    }
+  }
+
+  // ── Internal integration dispatch ──────────────────────────────
+  // Gmail/Calendar/Contacts run in-process. No HTTP round-trip, no
+  // PII body injection (the upstream API already has the user's
+  // identity via the Bearer token). Everything else — confirmation
+  // gate, circuit-breaker accounting, latency tracking — still runs.
+  if (isInternalAgent(agent.manifest.agent_id)) {
+    if (!authHeader) {
+      return failure(
+        "connection_required",
+        `Connect ${agent.manifest.display_name} before using this.`,
+        started,
+      );
+    }
+    try {
+      // authHeader is "Bearer <token>"; strip the prefix.
+      const access_token = authHeader.slice("Bearer ".length);
+      const result = await dispatchInternalTool({
+        tool_name: toolName,
+        access_token,
+        args,
+      });
+      recordSuccess(routing.agent_id);
+      if (connectionId) void touchLastUsed(connectionId);
+      return { ok: true, result, latency_ms: Date.now() - started };
+    } catch (err) {
+      recordFailure(routing.agent_id);
+      const status =
+        typeof (err as { http_status?: number })?.http_status === "number"
+          ? (err as { http_status: number }).http_status
+          : 500;
+      const message = err instanceof Error ? err.message : String(err);
+      return failure(
+        status === 401 || status === 403
+          ? "connection_refresh_failed"
+          : mapHttpToCode(status),
+        message,
+        started,
+      );
     }
   }
 
