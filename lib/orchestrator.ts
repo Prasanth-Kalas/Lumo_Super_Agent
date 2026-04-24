@@ -28,6 +28,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ensureRegistry, healthyBridge } from "./agent-registry.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
+import { dispatchWithRetry } from "./retry.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { assembleTripSummary, TripAssemblyError, type PricedLeg } from "./trip-planner.js";
 import {
@@ -142,7 +143,17 @@ export type OrchestratorFrame =
           | "rollback_failed";
       };
     }
-  | { type: "error"; value: { message: string } };
+  | { type: "error"; value: { message: string } }
+  | {
+      /**
+       * Observability-only frame. Not user-facing — the shell ignores
+       * these. Lands in the events table via the route handler so
+       * replay can see the orchestrator's internal decisions (retry
+       * attempts, price-integrity violations, saga plan emission, etc).
+       */
+      type: "internal";
+      value: { kind: string; detail: Record<string, unknown> };
+    };
 
 export type EmitFrame = (frame: OrchestratorFrame) => void;
 
@@ -517,19 +528,83 @@ export async function dispatchConfirmedTrip(
       rendered_at: new Date().toISOString(),
     };
 
-    const outcome = await dispatchToolCall(leg.tool_name, args, {
-      user_id: input.user_id,
-      session_id: input.session_id,
-      turn_id,
-      idempotency_key: `${input.session_id}:trip_${input.trip_id}:leg_${leg.order}`,
-      region: input.user_region,
-      device_kind: input.device_kind,
-      prior_summary: legPriorSummary,
-      user_confirmed: true,
-      user_pii: input.user_pii,
-    });
+    // Retry on transient errors (429/5xx/timeout). Permanent errors —
+    // confirmation mismatch, price_changed, payment_failed — fail
+    // immediately. Each retry reuses the same idempotency key so the
+    // vendor-side dedupe catches a successful-but-slow first attempt.
+    const outcome = await dispatchWithRetry(
+      leg.tool_name,
+      args,
+      {
+        user_id: input.user_id,
+        session_id: input.session_id,
+        turn_id,
+        idempotency_key: `${input.session_id}:trip_${input.trip_id}:leg_${leg.order}`,
+        region: input.user_region,
+        device_kind: input.device_kind,
+        prior_summary: legPriorSummary,
+        user_confirmed: true,
+        user_pii: input.user_pii,
+      },
+      {},
+      (info) =>
+        emit({
+          type: "internal",
+          value: {
+            kind: "retry_forward_leg",
+            detail: {
+              tool_name: leg.tool_name,
+              leg_order: leg.order,
+              attempt: info.attempt,
+              next_delay_ms: info.next_delay_ms,
+              error_code: info.error_code,
+              error_message: info.error_message,
+            },
+          },
+        }),
+    );
 
     if (outcome.ok) {
+      // Price-integrity gate: did the vendor charge more than the user
+      // confirmed? Compare the receipt total to the PricedLeg ceiling
+      // carried on the TripSummary payload (leg_amount + currency,
+      // hash-protected at confirmation time). Any overrun — even 1 cent
+      // — treats the leg as a price violation and triggers rollback.
+      // Saga compensates via the agent's cancel tool so money flows
+      // back to the user.
+      const violation = checkLegPriceIntegrity(
+        legRef,
+        outcome.result,
+      );
+      if (violation) {
+        const booking_id = extractBookingId(outcome.result);
+        // Mark committed (money moved) so rollback will compensate it,
+        // then flip the trip into failure mode.
+        trip = await updateLeg(input.trip_id, leg.order, {
+          status: "committed",
+          booking_id,
+          error_detail: {
+            code: "price_changed",
+            message: violation.message,
+            reason: "price_integrity_violation",
+            confirmed_amount: violation.confirmed_amount,
+            confirmed_currency: violation.confirmed_currency,
+            charged_amount: violation.charged_amount,
+            charged_currency: violation.charged_currency,
+          },
+        });
+        emit({
+          type: "leg_status",
+          value: { order: leg.order, status: "committed" },
+        });
+        emit({
+          type: "text",
+          value: `Price-integrity violation on leg ${leg.order} — vendor charged ${violation.charged_amount} ${violation.charged_currency}, you confirmed ${violation.confirmed_amount} ${violation.confirmed_currency}. Rolling back.`,
+        });
+        forwardFailed = true;
+        break;
+      }
+
       const booking_id = extractBookingId(outcome.result);
       trip = await updateLeg(input.trip_id, leg.order, {
         status: "committed",
@@ -581,7 +656,11 @@ export async function dispatchConfirmedTrip(
     });
 
     const turn_id = `${input.session_id}:${Date.now()}`;
-    const outcome = await dispatchToolCall(
+    // Rollback compensation is retryable by construction — cancel
+    // tools are idempotent and the idempotency key is stable. A 502
+    // from the vendor during refund shouldn't strand a leg in
+    // rollback_failed and dump it into the escalation queue.
+    const outcome = await dispatchWithRetry(
       step.tool_name,
       step.body as unknown as Record<string, unknown>,
       {
@@ -598,6 +677,22 @@ export async function dispatchConfirmedTrip(
         user_confirmed: true,
         user_pii: input.user_pii,
       },
+      {},
+      (info) =>
+        emit({
+          type: "internal",
+          value: {
+            kind: "retry_rollback_leg",
+            detail: {
+              tool_name: step.tool_name,
+              leg_order: step.order,
+              attempt: info.attempt,
+              next_delay_ms: info.next_delay_ms,
+              error_code: info.error_code,
+              error_message: info.error_message,
+            },
+          },
+        }),
     );
 
     if (outcome.ok) {
@@ -748,6 +843,93 @@ function firstCurrency(src: Record<string, unknown>): string | null {
   const c = src["currency"];
   if (typeof c === "string" && /^[A-Z]{3}$/.test(c)) return c;
   return null;
+}
+
+/**
+ * Price-integrity gate.
+ *
+ * The user confirmed a specific leg total (carried inside the leg's
+ * AttachedSummary payload and hash-protected via the compound trip
+ * hash the gate already enforces). After the booking tool returns,
+ * we compare the charged total on the response body against the
+ * confirmed ceiling. Any overrun — even 1 cent — is a violation.
+ *
+ * Why compare to the AttachedSummary payload and not to the trip's
+ * total_amount: totals can be composed in currencies we don't want to
+ * normalize here, and the SDK already guarantees trip.total_amount
+ * equals the sum of leg amounts at assembly time. Per-leg is the
+ * right granularity for rollback.
+ *
+ * Returns null if everything's fine OR if we can't compare (either
+ * side missing a parseable amount). Returns a violation detail if
+ * charged > confirmed, or if the currencies disagree.
+ */
+function checkLegPriceIntegrity(
+  legRef: { summary: { payload: unknown } },
+  chargedBody: unknown,
+): {
+  message: string;
+  confirmed_amount: string;
+  confirmed_currency: string;
+  charged_amount: string;
+  charged_currency: string;
+} | null {
+  const confirmed = extractLegAmount({}, legRef.summary.payload);
+  if (!confirmed) return null; // summary shape we don't know how to read — skip
+
+  const chargedSources: Array<Record<string, unknown>> = [];
+  if (isRecord(chargedBody)) chargedSources.push(chargedBody);
+  const charged = chargedSources.reduce<
+    { amount: string; currency: string } | null
+  >(
+    (acc, src) => acc ?? extractLegAmount(src, null),
+    null,
+  );
+  if (!charged) return null; // vendor didn't return a total — skip
+
+  if (charged.currency !== confirmed.currency) {
+    return {
+      message: `Currency drift: confirmed ${confirmed.currency}, charged ${charged.currency}`,
+      confirmed_amount: confirmed.amount,
+      confirmed_currency: confirmed.currency,
+      charged_amount: charged.amount,
+      charged_currency: charged.currency,
+    };
+  }
+
+  // Compare as scaled integers. Four-decimal max on both sides is
+  // enforced by firstDecimalString's regex.
+  const confirmedCents = toCents(confirmed.amount);
+  const chargedCents = toCents(charged.amount);
+  if (confirmedCents === null || chargedCents === null) return null;
+
+  if (chargedCents > confirmedCents) {
+    return {
+      message: `Charged ${charged.amount} > confirmed ceiling ${confirmed.amount} ${confirmed.currency}`,
+      confirmed_amount: confirmed.amount,
+      confirmed_currency: confirmed.currency,
+      charged_amount: charged.amount,
+      charged_currency: charged.currency,
+    };
+  }
+  return null;
+}
+
+/**
+ * Parse a decimal money string (e.g. "12.34", "7") as scaled-int cents
+ * with 4 decimals of precision. Returns null if the string doesn't
+ * match. Does not clamp — callers already reject amounts with > 4
+ * fractional digits via firstDecimalString.
+ */
+function toCents(s: string): number | null {
+  const m = /^(\d+)(?:\.(\d{1,4}))?$/.exec(s);
+  if (!m) return null;
+  const whole = Number(m[1]);
+  const fracRaw = m[2] ?? "";
+  const fracPadded = (fracRaw + "0000").slice(0, 4);
+  const frac = Number(fracPadded);
+  if (!Number.isFinite(whole) || !Number.isFinite(frac)) return null;
+  return whole * 10000 + frac;
 }
 
 /**
