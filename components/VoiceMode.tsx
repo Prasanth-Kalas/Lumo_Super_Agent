@@ -501,14 +501,33 @@ export default function VoiceMode(props: VoiceModeProps) {
   // ─── STT lifecycle ───────────────────────────────────────────
   //
   // We run Web Speech in CONTINUOUS mode with interim results and
-  // roll our own end-of-turn detection via a silence timer. The
-  // default continuous=false mode fires isFinal after ~700 ms of
-  // silence, which splits natural pauses mid-sentence ("Flight to
-  // Chicago… for next Friday") into two user turns. Continuous
-  // mode lets us accumulate final segments and only dispatch the
-  // combined transcript when SILENCE_END_MS has elapsed since the
-  // last result — i.e. the user actually stopped talking.
-  const SILENCE_END_MS = 1200;
+  // roll our own end-of-turn detection via a silence timer.
+  // Chrome's continuous=false mode fires isFinal after ~700 ms of
+  // silence, which splits natural pauses mid-sentence into two
+  // user turns. Continuous mode lets us accumulate final segments
+  // and only dispatch when the user has actually stopped talking.
+  //
+  // Silence thresholds are two-tier:
+  //
+  //   SILENCE_END_MS (2500 ms)   → "normal" end-of-turn. Long
+  //       enough that a user thinking mid-sentence doesn't get cut
+  //       off ("Find me a flight from SFO … to Austin next Friday
+  //       … for under $400"). Feels slightly laggy to fast
+  //       speakers but is the right default for conversational
+  //       and hands-free use.
+  //
+  //   SILENCE_SHORT_MS (1200 ms) → only applies once the buffered
+  //       transcript is long enough to clearly be a complete
+  //       utterance. Tight sentences ("new thread", "yes",
+  //       "confirm") dispatch faster; long ones wait.
+  //
+  // Empty-buffer fires are suppressed entirely — if no final
+  // segment has landed yet, the timer is almost certainly
+  // triggered by ambient noise or a mic test and we shouldn't
+  // dispatch an empty turn.
+  const SILENCE_END_MS = 2500;
+  const SILENCE_SHORT_MS = 1200;
+  const LONG_UTTERANCE_CHARS = 60; // > ~10 words — treat as "done"
   const finalBufferRef = useRef<string>("");
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -558,10 +577,11 @@ export default function VoiceMode(props: VoiceModeProps) {
     rec.interimResults = true;
     rec.maxAlternatives = 1;
 
-    // Dispatch whatever we've accumulated and end the session. Used
-    // by both the silence timer and the explicit stop button. Safe
-    // to call multiple times — the buffer is cleared before dispatch
-    // so the second call is a no-op.
+    // Dispatch whatever we've accumulated and end the session.
+    // Safe to call multiple times — the buffer is cleared before
+    // dispatch so the second call is a no-op. Also safe to call
+    // with an empty buffer (the timer path gates on that, but
+    // explicit stop may still hit this path).
     const dispatchAndStop = () => {
       clearSilenceTimer();
       const finalText = finalBufferRef.current.trim();
@@ -576,6 +596,33 @@ export default function VoiceMode(props: VoiceModeProps) {
       } catch {
         /* ignore */
       }
+    };
+
+    // Pick the right silence window based on how much the user has
+    // said so far. A long, clearly-complete utterance can dispatch
+    // on the shorter window (~1.2 s); a short/partial one waits
+    // longer (~2.5 s) so we don't truncate mid-thought. Never fires
+    // with an empty buffer — that's almost always ambient noise.
+    const scheduleSilenceFire = () => {
+      clearSilenceTimer();
+      silenceTimerRef.current = setTimeout(() => {
+        silenceTimerRef.current = null;
+        if (!finalBufferRef.current.trim()) {
+          // Nothing buffered yet — re-arm on the long window and
+          // wait for the user to actually say something.
+          silenceTimerRef.current = setTimeout(
+            () => dispatchAndStop(),
+            SILENCE_END_MS,
+          );
+          return;
+        }
+        dispatchAndStop();
+      }, chooseSilenceWindow());
+    };
+
+    const chooseSilenceWindow = (): number => {
+      const len = finalBufferRef.current.trim().length;
+      return len >= LONG_UTTERANCE_CHARS ? SILENCE_SHORT_MS : SILENCE_END_MS;
     };
 
     rec.onstart = () => {
@@ -614,12 +661,9 @@ export default function VoiceMode(props: VoiceModeProps) {
           : committed || interimText,
       );
 
-      // Reset the silence timer. End-of-turn fires only if no new
-      // result arrives within SILENCE_END_MS.
-      clearSilenceTimer();
-      silenceTimerRef.current = setTimeout(() => {
-        dispatchAndStop();
-      }, SILENCE_END_MS);
+      // Reset the silence timer. End-of-turn fires only after an
+      // idle window appropriate to how much the user has said.
+      scheduleSilenceFire();
     };
     rec.onerror = (e) => {
       const code = e.error ?? "unknown";
