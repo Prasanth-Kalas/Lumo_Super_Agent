@@ -45,6 +45,12 @@ import { startBargeInMonitor, type BargeInHandle } from "@/lib/barge-in";
 import { startWakeWord, type WakeWordHandle } from "@/lib/wake-word";
 import { playAudioStream, type StreamingAudioHandle } from "@/lib/streaming-audio";
 import { getSelectedVoiceId } from "@/lib/voice-catalog";
+import {
+  nextSpeakableChunk,
+  chooseSilenceWindow as chooseSilenceWindowPure,
+  silenceDecision,
+  DEFAULT_SILENCE,
+} from "@/lib/voice-chunking";
 
 // How long to honor a "premium TTS unavailable" verdict before
 // re-probing. Tuned for transient upstream issues (ElevenLabs 402
@@ -147,24 +153,8 @@ export interface VoiceModeProps {
   onStateChange?: (state: VoiceState) => void;
 }
 
-/**
- * Chunk a growing text buffer at sentence boundaries so we can
- * start speaking before the full response arrives. Returns the
- * (next-ready-chunk, remaining-tail). A chunk is "ready" if it ends
- * with . ! ? or a newline AND is at least ~20 chars (so we don't
- * speak fragments like "Ok.").
- */
-function nextSpeakableChunk(buf: string): { chunk: string; rest: string } {
-  if (buf.length < 20) return { chunk: "", rest: buf };
-  const re = /([.!?]+\s)|(\n{2,})/g;
-  let lastMatch = -1;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(buf)) !== null) {
-    lastMatch = re.lastIndex;
-  }
-  if (lastMatch < 0) return { chunk: "", rest: buf };
-  return { chunk: buf.slice(0, lastMatch).trim(), rest: buf.slice(lastMatch) };
-}
+// nextSpeakableChunk extracted to lib/voice-chunking.ts so it's unit-
+// testable without standing up React + JSDOM. Imported above.
 
 /**
  * Minimal TTS-safe transform of plain text. Strip markdown leftovers
@@ -480,7 +470,20 @@ export default function VoiceMode(props: VoiceModeProps) {
       ) {
         const next = ttsQueueRef.current.shift();
         if (!next) continue;
-        await playOneChunk(next.text, () => setState("speaking"));
+
+        // Guard against a race where cancelTts fired between shift
+        // and play — the queue bumped the turn id but we already
+        // pulled the entry. Check once more before spawning audio.
+        if (myTurn !== ttsTurnIdRef.current) break;
+
+        await playOneChunk(next.text, () => {
+          // Guard the speaking state-set against a turn that was
+          // cancelled mid-fetch. Without this, a cancelled chunk
+          // whose fetch finally returned would flip state back to
+          // "speaking" and the user would see a frozen pill.
+          if (myTurn === ttsTurnIdRef.current) setState("speaking");
+        });
+
         // Fire this chunk's onEnd only if it was the last one in
         // the queue at the moment it finished. If more were added
         // while it was playing, those chunks' own onEnds will fire
@@ -555,15 +558,8 @@ export default function VoiceMode(props: VoiceModeProps) {
   // segment has landed yet, the timer is almost certainly
   // triggered by ambient noise or a mic test and we shouldn't
   // dispatch an empty turn.
-  // Tuned after user feedback that 2500 ms was still cutting off
-  // long booking requests mid-sentence. 3500 ms is the right
-  // default for composed speech ("Find me a flight from SFO … to
-  // Austin … next Friday … under $400") where the user is thinking
-  // while talking. Tight commands still dispatch on the short
-  // window once the buffer clears the LONG_UTTERANCE_CHARS bar.
-  const SILENCE_END_MS = 3500;
-  const SILENCE_SHORT_MS = 1500;
-  const LONG_UTTERANCE_CHARS = 60; // > ~10 words — treat as "done"
+  // Silence windows live in lib/voice-chunking.ts so they're unit-
+  // testable. See DEFAULT_SILENCE for the current tuning.
   const finalBufferRef = useRef<string>("");
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -643,30 +639,23 @@ export default function VoiceMode(props: VoiceModeProps) {
     };
 
     // Pick the right silence window based on how much the user has
-    // said so far. A long, clearly-complete utterance can dispatch
-    // on the shorter window (~1.2 s); a short/partial one waits
-    // longer (~2.5 s) so we don't truncate mid-thought. Never fires
-    // with an empty buffer — that's almost always ambient noise.
+    // said so far. Delegates to lib/voice-chunking.ts so the tuning
+    // is testable. Never fires with an empty buffer — that's almost
+    // always ambient noise, and we re-arm on the long window.
     const scheduleSilenceFire = () => {
       clearSilenceTimer();
       silenceTimerRef.current = setTimeout(() => {
         silenceTimerRef.current = null;
-        if (!finalBufferRef.current.trim()) {
-          // Nothing buffered yet — re-arm on the long window and
-          // wait for the user to actually say something.
+        const decision = silenceDecision(finalBufferRef.current);
+        if (decision === "rearm") {
           silenceTimerRef.current = setTimeout(
             () => dispatchAndStop(),
-            SILENCE_END_MS,
+            DEFAULT_SILENCE.longMs,
           );
           return;
         }
         dispatchAndStop();
-      }, chooseSilenceWindow());
-    };
-
-    const chooseSilenceWindow = (): number => {
-      const len = finalBufferRef.current.trim().length;
-      return len >= LONG_UTTERANCE_CHARS ? SILENCE_SHORT_MS : SILENCE_END_MS;
+      }, chooseSilenceWindowPure(finalBufferRef.current));
     };
 
     rec.onstart = () => {

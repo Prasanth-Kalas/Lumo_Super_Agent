@@ -9,6 +9,7 @@
     "start": "next start -p 3000",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types tests/voice.test.mjs",
     "clean": "rm -rf .next *.tsbuildinfo"
   },
   "dependencies": {

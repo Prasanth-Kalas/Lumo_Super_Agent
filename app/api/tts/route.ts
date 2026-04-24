@@ -108,27 +108,29 @@ export async function POST(req: NextRequest): Promise<Response> {
       body: JSON.stringify({
         text,
         model_id: MODEL_ID,
-        // Voice settings retuned after the v3 revert. The prior
-        // aggressive settings (stability 0.35, style 0.45) were
-        // calibrated for v3's wider expressive range — on turbo
-        // v2.5 they produced a rushed, "racing through the
-        // sentence" cadence with audible cracks on plosives.
+        // Voice settings retuned for "friend-like" warmth on turbo
+        // v2.5. Prior settings (stability 0.5, style 0.3) were
+        // safe but read as polite-concierge. Users want
+        // conversational — someone you'd actually call.
         //
-        //   stability 0.5 — back to the ElevenLabs default. Holds
-        //     a steady pace on turbo v2.5 without sounding flat;
-        //     below 0.4 on this model the delivery speeds up and
-        //     you start hearing glottal artifacts.
-        //   similarity_boost 0.75 — default. Higher values (0.85+)
-        //     overfit the source voice and can introduce clicks
-        //     on chunk boundaries.
-        //   style 0.3 — some emotional inference but less than
-        //     v3 wanted. Keeps the concierge tone warm without
-        //     the over-acted delivery at 0.45.
-        //   use_speaker_boost — keeps clarity on small speakers.
+        //   stability 0.42 — slight drop from 0.5 lets the cadence
+        //     breathe. Below 0.4 this model starts slurring;
+        //     0.42-0.45 is the sweet spot for turbo v2.5 where
+        //     prosody opens up without losing pace.
+        //   similarity_boost 0.80 — bumped from 0.75 to hold the
+        //     voice identity (Rachel) even as stability drops.
+        //     Without this pairing, the voice drifts character
+        //     across long responses.
+        //   style 0.55 — real emotional inference. The model picks
+        //     up punctuation cues (em-dashes, ellipses, question
+        //     marks) and leans into them. Above 0.7 it starts
+        //     over-acting; 0.55 is warm-but-honest.
+        //   use_speaker_boost — keeps clarity on phone + laptop
+        //     speakers where mids get muddy.
         voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-          style: 0.3,
+          stability: 0.42,
+          similarity_boost: 0.8,
+          style: 0.55,
           use_speaker_boost: true,
         },
       }),
