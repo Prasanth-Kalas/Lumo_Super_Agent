@@ -52,6 +52,11 @@ const PROTECTED_PAGE_PREFIXES = [
   // logged-out user; gate it so we don't half-render a page the
   // user can't possibly use.
   "/onboarding",
+  // Publisher portal (invited partners only) and admin review queue.
+  // Gate checks happen in the routes too — this is defense in depth
+  // so the pages don't even render for signed-out users.
+  "/publisher",
+  "/admin",
 ];
 const PROTECTED_API_PREFIXES = [
   "/api/connections",
@@ -67,6 +72,10 @@ const PROTECTED_API_PREFIXES = [
   // MCP server connections — per-user bearer tokens. Signed-out
   // requests must never reach these handlers.
   "/api/mcp/connections",
+  // Publisher APIs. Allowlist check happens inside each route
+  // against LUMO_PUBLISHER_EMAILS / LUMO_ADMIN_EMAILS.
+  "/api/publisher",
+  "/api/admin",
 ];
 
 export async function middleware(req: NextRequest) {
