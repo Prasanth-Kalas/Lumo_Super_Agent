@@ -29,6 +29,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { ensureRegistry, healthyBridge, userScopedBridge } from "./agent-registry.js";
 import { listConnectionsForUser } from "./connections.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
+import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
+import { dispatchMcpTool, isMcpToolName } from "./mcp/dispatch.js";
 import { dispatchWithRetry } from "./retry.js";
 import { buildSystemPrompt, type AmbientContext } from "./system-prompt.js";
 import {
@@ -265,10 +267,37 @@ export async function runTurn(
     ambient: input.ambient,
   });
 
+  // MCP bridge — third-party tools exposed via Model Context Protocol.
+  // Each user's connected MCP servers contribute additional tools with
+  // mcp__<server>__<tool> naming. Failures here are swallowed inside
+  // userMcpBridge (one flaky server can't break the whole turn) so we
+  // can merge the result unconditionally.
+  let mcpBridge: McpBridgeResult = { tools: [], routing: {} };
+  try {
+    mcpBridge = await userMcpBridge(input.user_id);
+  } catch (err) {
+    console.warn("[orchestrator] MCP bridge failed:", err);
+  }
+
   // Merge meta-tools (memory_save, memory_forget, profile_update) onto
-  // the registry bridge so Claude sees them alongside agent tools. They
-  // share the same tool_use protocol; dispatch is intercepted below.
-  const toolsForClaude = [...bridge.tools, ...META_TOOLS];
+  // the registry bridge so Claude sees them alongside agent tools. MCP
+  // tools tack on after — they share the same tool_use protocol and
+  // dispatch is intercepted below based on name prefix.
+  const toolsForClaude = [
+    ...bridge.tools,
+    ...META_TOOLS,
+    // MCP tool schemas arrive as opaque JSON Schema from third-party
+    // servers. Anthropic.Tool expects a more specific type-literal
+    // for `input_schema.type`, but the runtime shape is identical —
+    // so a cast is safer than trying to narrow every sub-field of
+    // an untrusted schema. Sanitization already happened in
+    // sanitizeTool(); this is purely a TS appeasement.
+    ...(mcpBridge.tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    })) as unknown as typeof META_TOOLS),
+  ];
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -384,16 +413,69 @@ export async function runTurn(
         user_confirmed: userConfirmed,
         user_pii: input.user_pii,
       };
-      const outcome = await dispatchToolCall(
-        tu.name,
-        (tu.input as Record<string, unknown>) ?? {},
-        ctx,
-      );
+      // MCP branch. Tool names starting with `mcp__` live in the
+      // MCP namespace — route to the MCP dispatcher instead of the
+      // native agent router. Shape of `outcome` is normalized so the
+      // rest of the loop (trace frame, tool_result construction)
+      // doesn't care which world the call came from.
+      let outcome: Awaited<ReturnType<typeof dispatchToolCall>>;
+      if (isMcpToolName(tu.name)) {
+        const mcpStarted = Date.now();
+        const mcpRouting = mcpBridge.routing[tu.name] ?? null;
+        const mcp = await dispatchMcpTool(
+          tu.name,
+          mcpRouting,
+          (tu.input as Record<string, unknown>) ?? {},
+          { user_id: input.user_id },
+        );
+        // Map MCP dispatch shape onto DispatchOutcome so the rest of
+        // the loop treats it identically. Known MCP error codes are
+        // aligned with AgentErrorCode strings; anything unexpected
+        // degrades to "upstream_error" so we never emit an invalid code.
+        const allowedCodes = new Set([
+          "upstream_error",
+          "connection_required",
+          "connection_refresh_failed",
+          "not_available",
+          "upstream_timeout",
+          "rate_limited",
+          "internal_error",
+        ] as const);
+        type OkCode = typeof allowedCodes extends Set<infer U> ? U : never;
+        const incomingCode = mcp.error?.code ?? "upstream_error";
+        const errorCode: OkCode = (allowedCodes as Set<string>).has(incomingCode)
+          ? (incomingCode as OkCode)
+          : "upstream_error";
+        outcome = mcp.ok
+          ? {
+              ok: true,
+              result: { content: mcp.content },
+              latency_ms: Date.now() - mcpStarted,
+            }
+          : {
+              ok: false,
+              error: {
+                code: errorCode,
+                message: mcp.error?.message ?? "MCP tool failed",
+                at: new Date().toISOString(),
+              },
+              latency_ms: Date.now() - mcpStarted,
+            };
+      } else {
+        outcome = await dispatchToolCall(
+          tu.name,
+          (tu.input as Record<string, unknown>) ?? {},
+          ctx,
+        );
+      }
 
       const routing = registry.bridge.routing[tu.name];
+      const mcpAgentId = isMcpToolName(tu.name)
+        ? `mcp:${mcpBridge.routing[tu.name]?.server_id ?? "unknown"}`
+        : null;
       const traceFrame = {
         name: tu.name,
-        agent_id: routing?.agent_id ?? "unknown",
+        agent_id: mcpAgentId ?? routing?.agent_id ?? "unknown",
         latency_ms: outcome.latency_ms,
         ok: outcome.ok,
         error_code: outcome.ok ? undefined : outcome.error.code,

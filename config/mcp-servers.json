@@ -1,0 +1,21 @@
+{
+  "$schema_hint": "See lib/mcp/registry.ts :: McpServerConfig for field docs.",
+  "_note": "Phase 1 seed file. The first pilot entry (Google Calendar) is commented out below — to activate, copy it into the servers array, set GOOGLE_CALENDAR_MCP_URL in Vercel, seed a user_mcp_connections row with the user's bearer token, and rebuild. Leaving the array empty is the safe default: no MCP servers mount, the Super Agent runs with only native Lumo agents.",
+  "servers": [],
+
+  "_pilot_gcal_template": {
+    "server_id": "gcal",
+    "display_name": "Google Calendar",
+    "one_liner": "Lumo can read your calendar to plan around existing commitments.",
+    "category": "Productivity",
+    "logo_url": "https://www.gstatic.com/marketing-cms/assets/images/bd/5d/02e65f7a4193835cfd4d3bfa2984/calendar.webp=s96-fcrop64=1,00000000ffffffff-rw",
+    "url": "${GOOGLE_CALENDAR_MCP_URL}",
+    "auth_model": "bearer",
+    "scopes": [
+      {
+        "name": "calendar.readonly",
+        "description": "Read your calendar to suggest conflict-free times."
+      }
+    ]
+  }
+}

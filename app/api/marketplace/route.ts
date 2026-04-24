@@ -14,6 +14,10 @@ import type { NextRequest } from "next/server";
 import { getServerUser } from "@/lib/auth";
 import { ensureRegistry, healthyBridge } from "@/lib/agent-registry";
 import { listConnectionsForUser, type ConnectionMeta } from "@/lib/connections";
+import {
+  loadMcpCatalog,
+  listMcpConnectionsForUser,
+} from "@/lib/mcp/registry";
 import type { AgentManifest } from "@lumo/agent-sdk";
 
 export const runtime = "nodejs";
@@ -27,12 +31,14 @@ interface MarketplaceAgent {
   version: string;
   intents: string[];
   listing: NonNullable<AgentManifest["listing"]> | null;
-  connect_model: AgentManifest["connect"]["model"];
+  connect_model: AgentManifest["connect"]["model"] | "mcp_bearer" | "mcp_none";
   required_scopes: Array<{ name: string; description: string }>;
   health_score: number;
+  /** "lumo" for native agents, "mcp" for MCP-backed entries. */
+  source: "lumo" | "mcp";
   connection?: {
     id: string;
-    status: ConnectionMeta["status"];
+    status: ConnectionMeta["status"] | "active";
     connected_at: string;
     last_used_at: string | null;
   } | null;
@@ -71,6 +77,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
       connect_model: connect.model,
       required_scopes,
       health_score: e.health_score,
+      source: "lumo",
       connection: conn
         ? {
             id: conn.id,
@@ -81,6 +88,48 @@ export async function GET(_req: NextRequest): Promise<Response> {
         : null,
     };
   });
+
+  // MCP-backed entries. Merge alongside native agents so the
+  // /marketplace and /onboarding grids render both under one set
+  // of affordances. `source: "mcp"` is the flag the UI uses to
+  // render a "Powered by MCP" badge.
+  const mcpCatalog = await loadMcpCatalog();
+  const mcpConnections = user ? await listMcpConnectionsForUser(user.id) : [];
+  const mcpConnByServer = new Map(mcpConnections.map((c) => [c.server_id, c]));
+
+  for (const s of mcpCatalog) {
+    const conn = mcpConnByServer.get(s.server_id) ?? null;
+    agents.push({
+      agent_id: `mcp:${s.server_id}`,
+      display_name: s.display_name,
+      one_liner: s.one_liner,
+      domain: s.category ?? "MCP",
+      version: "mcp",
+      intents: [],
+      listing: {
+        category: s.category,
+        logo_url: s.logo_url,
+      } as NonNullable<AgentManifest["listing"]>,
+      connect_model: s.auth_model === "bearer" ? "mcp_bearer" : "mcp_none",
+      required_scopes: (s.scopes ?? []).map(({ name, description }) => ({
+        name,
+        description,
+      })),
+      // No health probe for MCP in Phase 1 — presence in the config
+      // is the signal. Probing 20 MCPs per marketplace load is not
+      // worth the latency until we have a cache.
+      health_score: 1,
+      source: "mcp",
+      connection: conn
+        ? {
+            id: conn.id,
+            status: "active",
+            connected_at: conn.connected_at,
+            last_used_at: conn.last_used_at,
+          }
+        : null,
+    });
+  }
 
   return new Response(
     JSON.stringify({
