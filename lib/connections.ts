@@ -123,17 +123,26 @@ export async function saveConnection(args: {
     ? new Date(Date.now() + args.tokens.expires_in * 1000).toISOString()
     : null;
 
+  // The Supabase JS client encodes bytea inputs based on JSON.stringify.
+  // A Node Buffer serializes as `{ "type": "Buffer", "data": [...] }`
+  // which the PostgREST encoder then writes as JSON into a bytea column —
+  // which is NOT what we want. Routing through `bufferToPgEscape()` emits
+  // the PostgreSQL BYTEA hex-escape literal `\x…` that the Supabase client
+  // forwards verbatim. That round-trips cleanly back to a Uint8Array on
+  // select (see openTokenColumn → toSealed in this file).
   const row = {
     id,
     user_id: args.user_id,
     agent_id: args.agent_id,
     status: "active" as const,
-    access_token_ciphertext: accessSealed.ciphertext,
-    access_token_iv: accessSealed.iv,
-    access_token_tag: accessSealed.tag,
-    refresh_token_ciphertext: refreshSealed?.ciphertext ?? null,
-    refresh_token_iv: refreshSealed?.iv ?? null,
-    refresh_token_tag: refreshSealed?.tag ?? null,
+    access_token_ciphertext: bufferToPgEscape(accessSealed.ciphertext),
+    access_token_iv: bufferToPgEscape(accessSealed.iv),
+    access_token_tag: bufferToPgEscape(accessSealed.tag),
+    refresh_token_ciphertext: refreshSealed
+      ? bufferToPgEscape(refreshSealed.ciphertext)
+      : null,
+    refresh_token_iv: refreshSealed ? bufferToPgEscape(refreshSealed.iv) : null,
+    refresh_token_tag: refreshSealed ? bufferToPgEscape(refreshSealed.tag) : null,
     expires_at,
     scopes: args.scopes_granted,
     provider_account_id: args.tokens.provider_account_id ?? null,
@@ -376,12 +385,12 @@ interface RowFromDb {
   user_id: string;
   agent_id: string;
   status: ConnectionStatus;
-  access_token_ciphertext?: Buffer | Uint8Array;
-  access_token_iv?: Buffer | Uint8Array;
-  access_token_tag?: Buffer | Uint8Array;
-  refresh_token_ciphertext?: Buffer | Uint8Array | null;
-  refresh_token_iv?: Buffer | Uint8Array | null;
-  refresh_token_tag?: Buffer | Uint8Array | null;
+  access_token_ciphertext?: Buffer | Uint8Array | string;
+  access_token_iv?: Buffer | Uint8Array | string;
+  access_token_tag?: Buffer | Uint8Array | string;
+  refresh_token_ciphertext?: Buffer | Uint8Array | string | null;
+  refresh_token_iv?: Buffer | Uint8Array | string | null;
+  refresh_token_tag?: Buffer | Uint8Array | string | null;
   scopes: string[] | unknown;
   expires_at: string | null;
   provider_account_id: string | null;
@@ -423,15 +432,42 @@ function openTokenColumn(row: RowFromDb, which: "access_token" | "refresh_token"
 }
 
 function toSealed(
-  ct: Buffer | Uint8Array,
-  iv: Buffer | Uint8Array,
-  tag: Buffer | Uint8Array,
+  ct: Buffer | Uint8Array | string,
+  iv: Buffer | Uint8Array | string,
+  tag: Buffer | Uint8Array | string,
 ): SealedSecret {
   return {
-    ciphertext: Buffer.isBuffer(ct) ? ct : Buffer.from(ct),
-    iv: Buffer.isBuffer(iv) ? iv : Buffer.from(iv),
-    tag: Buffer.isBuffer(tag) ? tag : Buffer.from(tag),
+    ciphertext: coerceBytes(ct),
+    iv: coerceBytes(iv),
+    tag: coerceBytes(tag),
   };
+}
+
+/**
+ * PostgreSQL bytea hex-escape format: `\x<hex>`. The Supabase JS client
+ * forwards this verbatim to PostgREST, which stores it as bytea. On
+ * select, PostgREST returns bytea values as the same hex-escape string,
+ * which we decode via `coerceBytes` below. Buffers are NOT sent as JSON
+ * arrays or base64 — always the hex-escape.
+ */
+function bufferToPgEscape(buf: Buffer): string {
+  return `\\x${buf.toString("hex")}`;
+}
+
+/**
+ * Accept whatever shape Supabase hands back for a bytea column (string
+ * hex-escape is the common case; Buffer/Uint8Array are defensive paths
+ * in case the client or a future PostgREST update changes behavior) and
+ * normalize to Buffer.
+ */
+function coerceBytes(v: Buffer | Uint8Array | string): Buffer {
+  if (typeof v === "string") {
+    // PostgREST returns "\\x..." with an escaped backslash in JSON; after
+    // JSON.parse it's "\x...". Accept both defensively.
+    const hex = v.startsWith("\\x") ? v.slice(2) : v.startsWith("\x") ? v.slice(1) : v;
+    return Buffer.from(hex, "hex");
+  }
+  return Buffer.isBuffer(v) ? v : Buffer.from(v);
 }
 
 async function markExpired(connection_id: string): Promise<void> {
@@ -457,16 +493,16 @@ async function rewrapTokens(
     : null;
 
   const patch: Record<string, unknown> = {
-    access_token_ciphertext: accessSealed.ciphertext,
-    access_token_iv: accessSealed.iv,
-    access_token_tag: accessSealed.tag,
+    access_token_ciphertext: bufferToPgEscape(accessSealed.ciphertext),
+    access_token_iv: bufferToPgEscape(accessSealed.iv),
+    access_token_tag: bufferToPgEscape(accessSealed.tag),
     expires_at,
     last_refreshed_at: new Date().toISOString(),
   };
   if (refreshSealed) {
-    patch.refresh_token_ciphertext = refreshSealed.ciphertext;
-    patch.refresh_token_iv = refreshSealed.iv;
-    patch.refresh_token_tag = refreshSealed.tag;
+    patch.refresh_token_ciphertext = bufferToPgEscape(refreshSealed.ciphertext);
+    patch.refresh_token_iv = bufferToPgEscape(refreshSealed.iv);
+    patch.refresh_token_tag = bufferToPgEscape(refreshSealed.tag);
   }
 
   const { data, error } = await db

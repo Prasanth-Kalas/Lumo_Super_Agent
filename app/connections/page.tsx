@@ -8,9 +8,12 @@
  * rows are shown grayed out as history.
  *
  * Middleware gates access.
+ *
+ * Suspense wrap: useSearchParams() below forces CSR and Next 14 refuses
+ * to prerender without a Suspense boundary above the hook consumer.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { BrandMark } from "@/components/BrandMark";
@@ -39,6 +42,27 @@ interface MarketplaceAgent {
 }
 
 export default function ConnectionsPage() {
+  return (
+    <Suspense fallback={<ConnectionsShell />}>
+      <ConnectionsInner />
+    </Suspense>
+  );
+}
+
+function ConnectionsShell() {
+  return (
+    <main className="min-h-dvh bg-lumo-bg text-lumo-fg-high">
+      <div className="mx-auto w-full max-w-3xl px-5 py-8">
+        <h1 className="text-[26px] font-semibold tracking-[-0.022em] text-lumo-fg mb-3">
+          Your connected apps
+        </h1>
+        <div className="h-40 rounded-xl border border-lumo-hair bg-lumo-surface animate-pulse" />
+      </div>
+    </main>
+  );
+}
+
+function ConnectionsInner() {
   const [connections, setConnections] = useState<ConnectionMeta[] | null>(null);
   const [agentsById, setAgentsById] = useState<Record<string, MarketplaceAgent>>({});
   const [busy, setBusy] = useState<string | null>(null);

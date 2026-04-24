@@ -12,9 +12,13 @@
  * The trigger `public.tg_handle_new_user` (see migration 004) creates
  * the matching public.profiles row automatically, so we don't do a
  * separate profile insert here.
+ *
+ * Suspense wrap: same reason as /login — useSearchParams() forces CSR
+ * and Next 14 refuses to prerender without a Suspense boundary above
+ * the hook consumer.
  */
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
@@ -30,6 +34,28 @@ function getBrowserSupabase() {
 }
 
 export default function SignupPage() {
+  return (
+    <Suspense fallback={<SignupShell />}>
+      <SignupForm />
+    </Suspense>
+  );
+}
+
+function SignupShell() {
+  return (
+    <main className="min-h-dvh flex items-center justify-center bg-lumo-bg text-lumo-fg-high px-5">
+      <div className="w-full max-w-sm">
+        <h1 className="text-[24px] font-semibold tracking-tight mb-1">Create your Lumo account</h1>
+        <p className="text-[13.5px] text-lumo-fg-mid mb-6">
+          Then connect the apps you use and let Lumo do the rest.
+        </p>
+        <div className="h-[300px] rounded-md border border-lumo-hair bg-lumo-surface animate-pulse" />
+      </div>
+    </main>
+  );
+}
+
+function SignupForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") ?? "/";

@@ -13,9 +13,17 @@
  *
  * For signup flow, see /signup. For magic link / SSO later — we'll add
  * alternate CTA rows here.
+ *
+ * Suspense wrap: the form calls useSearchParams() which forces
+ * client-side rendering. Next 14 refuses to prerender a page whose
+ * root uses that hook without a Suspense boundary — build error
+ * "missing-suspense-with-csr-bailout". We split the form out into a
+ * child component and render it inside a <Suspense> at the page
+ * root; the page shell prerenders (static fallback), the form
+ * hydrates on the client with the real ?next param.
  */
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
@@ -31,6 +39,35 @@ function getBrowserSupabase() {
 }
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginShell />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+/**
+ * Static fallback rendered during build-time prerender and while
+ * the real form is hydrating. Matches the final layout so there's
+ * no visible flash.
+ */
+function LoginShell() {
+  return (
+    <main className="min-h-dvh flex items-center justify-center bg-lumo-bg text-lumo-fg-high px-5">
+      <div className="w-full max-w-sm">
+        <h1 className="text-[24px] font-semibold tracking-tight mb-1">
+          Sign in to Lumo
+        </h1>
+        <p className="text-[13.5px] text-lumo-fg-mid mb-6">
+          One account. Every connected app.
+        </p>
+        <div className="h-[220px] rounded-md border border-lumo-hair bg-lumo-surface animate-pulse" />
+      </div>
+    </main>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") ?? "/";

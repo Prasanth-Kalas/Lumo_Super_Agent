@@ -26,7 +26,7 @@ interface MarketplaceAgent {
   domain: string;
   version: string;
   intents: string[];
-  listing: AgentManifest["listing"] | null;
+  listing: NonNullable<AgentManifest["listing"]> | null;
   connect_model: AgentManifest["connect"]["model"];
   required_scopes: Array<{ name: string; description: string }>;
   health_score: number;
