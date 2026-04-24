@@ -337,7 +337,12 @@ export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps)
 
       {/* Footer — auth + nav */}
       <div className="border-t border-lumo-hair relative z-10">
-        {isAuthed === false ? (
+        {/* Auth block only renders when the Supabase public env is
+            baked into this build AND we have a definite auth signal
+            from /api/connections. Otherwise we skip the block so
+            users don't see "Sign in" CTAs that lead to a dead-end
+            explainer. */}
+        {process.env.NEXT_PUBLIC_SUPABASE_URL && isAuthed === false ? (
           <div className="px-4 pt-3 pb-2 space-y-2">
             <Link
               href="/signup"
@@ -352,7 +357,7 @@ export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps)
               Sign in
             </Link>
           </div>
-        ) : isAuthed === true ? (
+        ) : process.env.NEXT_PUBLIC_SUPABASE_URL && isAuthed === true ? (
           <div className="px-4 pt-3 pb-1">
             <Link
               href="/memory"

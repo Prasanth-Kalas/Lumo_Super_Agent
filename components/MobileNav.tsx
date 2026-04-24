@@ -357,35 +357,39 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
           </div>
         </div>
 
-        {/* Auth footer */}
-        <div className="border-t border-lumo-hair px-4 py-4 relative z-10">
-          {isAuthed ? (
-            <Link
-              href="/login"
-              onClick={onClose}
-              className="block w-full text-center h-11 leading-[2.75rem] rounded-lg border border-lumo-hair text-[14px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors"
-            >
-              Account settings
-            </Link>
-          ) : (
-            <div className="space-y-2">
-              <Link
-                href="/signup"
-                onClick={onClose}
-                className="block w-full text-center h-11 leading-[2.75rem] rounded-lg bg-lumo-fg text-lumo-bg text-[14.5px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors"
-              >
-                Create your account
-              </Link>
+        {/* Auth footer — only when Supabase is configured on this
+            build. Hiding when not configured avoids routing users
+            to a dead-end explainer. */}
+        {process.env.NEXT_PUBLIC_SUPABASE_URL ? (
+          <div className="border-t border-lumo-hair px-4 py-4 relative z-10">
+            {isAuthed ? (
               <Link
                 href="/login"
                 onClick={onClose}
                 className="block w-full text-center h-11 leading-[2.75rem] rounded-lg border border-lumo-hair text-[14px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors"
               >
-                Sign in
+                Account settings
               </Link>
-            </div>
-          )}
-        </div>
+            ) : (
+              <div className="space-y-2">
+                <Link
+                  href="/signup"
+                  onClick={onClose}
+                  className="block w-full text-center h-11 leading-[2.75rem] rounded-lg bg-lumo-fg text-lumo-bg text-[14.5px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors"
+                >
+                  Create your account
+                </Link>
+                <Link
+                  href="/login"
+                  onClick={onClose}
+                  className="block w-full text-center h-11 leading-[2.75rem] rounded-lg border border-lumo-hair text-[14px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors"
+                >
+                  Sign in
+                </Link>
+              </div>
+            )}
+          </div>
+        ) : null}
       </aside>
     </>
   );
