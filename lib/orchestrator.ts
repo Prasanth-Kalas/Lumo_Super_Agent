@@ -30,7 +30,18 @@ import { ensureRegistry, healthyBridge, userScopedBridge } from "./agent-registr
 import { listConnectionsForUser } from "./connections.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { dispatchWithRetry } from "./retry.js";
-import { buildSystemPrompt } from "./system-prompt.js";
+import { buildSystemPrompt, type AmbientContext } from "./system-prompt.js";
+import {
+  forgetFact,
+  getProfile,
+  listHighConfidencePatterns,
+  retrieveRelevantFacts,
+  saveFact,
+  upsertProfile,
+  type FactCategory,
+  type UserFact,
+} from "./memory.js";
+import { META_TOOLS, isMetaToolName } from "./meta-tools.js";
 import { assembleTripSummary, TripAssemblyError, type PricedLeg } from "./trip-planner.js";
 import {
   beginDispatch,
@@ -87,6 +98,13 @@ export interface OrchestratorInput {
    * accidentally change production behavior.
    */
   mode?: "text" | "voice";
+  /**
+   * Ambient right-now context — browser's local time, timezone, device,
+   * and (with permission) coarse geolocation. Threaded into the system
+   * prompt so Claude can reason about "near the user now" without us
+   * having to persist anything.
+   */
+  ambient?: AmbientContext;
 }
 
 /**
@@ -211,13 +229,40 @@ export async function runTurn(
     connections.filter((c) => c.status === "active").map((c) => c.agent_id),
   );
   const bridge = userScopedBridge(registry, connectedAgentIds);
+
+  // ── JARVIS memory + ambient (J1/J4) ─────────────────────────────────
+  // Retrieve the user's profile, top-relevant facts, and high-confidence
+  // behavior patterns. All three are best-effort: missing Supabase or
+  // missing OpenAI keys degrade recall but don't fail the turn.
+  const lastUserForRetrieval =
+    input.messages.findLast((m) => m.role === "user")?.content ?? "";
+  const [profileForPrompt, factsForPrompt, patternsForPrompt] =
+    input.user_id && input.user_id !== "anon"
+      ? await Promise.all([
+          getProfile(input.user_id),
+          retrieveRelevantFacts(input.user_id, lastUserForRetrieval, 8),
+          listHighConfidencePatterns(input.user_id, 0.7, 10),
+        ])
+      : [null, [] as UserFact[], []];
+
   const system = buildSystemPrompt({
     agents: Object.values(registry.agents),
     now: new Date(),
     user_first_name: input.user_first_name ?? null,
     user_region: input.user_region,
     mode: input.mode === "voice" ? "voice" : "text",
+    memory: {
+      profile: profileForPrompt,
+      facts: factsForPrompt,
+      patterns: patternsForPrompt,
+    },
+    ambient: input.ambient,
   });
+
+  // Merge meta-tools (memory_save, memory_forget, profile_update) onto
+  // the registry bridge so Claude sees them alongside agent tools. They
+  // share the same tool_use protocol; dispatch is intercepted below.
+  const toolsForClaude = [...bridge.tools, ...META_TOOLS];
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -258,7 +303,7 @@ export async function runTurn(
       model: MODEL,
       max_tokens: 1024,
       system,
-      tools: bridge.tools,
+      tools: toolsForClaude,
       messages: [...messages, ...loopAssistantMessages],
     });
 
@@ -292,6 +337,36 @@ export async function runTurn(
 
     for (const tu of toolUses) {
       const turn_id = `${input.session_id}:${Date.now()}`;
+
+      // ── Meta-tool interception ────────────────────────────────────
+      // memory_save / memory_forget / profile_update never leave the
+      // Super Agent process. We handle them inline and synthesize a
+      // DispatchOutcome so the rest of the loop (tool_result, toolCalls
+      // trace, SSE frame) is unchanged vs. a real dispatch.
+      if (isMetaToolName(tu.name)) {
+        const outcome = await handleMetaTool(
+          tu.name,
+          (tu.input as Record<string, unknown>) ?? {},
+          input.user_id,
+        );
+        const traceFrameMeta = {
+          name: tu.name,
+          agent_id: "lumo-super-agent",
+          latency_ms: outcome.latency_ms,
+          ok: outcome.ok,
+          error_code: outcome.ok ? undefined : outcome.error_code,
+        };
+        toolCalls.push(traceFrameMeta);
+        emit({ type: "tool", value: traceFrameMeta });
+        (toolResults.content as any[]).push({
+          type: "tool_result",
+          tool_use_id: tu.id,
+          content: JSON.stringify(outcome.result ?? { ok: outcome.ok }),
+          is_error: !outcome.ok,
+        });
+        continue;
+      }
+
       const ctx: DispatchContext = {
         user_id: input.user_id,
         session_id: input.session_id,
@@ -1208,6 +1283,112 @@ function extractSummary(text: string): ConfirmationSummary | null {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Meta-tool handler (memory + profile)
+// ──────────────────────────────────────────────────────────────────────────
+
+interface MetaOutcome {
+  ok: boolean;
+  result?: unknown;
+  error_code?: string;
+  latency_ms: number;
+}
+
+/**
+ * Execute a meta-tool and synthesize a DispatchOutcome-shaped result so
+ * the orchestrator loop can treat it identically to a remote dispatch.
+ *
+ * Anon users (no authenticated session) are not persisted — we silently
+ * succeed so Claude isn't confused by "I can't save that" errors in
+ * dev. In prod every authed user has a real user_id.
+ */
+async function handleMetaTool(
+  name: string,
+  input: Record<string, unknown>,
+  user_id: string,
+): Promise<MetaOutcome> {
+  const started = Date.now();
+
+  if (!user_id || user_id === "anon") {
+    return {
+      ok: true,
+      result: { note: "memory skipped — no authenticated user" },
+      latency_ms: Date.now() - started,
+    };
+  }
+
+  try {
+    if (name === "memory_save") {
+      const fact = typeof input.fact === "string" ? input.fact : "";
+      const category =
+        typeof input.category === "string"
+          ? (input.category as FactCategory)
+          : "other";
+      const confidence =
+        typeof input.confidence === "number" ? input.confidence : undefined;
+      const supersedes_id =
+        typeof input.supersedes_id === "string" ? input.supersedes_id : null;
+      const saved = await saveFact({
+        user_id,
+        fact,
+        category,
+        confidence,
+        supersedes_id,
+      });
+      return {
+        ok: true,
+        result: { id: saved.id, category: saved.category },
+        latency_ms: Date.now() - started,
+      };
+    }
+
+    if (name === "memory_forget") {
+      const fact_id = typeof input.fact_id === "string" ? input.fact_id : "";
+      if (!fact_id) {
+        return {
+          ok: false,
+          result: { error: "fact_id required" },
+          error_code: "invalid_input",
+          latency_ms: Date.now() - started,
+        };
+      }
+      await forgetFact(user_id, fact_id);
+      return {
+        ok: true,
+        result: { id: fact_id, forgotten: true },
+        latency_ms: Date.now() - started,
+      };
+    }
+
+    if (name === "profile_update") {
+      // Cast is safe because the schema constrains inputs; Zod at the
+      // DB layer catches anything malformed.
+      const patch = input as Parameters<typeof upsertProfile>[1];
+      const updated = await upsertProfile(user_id, patch);
+      return {
+        ok: true,
+        result: updated ? { id: updated.id, updated: true } : { ok: false },
+        latency_ms: Date.now() - started,
+      };
+    }
+
+    return {
+      ok: false,
+      result: { error: `unknown meta tool: ${name}` },
+      error_code: "not_available",
+      latency_ms: Date.now() - started,
+    };
+  } catch (err) {
+    console.error(`[orchestrator] meta tool ${name} failed:`, err);
+    return {
+      ok: false,
+      result: { error: err instanceof Error ? err.message : String(err) },
+      error_code: "internal_error",
+      latency_ms: Date.now() - started,
+    };
+  }
 }
 
 // Re-exported so route handlers don't need to import the state store directly

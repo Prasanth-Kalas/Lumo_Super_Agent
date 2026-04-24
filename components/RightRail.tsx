@@ -62,9 +62,10 @@ export interface RightRailProps {
   activeTrip: ActiveTripView | null;
   voiceState: VoiceStateLite;
   voiceEnabled: boolean;
-  handsFree: boolean;
+  /** True when Lumo's TTS is muted but the mic is still live. */
+  voiceMuted: boolean;
   onToggleVoice: () => void;
-  onToggleHandsFree: () => void;
+  onToggleMuted: () => void;
   userRegion: string;
   onSuggestion: (text: string) => void;
 }
@@ -74,9 +75,9 @@ export default function RightRail(props: RightRailProps) {
     activeTrip,
     voiceState,
     voiceEnabled,
-    handsFree,
+    voiceMuted,
     onToggleVoice,
-    onToggleHandsFree,
+    onToggleMuted,
     userRegion,
     onSuggestion,
   } = props;
@@ -116,9 +117,9 @@ export default function RightRail(props: RightRailProps) {
           <VoicePanel
             state={voiceState}
             enabled={voiceEnabled}
-            handsFree={handsFree}
+            muted={voiceMuted}
             onToggle={onToggleVoice}
-            onToggleHandsFree={onToggleHandsFree}
+            onToggleMuted={onToggleMuted}
           />
         </Panel>
 
@@ -253,16 +254,21 @@ function ActiveTripCard({ trip }: { trip: ActiveTripView }) {
 function VoicePanel({
   state,
   enabled,
-  handsFree,
+  muted,
   onToggle,
-  onToggleHandsFree,
+  onToggleMuted,
 }: {
   state: VoiceStateLite;
   enabled: boolean;
-  handsFree: boolean;
+  muted: boolean;
   onToggle: () => void;
-  onToggleHandsFree: () => void;
+  onToggleMuted: () => void;
 }) {
+  const subLabel = !enabled
+    ? "text mode"
+    : muted
+    ? "mic on · Lumo muted"
+    : "hands-free";
   return (
     <div className="rounded-2xl border border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg px-4 py-4">
       <div className="flex items-center justify-between">
@@ -273,7 +279,7 @@ function VoicePanel({
               {labelForVoice(state, enabled)}
             </span>
             <span className="text-[11px] text-lumo-fg-low uppercase tracking-[0.14em] mt-0.5">
-              {enabled ? (handsFree ? "hands-free" : "push to talk") : "text mode"}
+              {subLabel}
             </span>
           </div>
         </div>
@@ -294,10 +300,16 @@ function VoicePanel({
       {enabled ? (
         <button
           type="button"
-          onClick={onToggleHandsFree}
-          className="mt-3 w-full rounded-xl border border-lumo-hair px-3 py-2 text-[12.5px] text-lumo-fg-mid hover:bg-lumo-elevated hover:text-lumo-fg transition-colors"
+          onClick={onToggleMuted}
+          aria-pressed={muted}
+          className={
+            "mt-3 w-full rounded-xl px-3 py-2 text-[12.5px] transition-colors inline-flex items-center justify-center gap-2 " +
+            (muted
+              ? "border border-lumo-hair text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated"
+              : "border border-lumo-accent/40 text-lumo-accent hover:bg-lumo-accent/10")
+          }
         >
-          Switch to {handsFree ? "push-to-talk" : "hands-free"}
+          {muted ? "Unmute Lumo" : "Mute Lumo's voice"}
         </button>
       ) : null}
     </div>

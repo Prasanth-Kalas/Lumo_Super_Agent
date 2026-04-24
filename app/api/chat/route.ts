@@ -66,6 +66,18 @@ interface Body {
    * output length and formatting for ears. Defaults to text.
    */
   mode?: "text" | "voice";
+  /**
+   * Ephemeral right-now signals from the browser. NOT persisted here —
+   * threaded into the system prompt for this turn and forgotten. If the
+   * user wants Lumo to remember their location as "home", they'll say so
+   * and Claude will emit a profile_update.
+   */
+  ambient?: {
+    local_time?: string;
+    timezone?: string;
+    coords?: { lat: number; lng: number; accuracy_m?: number };
+    location_label?: string;
+  };
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -203,6 +215,15 @@ export async function POST(req: NextRequest): Promise<Response> {
             messages: body.messages,
             user_pii,
             mode: body.mode === "voice" ? "voice" : "text",
+            ambient: body.ambient
+              ? {
+                  local_time: body.ambient.local_time,
+                  timezone: body.ambient.timezone,
+                  coords: body.ambient.coords,
+                  location_label: body.ambient.location_label,
+                  device_kind,
+                }
+              : { device_kind },
           },
           emit,
         );

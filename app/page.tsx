@@ -136,7 +136,11 @@ export default function Home() {
   // VoiceMode reads it reactively and speaks new sentences as they
   // arrive. It resets to "" when a new turn starts.
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
+  // Hands-free is always-on when voice is enabled (#85 removed
+  // push-to-talk). State kept for VoiceMode API compatibility.
   const [handsFree, setHandsFree] = useState<boolean>(true);
+  // Mute Lumo's TTS while keeping the mic hot. Persisted.
+  const [voiceMuted, setVoiceMuted] = useState<boolean>(false);
   const [spokenStreamText, setSpokenStreamText] = useState<string>("");
   // Mirror of VoiceMode's internal state so the right-rail HUD can
   // show a matching pulse without owning the state machine.
@@ -145,8 +149,10 @@ export default function Home() {
     try {
       const v = window.localStorage.getItem("lumo.voiceEnabled");
       const h = window.localStorage.getItem("lumo.handsFree");
+      const m = window.localStorage.getItem("lumo.voiceMuted");
       if (v != null) setVoiceEnabled(v === "1");
       if (h != null) setHandsFree(h === "1");
+      if (m != null) setVoiceMuted(m === "1");
     } catch {
       // localStorage unavailable (private mode) — defaults are fine.
     }
@@ -165,6 +171,13 @@ export default function Home() {
       // ignore
     }
   }, [handsFree]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("lumo.voiceMuted", voiceMuted ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [voiceMuted]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -173,6 +186,42 @@ export default function Home() {
       ? crypto.randomUUID()
       : String(Date.now()),
   );
+
+  // J4 — ambient context. Opportunistic geolocation: ask once on the
+  // first real user message, remember yes/no for the session. Denied
+  // is fine; we still send local_time + timezone.
+  const coordsRef = useRef<{ lat: number; lng: number; accuracy_m?: number } | null>(null);
+  const geoAskedRef = useRef<boolean>(false);
+  async function captureCoordsOnce(): Promise<void> {
+    if (geoAskedRef.current) return;
+    geoAskedRef.current = true;
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    await new Promise<void>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          coordsRef.current = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy_m: pos.coords.accuracy,
+          };
+          resolve();
+        },
+        () => resolve(),
+        { timeout: 4000, maximumAge: 5 * 60 * 1000 },
+      );
+    });
+  }
+  function buildAmbient() {
+    const tz =
+      typeof Intl !== "undefined"
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone
+        : undefined;
+    return {
+      local_time: new Date().toISOString(),
+      timezone: tz,
+      coords: coordsRef.current ?? undefined,
+    };
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -217,6 +266,11 @@ export default function Home() {
     setSpokenStreamText("");
 
     try {
+      // J4 — ask for geolocation on the first real turn. The prompt
+      // only appears once per session; subsequent turns reuse whatever
+      // the user decided.
+      await captureCoordsOnce();
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -228,6 +282,7 @@ export default function Home() {
           // length, skip markdown, and narrate structured summaries
           // in spoken prose. See lib/voice-format.ts + system prompt.
           mode: voiceEnabled ? "voice" : "text",
+          ambient: buildAmbient(),
           messages: history.map((m) => ({
             role: m.role,
             content: m.content,
@@ -739,6 +794,8 @@ export default function Home() {
                 onToggle={setVoiceEnabled}
                 handsFree={handsFree}
                 onHandsFreeToggle={setHandsFree}
+                muted={voiceMuted}
+                onMutedToggle={setVoiceMuted}
                 onUserUtterance={(t) => {
                   // Respect busy: a late STT result after the agent
                   // already started a new turn is dropped. The user
@@ -770,57 +827,43 @@ export default function Home() {
               disabled={busy}
             />
 
-            {/* Toolbar row — left: kbd affordances, right: Send. */}
-            <div className="flex items-center justify-between px-3 pb-2.5 pt-1.5">
-              <div className="flex items-center gap-1 text-lumo-fg-low">
-                <button
-                  type="button"
-                  aria-pressed={voiceEnabled}
-                  aria-label={voiceEnabled ? "Turn voice off" : "Turn voice on"}
-                  title={voiceEnabled ? "Voice on — click to turn off" : "Voice mode"}
-                  onClick={() => setVoiceEnabled((v) => !v)}
-                  className={
-                    "h-7 w-7 rounded-md inline-flex items-center justify-center transition-colors " +
-                    (voiceEnabled
-                      ? "bg-lumo-accent/15 text-lumo-accent"
-                      : "hover:text-lumo-fg-mid hover:bg-lumo-elevated")
-                  }
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-                    <rect x="6" y="2" width="4" height="8.4" rx="2" stroke="currentColor" strokeWidth="1.4" />
-                    <path d="M3.6 8v.6a4.4 4.4 0 0 0 8.8 0V8M8 13.6V15" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  aria-label="Attach (coming soon)"
-                  title="Attach (coming soon)"
-                  className="h-7 w-7 rounded-md inline-flex items-center justify-center hover:text-lumo-fg-mid hover:bg-lumo-elevated disabled:opacity-40 transition-colors"
-                  disabled
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-                    <path d="M10.6 4.8 5.4 10a2.1 2.1 0 1 0 3 3l5-5a3.5 3.5 0 0 0-4.9-4.9l-5 5a4.9 4.9 0 0 0 7 6.9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-                <div className="hidden sm:flex items-center gap-1.5 pl-2 text-[11px]">
-                  <span className="kbd">↵</span>
-                  <span>send</span>
-                  <span className="mx-0.5 text-lumo-fg-low">·</span>
-                  <span className="kbd">⇧</span>
-                  <span className="kbd">↵</span>
-                  <span>newline</span>
-                </div>
-              </div>
+            {/* Composer toolbar — just the voice toggle and Send.
+                Attach + kbd hints were removed in #85: attach was
+                dead weight ("coming soon" for months), kbd hints
+                added visual noise once the composer got bigger.
+                If you need the keyboard shortcut, it's ↵ to send,
+                ⇧↵ for newline. */}
+            <div className="flex items-center justify-between px-4 pb-3 pt-1">
+              <button
+                type="button"
+                aria-pressed={voiceEnabled}
+                aria-label={voiceEnabled ? "Turn voice off" : "Turn voice on"}
+                title={voiceEnabled ? "Voice on — click to turn off" : "Turn on voice mode"}
+                onClick={() => setVoiceEnabled((v) => !v)}
+                className={
+                  "h-9 w-9 rounded-full inline-flex items-center justify-center transition-colors " +
+                  (voiceEnabled
+                    ? "bg-lumo-accent/15 text-lumo-accent shadow-[0_0_12px_rgba(94,234,172,0.25)]"
+                    : "text-lumo-fg-low hover:text-lumo-fg hover:bg-lumo-elevated")
+                }
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+                  <rect x="6" y="2" width="4" height="8.4" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M3.6 8v.6a4.4 4.4 0 0 0 8.8 0V8M8 13.6V15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
 
               <button
                 type="button"
                 onClick={send}
                 disabled={busy || !input.trim()}
                 aria-label="Send"
-                className="group/send h-7 pl-2.5 pr-2 rounded-md inline-flex items-center gap-1.5 text-[12.5px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low disabled:cursor-not-allowed transition-colors"
+                className="h-9 px-4 rounded-full inline-flex items-center gap-2 text-[14px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low disabled:cursor-not-allowed transition-colors"
               >
                 <span>Send</span>
-                <span className="kbd" style={{ borderColor: "transparent", background: "transparent", color: "inherit", padding: 0 }}>↵</span>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                  <path d="M3 7h8m0 0-3-3m3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
               </button>
             </div>
           </div>
@@ -835,9 +878,9 @@ export default function Home() {
           activeTrip={activeTrip}
           voiceState={voiceState}
           voiceEnabled={voiceEnabled}
-          handsFree={handsFree}
+          voiceMuted={voiceMuted}
           onToggleVoice={() => setVoiceEnabled((v) => !v)}
-          onToggleHandsFree={() => setHandsFree((h) => !h)}
+          onToggleMuted={() => setVoiceMuted((m) => !m)}
           userRegion="US"
           onSuggestion={(t) => {
             if (!busy) void sendText(t);

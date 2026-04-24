@@ -94,10 +94,22 @@ export interface VoiceModeProps {
 
   /**
    * Hands-free mode: after TTS finishes, auto-restart listening.
-   * When false, the user taps the mic for each turn.
+   * Defaults to always-on when voice is enabled; the push-to-talk
+   * alternative was removed in the voice UX cleanup (task #85) —
+   * the driving-first product only wants the conversational loop.
+   * Prop kept for API compatibility; value ignored when false.
    */
   handsFree: boolean;
   onHandsFreeToggle: (handsFree: boolean) => void;
+
+  /**
+   * Mute Lumo's voice. When true, STT keeps working (Lumo still
+   * hears the user) but TTS is suppressed so the assistant
+   * doesn't speak aloud. Use case: user wants hands-free input
+   * but is in a quiet place and doesn't want Lumo talking back.
+   */
+  muted: boolean;
+  onMutedToggle: (muted: boolean) => void;
 
   /**
    * Called when the user finishes speaking (STT gives us a final
@@ -203,6 +215,8 @@ export default function VoiceMode(props: VoiceModeProps) {
     onToggle,
     handsFree,
     onHandsFreeToggle,
+    muted,
+    onMutedToggle,
     onUserUtterance,
     spokenText,
     busy,
@@ -361,8 +375,14 @@ export default function VoiceMode(props: VoiceModeProps) {
     const { chunk, rest } = nextSpeakableChunk(untouched);
     if (!chunk) return;
 
-    // Commit this chunk as spoken.
+    // Commit this chunk as spoken — even when muted, so we don't
+    // reread the chunk once the user un-mutes mid-response.
     spokenSoFarRef.current = spokenText.length - rest.length;
+
+    // Muted: suppress TTS but keep the hands-free loop. When the
+    // response ends, we'll still auto-restart listening via the
+    // tail-flush effect below.
+    if (muted) return;
 
     const u = new SpeechSynthesisUtterance(toSpeakable(chunk));
     if (voiceRef.current) u.voice = voiceRef.current;
@@ -390,7 +410,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     };
     u.onerror = () => setState("idle");
     window.speechSynthesis.speak(u);
-  }, [spokenText, enabled, busy, startListening]);
+  }, [spokenText, enabled, busy, startListening, muted]);
 
   // Flush the tail once the agent turn ends (!busy) so we don't
   // drop the last sentence if it didn't end with punctuation.
@@ -403,6 +423,19 @@ export default function VoiceMode(props: VoiceModeProps) {
     if (!tail) return;
 
     spokenSoFarRef.current = spokenText.length;
+
+    // Muted tail: skip TTS, still resume listening so the
+    // conversational loop keeps working.
+    if (muted) {
+      if (wantHandsFreeRef.current && enabled) {
+        setState("idle");
+        setTimeout(() => startListening(), 200);
+      } else {
+        setState("idle");
+      }
+      return;
+    }
+
     const u = new SpeechSynthesisUtterance(toSpeakable(tail));
     if (voiceRef.current) u.voice = voiceRef.current;
     u.rate = 1.05;
@@ -416,7 +449,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       }
     };
     window.speechSynthesis.speak(u);
-  }, [busy, spokenText, enabled, startListening]);
+  }, [busy, spokenText, enabled, startListening, muted]);
 
   // While the network is busy, reflect "thinking" if we're not mid-TTS.
   useEffect(() => {
@@ -465,103 +498,117 @@ export default function VoiceMode(props: VoiceModeProps) {
     );
   }
 
+  // When voice is off: nothing renders here. The mic button in the
+  // composer toolbar is the single affordance to turn voice on.
+  // (Used to render a "Voice off" pill — removed in the cleanup
+  // since it duplicated the composer button.)
+  if (!enabled) return null;
+
+  // Silence the reference to onHandsFreeToggle so it doesn't warn as
+  // unused — we keep the prop for API stability but dropped the UI.
+  void onHandsFreeToggle;
+
+  const actionVisible =
+    state !== "listening" && state !== "thinking" && state !== "speaking";
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Mic — the master on/off */}
         <button
           type="button"
           aria-pressed={enabled}
-          aria-label={enabled ? "Turn off voice" : "Turn on voice"}
-          onClick={() => onToggle(!enabled)}
-          className={
-            "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-medium transition " +
-            (enabled
-              ? "bg-lumo-accent text-lumo-accent-fg"
-              : "border border-lumo-border text-lumo-fg-low hover:text-lumo-fg")
-          }
+          aria-label="Turn voice off"
+          onClick={() => onToggle(false)}
+          className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] font-medium transition bg-lumo-accent text-lumo-accent-ink shadow-[0_0_16px_rgba(94,234,172,0.35)]"
         >
-          <MicIcon active={enabled} />
-          {enabled ? "Voice on" : "Voice off"}
+          <MicIcon active />
+          Voice on
         </button>
 
-        {enabled ? (
-          <>
-            <button
-              type="button"
-              aria-pressed={handsFree}
-              onClick={() => onHandsFreeToggle(!handsFree)}
-              className={
-                "inline-flex items-center rounded-full px-3 py-1.5 text-[12px] transition " +
-                (handsFree
-                  ? "border border-lumo-accent/50 text-lumo-accent"
-                  : "border border-lumo-border text-lumo-fg-low hover:text-lumo-fg")
+        {/* Speaker — mute / unmute TTS */}
+        <button
+          type="button"
+          aria-pressed={muted}
+          aria-label={muted ? "Unmute Lumo's voice" : "Mute Lumo's voice"}
+          onClick={() => onMutedToggle(!muted)}
+          title={
+            muted
+              ? "Lumo is muted — click to hear responses"
+              : "Mute Lumo's voice (mic stays on)"
+          }
+          className={
+            "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] transition " +
+            (muted
+              ? "border border-lumo-hair text-lumo-fg-low hover:text-lumo-fg"
+              : "border border-lumo-accent/50 text-lumo-accent hover:bg-lumo-accent/10")
+          }
+        >
+          <SpeakerIcon muted={muted} />
+          {muted ? "Muted" : "Speaker"}
+        </button>
+
+        {/* Status pill */}
+        <span
+          className={
+            "inline-flex items-center gap-1.5 text-[11.5px] uppercase tracking-[0.14em] font-medium " +
+            stateToneClass(state)
+          }
+          aria-live="polite"
+        >
+          <StatusDot state={state} />
+          {stateLabel(state)}
+        </span>
+
+        {/* Primary action — shifts with state */}
+        {actionVisible ? (
+          <button
+            type="button"
+            onClick={startListening}
+            className="ml-auto rounded-full border border-lumo-hair px-4 py-2 text-[13px] text-lumo-fg hover:bg-lumo-elevated transition-colors"
+          >
+            Tap to talk
+          </button>
+        ) : null}
+
+        {state === "listening" ? (
+          <button
+            type="button"
+            onClick={stopListening}
+            className="ml-auto rounded-full border border-lumo-hair px-4 py-2 text-[13px] text-lumo-fg hover:bg-lumo-elevated transition-colors"
+          >
+            Stop
+          </button>
+        ) : null}
+
+        {state === "speaking" ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                window.speechSynthesis?.cancel();
               }
-              title="Auto-listen after each response"
-            >
-              {handsFree ? "Hands-free" : "Push to talk"}
-            </button>
-
-            <span
-              className={
-                "inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wider " +
-                stateToneClass(state)
+              setState("idle");
+              if (wantHandsFreeRef.current) {
+                setTimeout(() => startListening(), 100);
               }
-              aria-live="polite"
-            >
-              <StatusDot state={state} />
-              {stateLabel(state)}
-            </span>
-
-            {state !== "listening" && state !== "thinking" && state !== "speaking" ? (
-              <button
-                type="button"
-                onClick={startListening}
-                className="ml-auto rounded-full border border-lumo-border px-3 py-1.5 text-[12px] text-lumo-fg hover:bg-lumo-bg-subtle"
-              >
-                Tap to talk
-              </button>
-            ) : null}
-
-            {state === "listening" ? (
-              <button
-                type="button"
-                onClick={stopListening}
-                className="ml-auto rounded-full border border-lumo-border px-3 py-1.5 text-[12px] text-lumo-fg hover:bg-lumo-bg-subtle"
-              >
-                Stop
-              </button>
-            ) : null}
-
-            {state === "speaking" ? (
-              <button
-                type="button"
-                onClick={() => {
-                  if (typeof window !== "undefined") {
-                    window.speechSynthesis?.cancel();
-                  }
-                  setState("idle");
-                  if (wantHandsFreeRef.current) {
-                    setTimeout(() => startListening(), 100);
-                  }
-                }}
-                className="ml-auto rounded-full border border-lumo-border px-3 py-1.5 text-[12px] text-lumo-fg hover:bg-lumo-bg-subtle"
-              >
-                Skip
-              </button>
-            ) : null}
-          </>
+            }}
+            className="ml-auto rounded-full border border-lumo-hair px-4 py-2 text-[13px] text-lumo-fg hover:bg-lumo-elevated transition-colors"
+          >
+            Skip
+          </button>
         ) : null}
       </div>
 
-      {enabled && interim ? (
-        <div className="rounded-lg border border-lumo-border bg-lumo-bg-subtle px-3 py-2 text-[13px] text-lumo-fg-low">
-          <span className="text-lumo-fg-low">heard: </span>
+      {interim ? (
+        <div className="rounded-xl border border-lumo-hair bg-lumo-elevated/50 px-3 py-2 text-[13.5px]">
+          <span className="text-lumo-fg-low">Heard: </span>
           <span className="text-lumo-fg">{interim}</span>
         </div>
       ) : null}
 
-      {enabled && state === "error" && errorMessage ? (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-[12px] text-red-400">
+      {state === "error" && errorMessage ? (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/5 px-3 py-2 text-[13px] text-red-400">
           Voice error: {errorMessage}. Tap the mic to retry.
         </div>
       ) : null}
@@ -617,6 +664,35 @@ function StatusDot({ state }: { state: VoiceState }) {
       ? "bg-red-400"
       : "bg-lumo-fg-low/40";
   return <span className={`inline-block h-1.5 w-1.5 rounded-full ${cls}`} aria-hidden />;
+}
+
+function SpeakerIcon({ muted }: { muted: boolean }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M11 5 6 9H3v6h3l5 4V5z" />
+      {muted ? (
+        <>
+          <path d="m22 9-6 6" />
+          <path d="m16 9 6 6" />
+        </>
+      ) : (
+        <>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+        </>
+      )}
+    </svg>
+  );
 }
 
 function MicIcon({ active }: { active: boolean }) {
