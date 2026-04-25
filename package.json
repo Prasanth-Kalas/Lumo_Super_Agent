@@ -10,7 +10,7 @@
     "lint": "next lint",
     "lint:registry": "node scripts/validate-registry.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run lint:registry && node --experimental-strip-types tests/voice.test.mjs && node --experimental-strip-types tests/lumo-mission.test.mjs && node --experimental-strip-types tests/agent-bridge-scope.test.mjs",
+    "test": "npm run lint:registry && node --experimental-strip-types tests/voice.test.mjs && node --experimental-strip-types tests/lumo-mission.test.mjs && node --experimental-strip-types tests/registry-config.test.mjs && node --experimental-strip-types tests/agent-bridge-scope.test.mjs",
     "clean": "rm -rf .next *.tsbuildinfo"
   },
   "dependencies": {
@@ -19,9 +19,8 @@
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.104.1",
     "@tailwindcss/typography": "^0.5.19",
-    "ajv": "^8.17.1",
-    "ai": "^3.4.33",
     "ajv": "^8.20.0",
+    "ai": "^3.4.33",
     "clsx": "^2.1.1",
     "next": "14.2.15",
     "openai": "^4.67.1",

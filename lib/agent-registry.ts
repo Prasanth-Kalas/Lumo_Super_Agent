@@ -23,6 +23,10 @@ import {
   mergeInternalIntoBridge,
 } from "./integrations/registry.js";
 import { filterBridgeForUser } from "./agent-bridge-scope.js";
+import {
+  enabledRegistryAgents,
+  type RegistryConfigFile,
+} from "./registry-config.js";
 import { validateRegistryConfig } from "./registry-config-validation.js";
 
 // Static JSON imports so Next.js' file tracer pulls these into the
@@ -80,18 +84,6 @@ export interface Registry {
   loaded_at: number;
 }
 
-interface RegistryConfigFile {
-  agents: Array<{
-    key: string;
-    enabled: boolean;
-    /** Lumo-owned policy bit. Partner manifests cannot set this. */
-    system?: boolean;
-    base_url: string;
-    /** Optional version pin (semver range). */
-    version?: string;
-  }>;
-}
-
 interface AgentBridgeCandidate {
   entry: RegistryEntry;
   bridge: BridgeResult;
@@ -120,8 +112,7 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
   validateRegistryConfig(config, path);
 
   const entries: RegistryEntry[] = [];
-  for (const a of config.agents) {
-    if (!a.enabled) continue;
+  for (const a of enabledRegistryAgents(config)) {
     const base_url = expandEnvRefs(a.base_url);
     if (!base_url) {
       // The config pointed at a `${VAR}` that isn't set. In prod this is

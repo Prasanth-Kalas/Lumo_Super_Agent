@@ -36,11 +36,6 @@ t("anonymous user does not see system agent even when connect.model is none", ()
   assert.deepEqual(toolNames(bridge), []);
 });
 
-t("enabled=false system agent is excluded because it is absent from entries", () => {
-  const bridge = scoped([], { allowPublicWithoutInstall: false });
-  assert.deepEqual(toolNames(bridge), []);
-});
-
 t("unhealthy system agent is excluded", () => {
   const bridge = scoped([agent("lumo-ml", { system: true, health_score: 0.2 })], {
     allowPublicWithoutInstall: false,
