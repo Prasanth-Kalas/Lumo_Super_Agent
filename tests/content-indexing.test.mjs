@@ -1,0 +1,83 @@
+/**
+ * Content indexer privacy/chunking helpers.
+ *
+ * Run: node --experimental-strip-types tests/content-indexing.test.mjs
+ */
+
+import assert from "node:assert/strict";
+import {
+  buildArchiveTextChunks,
+  redactForEmbedding,
+  sourceEtag,
+} from "../lib/content-indexing.ts";
+
+let pass = 0;
+let fail = 0;
+const t = (name, fn) => {
+  try {
+    fn();
+    pass++;
+    console.log(`  \u2713 ${name}`);
+  } catch (e) {
+    fail++;
+    console.log(`  \u2717 ${name}\n    ${e.message}`);
+  }
+};
+
+console.log("\ncontent indexing");
+
+t("redacts common PII before embedding", () => {
+  const redacted = redactForEmbedding(
+    "Email alex@example.com or call +1 (415) 555-1212. Card 4242 4242 4242 4242.",
+  );
+  assert.match(redacted.text, /\[EMAIL\]/);
+  assert.match(redacted.text, /\[PHONE\]/);
+  assert.match(redacted.text, /\[CREDIT_CARD\]/);
+  assert.equal(redacted.counts.email, 1);
+  assert.equal(redacted.counts.phone, 1);
+  assert.equal(redacted.counts.credit_card, 1);
+});
+
+t("extracts useful text and excludes token-shaped fields", () => {
+  const chunks = buildArchiveTextChunks({
+    id: 42,
+    user_id: "user_1",
+    agent_id: "google",
+    external_account_id: "channel-123",
+    endpoint: "gmail.messages.preview",
+    request_hash: "reqhash",
+    response_status: 200,
+    fetched_at: "2026-04-26T00:00:00.000Z",
+    response_body: {
+      access_token: "secret-token-that-should-not-leak",
+      message: {
+        subject: "Vegas itinerary",
+        snippet:
+          "Alex sent the Vegas trip plan for next Saturday and asked Lumo to compare flights, hotels, and cab options.",
+      },
+    },
+  });
+
+  assert.equal(chunks.length, 1);
+  assert.match(chunks[0].text, /Vegas itinerary/);
+  assert.doesNotMatch(chunks[0].text, /secret-token/);
+  assert.equal(chunks[0].metadata.external_account_hash.length, 64);
+});
+
+t("source etag is stable across object key order", () => {
+  const base = {
+    id: 1,
+    user_id: "user_1",
+    agent_id: "google",
+    endpoint: "gmail",
+    request_hash: "abc",
+    response_status: 200,
+    fetched_at: "2026-04-26T00:00:00.000Z",
+  };
+  const a = sourceEtag({ ...base, response_body: { b: 2, a: 1 } });
+  const b = sourceEtag({ ...base, response_body: { a: 1, b: 2 } });
+  assert.equal(a, b);
+});
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail > 0 ? 1 : 0);

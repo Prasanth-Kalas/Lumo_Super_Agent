@@ -94,6 +94,34 @@ openssl rand -hex 32
 **Purpose:** Public base URL for `Lumo_ML_Service`, used by the registry overlay to fetch `/.well-known/agent.json`, `/openapi.json`, and dispatch tool calls.
 **Example:** `https://lumo-ml-service-xxxxx-uc.a.run.app`
 
+### `LUMO_ARCHIVE_INDEXER_ENABLED`
+
+**Type:** Not sensitive
+**Required:** No
+**Purpose:** Operational kill switch for `/api/cron/index-archive`. Set to `true` to let the cron embed redacted `connector_responses_archive` rows. Any other value makes the cron report `skipped: "disabled"` without calling `Lumo_ML_Service`.
+**Default:** disabled
+
+### `LUMO_ARCHIVE_INDEXER_ROW_LIMIT`
+
+**Type:** Not sensitive
+**Required:** No
+**Purpose:** Maximum archive rows scanned per indexer run. The database function hard-caps this at 500 to protect spend.
+**Default:** `100`
+
+### `LUMO_ARCHIVE_INDEXER_CONCURRENCY`
+
+**Type:** Not sensitive
+**Required:** No
+**Purpose:** Maximum concurrent `/api/tools/embed` batches sent to `Lumo_ML_Service`.
+**Default:** `8`
+
+### `LUMO_ARCHIVE_INDEXER_BATCH_SIZE`
+
+**Type:** Not sensitive
+**Required:** No
+**Purpose:** Maximum redacted text chunks included in one `/api/tools/embed` call. The ML service caps this at 128.
+**Default:** `32`
+
 ## OAuth provider credentials
 
 All optional — omit a pair to hide that provider's marketplace card.

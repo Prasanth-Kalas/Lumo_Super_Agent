@@ -75,6 +75,9 @@ const KNOWN_CRONS = [
   "/api/cron/proactive-scan",
   "/api/cron/evaluate-intents",
   "/api/cron/detect-patterns",
+  "/api/cron/sync-workspace",
+  "/api/cron/publish-due-posts",
+  "/api/cron/index-archive",
 ] as const;
 
 /**

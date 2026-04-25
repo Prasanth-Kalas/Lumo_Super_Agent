@@ -74,6 +74,14 @@ OPENAI_TTS_VOICE=cedar
 LUMO_ML_AGENT_URL=https://<your-cloud-run-lumo-ml-service-url>
 ```
 
+**Archive recall indexer** (optional until privacy review signs off):
+```
+LUMO_ARCHIVE_INDEXER_ENABLED=false
+LUMO_ARCHIVE_INDEXER_ROW_LIMIT=100
+LUMO_ARCHIVE_INDEXER_BATCH_SIZE=32
+LUMO_ARCHIVE_INDEXER_CONCURRENCY=8
+```
+
 **OAuth providers** (each optional — omit to hide that provider's card from marketplace):
 ```
 LUMO_GOOGLE_CLIENT_ID=...

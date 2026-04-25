@@ -187,7 +187,9 @@ create table if not exists public.content_embeddings (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
   source_table text not null,
-  source_pk text not null,
+  source_row_id bigint not null,
+  source_etag text not null,
+  chunk_index integer not null,
   source_agent_id text,
   content_hash text not null,
   text text not null,
@@ -195,7 +197,7 @@ create table if not exists public.content_embeddings (
   embedding vector(384) not null,
   model text not null,
   created_at timestamptz not null default now(),
-  unique (user_id, source_table, source_pk, content_hash)
+  unique (source_table, source_row_id, source_etag, chunk_index)
 );
 ```
 
@@ -209,8 +211,22 @@ queries.
 
 ### Indexer
 
-The indexer walks `connector_responses_archive`, chunks useful text fields,
-computes content hashes, calls `embed`, and upserts `content_embeddings`.
+The indexer lives in Lumo Core as `/api/cron/index-archive`, not inside
+`Lumo_ML_Service`. Core already owns `connector_responses_archive`, cron auth,
+privacy policy, and ops observability; the brain stays a stateless `embed`
+tool. The cron walks `connector_responses_archive`, redacts PII at source,
+chunks useful text fields, computes `source_row_id + source_etag` dedupe keys,
+calls `embed` with capped concurrency, and upserts `content_embeddings`.
+
+Operational guardrails:
+
+- `LUMO_ARCHIVE_INDEXER_ENABLED=true` must be set before scheduled runs do work.
+- `LUMO_ARCHIVE_INDEXER_ROW_LIMIT` caps archive rows per run.
+- `LUMO_ARCHIVE_INDEXER_BATCH_SIZE` caps chunks per `/embed` call; default 32.
+- `LUMO_ARCHIVE_INDEXER_CONCURRENCY` caps concurrent `/embed` batches; default 8.
+- 429/503/504 responses from the brain are retried with short backoff.
+- `content_embedding_sources` records `embedded`, `no_text`, and retryable
+  `failed` states so unchanged rows are not re-embedded every run.
 
 Initial sources:
 

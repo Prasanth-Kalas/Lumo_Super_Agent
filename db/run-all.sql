@@ -1,5 +1,5 @@
 -- Lumo Super Agent — run-all migrations (generated)
--- Concatenation of db/migrations/001...012 in order. Safe to re-run:
+-- Concatenation of db/migrations/001...015 in order. Safe to re-run:
 -- every CREATE uses IF NOT EXISTS and every ALTER uses ADD COLUMN IF NOT EXISTS.
 -- Paste this whole file into Supabase → SQL Editor → Run.
 --
@@ -1414,6 +1414,87 @@ create index if not exists agent_tool_usage_agent_recent
   on public.agent_tool_usage (agent_id, created_at desc);
 
 -- ════════════════════════════════════════════════════════════════
+-- db/migrations/012_admin_settings.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 012 — admin settings + audit history.
+--
+-- Storage for the operator console's runtime knobs: LLM model,
+-- voice provider/model/settings, system-prompt overrides, feature
+-- flags. Anything an admin should be able to flip from /admin without
+-- shipping a deploy lives here.
+--
+-- Two tables:
+--
+--   admin_settings           current value per key
+--   admin_settings_history   one row per change, for rollback + audit
+--
+-- Why JSONB for value: settings are heterogeneous (string for model
+-- ids, number for stability, object for voice_settings, boolean for
+-- feature flags). One uniform shape avoids polymorphic columns.
+-- Server-side getSetting<T> casts at read time; setSetting validates
+-- before write.
+--
+-- Read access: admin route handlers using the service-role key.
+-- RLS is on but no user-facing policies — settings are not visible
+-- to end users.
+
+create table if not exists public.admin_settings (
+  key         text primary key,
+  value       jsonb not null,
+  updated_at  timestamptz not null default now(),
+  updated_by  text
+);
+
+create table if not exists public.admin_settings_history (
+  id          uuid primary key default gen_random_uuid(),
+  key         text not null,
+  value       jsonb not null,
+  recorded_at timestamptz not null default now(),
+  recorded_by text
+);
+
+create index if not exists admin_settings_history_key_recent
+  on public.admin_settings_history (key, recorded_at desc);
+
+alter table public.admin_settings enable row level security;
+alter table public.admin_settings_history enable row level security;
+
+-- No public policies — service role only. Admin routes go through
+-- /api/admin/* which validate isAdmin() before reading/writing.
+-- We deny everything by default; service role bypasses RLS.
+drop policy if exists admin_settings_deny_all on public.admin_settings;
+create policy admin_settings_deny_all
+  on public.admin_settings
+  for all
+  using (false)
+  with check (false);
+
+drop policy if exists admin_settings_history_deny_all on public.admin_settings_history;
+create policy admin_settings_history_deny_all
+  on public.admin_settings_history
+  for all
+  using (false)
+  with check (false);
+
+-- Seed sensible defaults so a fresh install renders the settings
+-- page with useful baselines instead of empty fields. These match
+-- what app/api/tts/route.ts and lib/orchestrator.ts ship today.
+insert into public.admin_settings (key, value, updated_by) values
+  ('llm.model',         '"claude-opus-4-6"'::jsonb, 'system:default'),
+  ('voice.provider',    '"elevenlabs"'::jsonb,      'system:default'),
+  ('voice.model',       '"eleven_turbo_v2_5"'::jsonb, 'system:default'),
+  ('voice.voice_id',    '"21m00Tcm4TlvDq8ikWAM"'::jsonb, 'system:default'),
+  ('voice.stability',   '0.42'::jsonb,              'system:default'),
+  ('voice.similarity_boost', '0.8'::jsonb,          'system:default'),
+  ('voice.style',       '0.55'::jsonb,              'system:default'),
+  ('feature.mcp_enabled', 'true'::jsonb,            'system:default'),
+  ('feature.partner_agents_enabled', 'true'::jsonb, 'system:default'),
+  ('feature.voice_mode_enabled', 'true'::jsonb,     'system:default'),
+  ('feature.autonomy_enabled', 'false'::jsonb,      'system:default')
+on conflict (key) do nothing;
+
+-- ════════════════════════════════════════════════════════════════
 -- db/migrations/012_workspace_creator.sql
 -- ════════════════════════════════════════════════════════════════
 
@@ -1840,3 +1921,141 @@ alter table public.user_agent_installs
   add constraint user_agent_installs_install_source_check check (
     install_source in ('marketplace', 'oauth', 'admin', 'migration', 'lumo')
   );
+
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/015_content_embeddings.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 015 — Day 3 Intelligence Layer archive embeddings.
+--
+-- Lumo Core owns the indexer cron over connector_responses_archive; the
+-- Lumo_ML_Service remains a stateless system-agent tool that only embeds
+-- redacted text chunks. This table stores the resulting vectors for recall
+-- and marketplace intelligence without mixing 384-dim ML-service embeddings
+-- into the existing 1536-dim user_facts memory table.
+--
+-- Rollback, if this migration must be backed out before production data is
+-- relied on:
+--   drop function if exists public.next_connector_archive_embedding_batch(integer);
+--   drop table if exists public.content_embedding_sources;
+--   drop table if exists public.content_embeddings;
+
+create extension if not exists vector;
+
+create table if not exists public.content_embeddings (
+  id                uuid primary key default gen_random_uuid(),
+  user_id           uuid not null references public.profiles(id) on delete cascade,
+  source_table      text not null,
+  source_row_id     bigint not null,
+  source_etag       text not null,
+  chunk_index       integer not null check (chunk_index >= 0),
+  source_agent_id   text,
+  endpoint          text,
+  request_hash      text,
+  content_hash      text not null,
+  text              text not null,
+  metadata          jsonb not null default '{}'::jsonb,
+  embedding         vector(384) not null,
+  model             text not null,
+  dimensions        integer not null default 384 check (dimensions = 384),
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  unique (source_table, source_row_id, source_etag, chunk_index)
+);
+
+create index if not exists content_embeddings_by_user_recent
+  on public.content_embeddings (user_id, created_at desc);
+
+create index if not exists content_embeddings_by_source
+  on public.content_embeddings (source_table, source_row_id, source_etag);
+
+create index if not exists content_embeddings_by_agent_endpoint
+  on public.content_embeddings (user_id, source_agent_id, endpoint, created_at desc);
+
+create index if not exists content_embeddings_vector_cosine
+  on public.content_embeddings using ivfflat (embedding vector_cosine_ops)
+  with (lists = 100);
+
+drop trigger if exists content_embeddings_touch_updated_at on public.content_embeddings;
+create trigger content_embeddings_touch_updated_at
+  before update on public.content_embeddings
+  for each row execute function public.touch_updated_at();
+
+-- One row per indexed archive source row. This is intentionally separate
+-- from content_embeddings because some archive rows have no useful text; we
+-- still need to mark them as processed so every cron run does not retry them.
+create table if not exists public.content_embedding_sources (
+  source_table    text not null,
+  source_row_id   bigint not null,
+  user_id         uuid not null references public.profiles(id) on delete cascade,
+  source_agent_id text,
+  endpoint        text,
+  source_etag     text not null,
+  status          text not null check (status in ('embedded', 'no_text', 'failed')),
+  chunk_count     integer not null default 0 check (chunk_count >= 0),
+  last_error      text,
+  indexed_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  primary key (source_table, source_row_id)
+);
+
+create index if not exists content_embedding_sources_retry
+  on public.content_embedding_sources (status, updated_at)
+  where status = 'failed';
+
+create index if not exists content_embedding_sources_by_user
+  on public.content_embedding_sources (user_id, indexed_at desc);
+
+create index if not exists content_embedding_sources_by_agent
+  on public.content_embedding_sources (user_id, source_agent_id, endpoint);
+
+drop trigger if exists content_embedding_sources_touch_updated_at on public.content_embedding_sources;
+create trigger content_embedding_sources_touch_updated_at
+  before update on public.content_embedding_sources
+  for each row execute function public.touch_updated_at();
+
+create or replace function public.next_connector_archive_embedding_batch(
+  requested_limit integer default 100
+)
+returns table (
+  id bigint,
+  user_id uuid,
+  agent_id text,
+  external_account_id text,
+  endpoint text,
+  request_hash text,
+  response_status integer,
+  response_body jsonb,
+  fetched_at timestamptz
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select
+    a.id,
+    a.user_id,
+    a.agent_id,
+    a.external_account_id,
+    a.endpoint,
+    a.request_hash,
+    a.response_status,
+    a.response_body,
+    a.fetched_at
+  from public.connector_responses_archive a
+  left join public.content_embedding_sources s
+    on s.source_table = 'connector_responses_archive'
+   and s.source_row_id = a.id
+  where
+    s.source_row_id is null
+    or (
+      s.status = 'failed'
+      and s.updated_at < now() - interval '1 hour'
+    )
+  order by a.fetched_at desc, a.id desc
+  limit greatest(1, least(coalesce(requested_limit, 100), 500));
+$$;
+
+revoke all on function public.next_connector_archive_embedding_batch(integer) from public;
+grant execute on function public.next_connector_archive_embedding_batch(integer) to service_role;
+

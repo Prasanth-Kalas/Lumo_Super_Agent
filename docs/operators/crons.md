@@ -1,8 +1,8 @@
 # Cron jobs
 
-Three scheduled jobs run on every Lumo deployment. This page is the operator's reference for what they do and how to monitor them.
+Scheduled jobs run on every Lumo deployment. This page is the operator's reference for what they do and how to monitor them.
 
-## The three crons
+## The crons
 
 Defined in `vercel.json`:
 
@@ -11,7 +11,10 @@ Defined in `vercel.json`:
   "crons": [
     { "path": "/api/cron/proactive-scan",   "schedule": "*/15 * * * *" },
     { "path": "/api/cron/evaluate-intents", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/detect-patterns",  "schedule": "0 3 * * *" }
+    { "path": "/api/cron/detect-patterns",  "schedule": "0 3 * * *" },
+    { "path": "/api/cron/publish-due-posts", "schedule": "* * * * *" },
+    { "path": "/api/cron/sync-workspace", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/index-archive", "schedule": "*/30 * * * *" }
   ]
 }
 ```
@@ -38,6 +41,18 @@ Typical duration: scales with intent count. 5 s for a hundred intents; 30 s for 
 Claude-backed analyzer over recent user activity. Upserts into `user_behavior_patterns` with fuzzy dedup.
 
 Typical duration: 30 s – 5 min depending on active user count and Claude's latency.
+
+### `index-archive` — every 30 minutes
+
+Embeds redacted rows from `connector_responses_archive` into
+`content_embeddings` for recall. Lumo Core owns the cron and redaction policy;
+`Lumo_ML_Service` only receives already-cleaned text through `/api/tools/embed`.
+
+This cron is disabled unless `LUMO_ARCHIVE_INDEXER_ENABLED=true`. Use that env
+as the immediate kill switch if embedding spend or privacy review needs a hard
+pause. Per-run work is capped by `LUMO_ARCHIVE_INDEXER_ROW_LIMIT`, chunks per
+embed call are capped by `LUMO_ARCHIVE_INDEXER_BATCH_SIZE`, and concurrent calls
+to the brain are capped by `LUMO_ARCHIVE_INDEXER_CONCURRENCY`.
 
 ## Authentication
 

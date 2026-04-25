@@ -253,6 +253,19 @@ async function scheduleDeletion(metaUserId: string): Promise<DeletionTicket> {
       .eq("agent_id", "meta")
       .in("user_id", affectedUserIds);
 
+    // 4b) Delete any redacted embeddings derived from those cached rows.
+    await sb
+      .from("content_embeddings")
+      .delete()
+      .eq("source_agent_id", "meta")
+      .in("user_id", affectedUserIds);
+
+    await sb
+      .from("content_embedding_sources")
+      .delete()
+      .eq("source_agent_id", "meta")
+      .in("user_id", affectedUserIds);
+
     // 5) audit_log_writes rows are append-only and retained 90 days for
     //    audit. We anonymize the linkage by setting user_id null so the
     //    rows survive but cannot be traced back. The DB schema FK
