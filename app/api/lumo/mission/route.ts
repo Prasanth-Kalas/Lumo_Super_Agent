@@ -1,7 +1,7 @@
 /**
- * POST /api/jarvis/mission
+ * POST /api/lumo/mission
  *
- * Non-mutating marketplace discovery for the JARVIS mission gate. Given a
+ * Non-mutating marketplace discovery for the Lumo mission gate. Given a
  * user request, returns which apps are ready, which apps need permission, and
  * which capabilities are not yet available in the approved marketplace.
  */
@@ -11,7 +11,7 @@ import { ensureRegistry } from "@/lib/agent-registry";
 import { getServerUser } from "@/lib/auth";
 import { listConnectionsForUser } from "@/lib/connections";
 import { listInstalledAgentsForUser } from "@/lib/app-installs";
-import { buildJarvisMissionPlan } from "@/lib/jarvis-mission";
+import { buildLumoMissionPlan } from "@/lib/lumo-mission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         ])
       : [[], []];
 
-  const plan = buildJarvisMissionPlan({
+  const plan = buildLumoMissionPlan({
     request,
     registry,
     connections,

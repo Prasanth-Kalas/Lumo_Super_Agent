@@ -461,7 +461,7 @@ $$;
 
 -- Migration 005 — J1 Memory + J4 Ambient Context.
 --
--- This is the foundation of the "JARVIS-like" loop: the Super Agent stops
+-- This is the foundation of the "Lumo-like" loop: the Super Agent stops
 -- forgetting the user between sessions. Three tables, each with a narrow
 -- responsibility:
 --
@@ -1774,3 +1774,69 @@ create index if not exists pending_user_actions_by_user
   on public.pending_user_actions (user_id, created_at desc)
   where resolved_at is null;
 
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/013_lumo_mission_gate.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 013 — Lumo mission permission gate.
+--
+-- The mission gate is an SSE-visible app-store checkpoint. It records which
+-- marketplace apps Lumo asked the user to install/connect before continuing
+-- a multi-agent task. Installs approved from that card use install_source =
+-- 'lumo' so audit/reporting can distinguish proactive app discovery from a
+-- manual marketplace click.
+
+alter table public.user_agent_installs
+  drop constraint if exists user_agent_installs_install_source_check;
+
+alter table public.user_agent_installs
+  add constraint user_agent_installs_install_source_check check (
+    install_source in ('marketplace', 'oauth', 'admin', 'migration', 'lumo')
+  );
+
+alter table public.events
+  drop constraint if exists events_frame_type_check;
+
+alter table public.events
+  add constraint events_frame_type_check check (
+    frame_type in (
+      'text',
+      'mission',
+      'tool',
+      'selection',
+      'summary',
+      'leg_status',
+      'error',
+      'done',
+      'request',
+      'internal'
+    )
+  );
+
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/014_lumo_install_source_rename.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 014 — rename mission install provenance to Lumo.
+--
+-- This is intentionally tolerant of environments that already ran the
+-- pre-rename migration and may have rows or permission snapshots with the
+-- old source value.
+
+alter table public.user_agent_installs
+  drop constraint if exists user_agent_installs_install_source_check;
+
+update public.user_agent_installs
+set permissions = (permissions - 'jarvis') ||
+  jsonb_build_object('lumo', permissions -> 'jarvis')
+where permissions ? 'jarvis'
+  and not permissions ? 'lumo';
+
+update public.user_agent_installs
+set install_source = 'lumo'
+where install_source = 'jarvis';
+
+alter table public.user_agent_installs
+  add constraint user_agent_installs_install_source_check check (
+    install_source in ('marketplace', 'oauth', 'admin', 'migration', 'lumo')
+  );

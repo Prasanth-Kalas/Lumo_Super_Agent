@@ -1,7 +1,7 @@
 /**
- * POST /api/jarvis/mission/install
+ * POST /api/lumo/mission/install
  *
- * User-approved install action from the inline JARVIS mission card. This is
+ * User-approved install action from the inline Lumo mission card. This is
  * deliberately separate from /api/apps/install so we can persist the mission
  * permission snapshot that explains why the app gained access.
  */
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       return json(
         {
           error: "permission_required",
-          detail: "JARVIS installs require explicit user_approved: true.",
+          detail: "Lumo installs require explicit user_approved: true.",
         },
         400,
       );
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           error: "oauth_required",
           agent_id,
           detail:
-            "This app must be connected through OAuth before JARVIS can use it.",
+            "This app must be connected through OAuth before Lumo can use it.",
         },
         409,
       );
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
     const permissions = {
       ...permissionSnapshotForManifest(manifest),
-      jarvis: {
+      lumo: {
         mission_id:
           typeof body.mission_id === "string" ? body.mission_id.trim() : null,
         original_request:
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       user_id: user.id,
       agent_id,
       permissions,
-      install_source: "jarvis",
+      install_source: "lumo",
     });
 
     return json({

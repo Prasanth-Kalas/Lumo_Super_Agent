@@ -15,7 +15,7 @@ export type AppInstallSource =
   | "oauth"
   | "admin"
   | "migration"
-  | "jarvis";
+  | "lumo";
 
 export interface AppInstall {
   user_id: string;

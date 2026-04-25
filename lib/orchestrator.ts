@@ -31,9 +31,9 @@ import { listConnectionsForUser } from "./connections.js";
 import { getSetting, isFeatureEnabled } from "./admin-settings.js";
 import { listInstalledAgentsForUser } from "./app-installs.js";
 import {
-  buildJarvisMissionPlan,
-  type JarvisMissionPlan,
-} from "./jarvis-mission.js";
+  buildLumoMissionPlan,
+  type LumoMissionPlan,
+} from "./lumo-mission.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
 import { dispatchMcpTool, isMcpToolName } from "./mcp/dispatch.js";
@@ -167,7 +167,7 @@ export interface OrchestratorTurn {
 /** Anything the route handler wants to surface as an SSE frame. Structured. */
 export type OrchestratorFrame =
   | { type: "text"; value: string }
-  | { type: "mission"; value: JarvisMissionPlan }
+  | { type: "mission"; value: LumoMissionPlan }
   | {
       type: "tool";
       value: {
@@ -262,7 +262,7 @@ export async function runTurn(
 
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
-  const missionPlan = buildJarvisMissionPlan({
+  const missionPlan = buildLumoMissionPlan({
     request: lastUserForMission,
     registry,
     connections,
@@ -275,7 +275,7 @@ export async function runTurn(
     emit({
       type: "internal",
       value: {
-        kind: "jarvis_mission_permission_gate",
+        kind: "lumo_mission_permission_gate",
         detail: {
           mission_id: missionPlan.mission_id,
           proposals: missionPlan.install_proposals.map((p) => ({
@@ -305,7 +305,7 @@ export async function runTurn(
     input.user_id === "anon",
   );
 
-  // ── JARVIS memory + ambient (J1/J4) ─────────────────────────────────
+  // ── Lumo memory + ambient (J1/J4) ─────────────────────────────────
   // Retrieve the user's profile, top-relevant facts, and high-confidence
   // behavior patterns. All three are best-effort: missing Supabase or
   // missing OpenAI keys degrade recall but don't fail the turn.

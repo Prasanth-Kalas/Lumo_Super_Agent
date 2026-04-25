@@ -39,7 +39,7 @@ export interface StartWakeWordOptions {
   onWake: () => void;
   /**
    * Which built-in or custom keyword to listen for. Built-ins live in
-   * the Porcupine SDK; "computer", "jarvis", "picovoice" are three
+   * the Porcupine SDK; "computer", "lumo", "picovoice" are three
    * sensible placeholders. Custom keywords point at a .ppn file URL
    * served from /public/porcupine/<name>.ppn.
    *

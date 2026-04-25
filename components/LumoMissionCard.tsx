@@ -3,13 +3,13 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 
-export interface JarvisMissionScope {
+export interface LumoMissionScope {
   name: string;
   description: string;
   required: boolean;
 }
 
-export interface JarvisMissionProposal {
+export interface LumoMissionProposal {
   agent_id: string;
   display_name: string;
   one_liner: string;
@@ -24,39 +24,39 @@ export interface JarvisMissionProposal {
   permission_title: string;
   permission_copy: string;
   profile_fields_requested: string[];
-  required_scopes: JarvisMissionScope[];
+  required_scopes: LumoMissionScope[];
   requires_payment: boolean;
 }
 
-export interface JarvisUnavailableCapability {
+export interface LumoUnavailableCapability {
   capability: string;
   capability_label: string;
   reason: string;
   requested_phrase: string;
 }
 
-export interface JarvisMissionPlan {
+export interface LumoMissionPlan {
   mission_id: string;
   original_request: string;
   mission_title: string;
   message: string;
-  install_proposals: JarvisMissionProposal[];
-  unavailable_capabilities: JarvisUnavailableCapability[];
+  install_proposals: LumoMissionProposal[];
+  unavailable_capabilities: LumoUnavailableCapability[];
 }
 
-interface JarvisMissionCardProps {
-  plan: JarvisMissionPlan;
+interface LumoMissionCardProps {
+  plan: LumoMissionPlan;
   disabled?: boolean;
   onContinue: (text: string) => void;
 }
 
 type InstallState = "idle" | "working" | "done" | "error";
 
-export function JarvisMissionCard({
+export function LumoMissionCard({
   plan,
   disabled = false,
   onContinue,
-}: JarvisMissionCardProps) {
+}: LumoMissionCardProps) {
   const [stateByAgent, setStateByAgent] = useState<Record<string, InstallState>>({});
   const [error, setError] = useState<string | null>(null);
 
@@ -73,7 +73,7 @@ export function JarvisMissionCard({
     autoInstallable.every((p) => stateByAgent[p.agent_id] === "done");
   const hasOAuth = oauthProposals.length > 0;
 
-  async function installProposal(proposal: JarvisMissionProposal): Promise<boolean> {
+  async function installProposal(proposal: LumoMissionProposal): Promise<boolean> {
     if (disabled || stateByAgent[proposal.agent_id] === "working") return false;
     setError(null);
 
@@ -84,7 +84,7 @@ export function JarvisMissionCard({
 
     setStateByAgent((prev) => ({ ...prev, [proposal.agent_id]: "working" }));
     try {
-      const res = await fetch("/api/jarvis/mission/install", {
+      const res = await fetch("/api/lumo/mission/install", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -117,7 +117,7 @@ export function JarvisMissionCard({
     if (!hasOAuth) continueMission();
   }
 
-  async function startOAuth(proposal: JarvisMissionProposal) {
+  async function startOAuth(proposal: LumoMissionProposal) {
     setStateByAgent((prev) => ({ ...prev, [proposal.agent_id]: "working" }));
     try {
       const res = await fetch("/api/connections/start", {
@@ -150,7 +150,7 @@ export function JarvisMissionCard({
     <div className="rounded-lg border border-lumo-hair bg-lumo-surface p-4 shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
       <div className="flex flex-col gap-1">
         <div className="text-[11px] uppercase tracking-[0.12em] text-lumo-fg-low">
-          JARVIS app permission
+          Lumo app permission
         </div>
         <div className="text-[15px] font-semibold tracking-tight text-lumo-fg">
           {plan.install_proposals.length > 0
@@ -160,7 +160,7 @@ export function JarvisMissionCard({
         <p className="text-[12.5px] leading-relaxed text-lumo-fg-mid">
           {plan.install_proposals.length > 0
             ? "I will only install or connect these apps after your approval. Profile details stay limited to the fields each app declares."
-            : "One requested capability is not available in the approved marketplace yet. You can continue with the parts JARVIS can safely handle."}
+            : "One requested capability is not available in the approved marketplace yet. You can continue with the parts Lumo can safely handle."}
         </p>
       </div>
 
@@ -283,7 +283,7 @@ export function JarvisMissionCard({
 }
 
 function buttonLabel(
-  proposal: JarvisMissionProposal,
+  proposal: LumoMissionProposal,
   state: InstallState,
 ): string {
   if (state === "working") return "Working...";

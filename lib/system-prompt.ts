@@ -33,7 +33,7 @@ export function buildSystemPrompt(opts: {
    */
   mode?: "text" | "voice";
   /**
-   * JARVIS-style memory context: persistent profile + relevant facts +
+   * Lumo-style memory context: persistent profile + relevant facts +
    * high-confidence behavior patterns. Retrieval happens in the
    * orchestrator per-turn; we format it here so the prompt stays in
    * one place and we can diff the exact string.

@@ -1,11 +1,11 @@
 /**
- * JARVIS mission planner regression tests.
+ * Lumo mission planner regression tests.
  *
- * Run: node --experimental-strip-types tests/jarvis-mission.test.mjs
+ * Run: node --experimental-strip-types tests/lumo-mission.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { buildJarvisMissionPlan } from "../lib/jarvis-mission.ts";
+import { buildLumoMissionPlan } from "../lib/lumo-mission.ts";
 
 let pass = 0;
 let fail = 0;
@@ -56,10 +56,10 @@ const registry = {
   },
 };
 
-console.log("\njarvis mission planner");
+console.log("\nlumo mission planner");
 
 t("trip request proposes missing flight, hotel, and map apps", () => {
-  const plan = buildJarvisMissionPlan({
+  const plan = buildLumoMissionPlan({
     request: "Book flights, hotels and cabs to Vegas next Saturday.",
     registry,
     user_id: "00000000-0000-0000-0000-000000000001",
@@ -71,7 +71,7 @@ t("trip request proposes missing flight, hotel, and map apps", () => {
 });
 
 t("installed apps do not produce proposals", () => {
-  const plan = buildJarvisMissionPlan({
+  const plan = buildLumoMissionPlan({
     request: "Book flights and hotels to Vegas.",
     registry,
     user_id: "00000000-0000-0000-0000-000000000001",
@@ -85,7 +85,7 @@ t("installed apps do not produce proposals", () => {
 });
 
 t("oauth apps produce connect proposals instead of direct installs", () => {
-  const plan = buildJarvisMissionPlan({
+  const plan = buildLumoMissionPlan({
     request: "Order food delivery tonight.",
     registry,
     user_id: "00000000-0000-0000-0000-000000000001",
@@ -99,7 +99,7 @@ t("oauth apps produce connect proposals instead of direct installs", () => {
 });
 
 t("unavailable ride-hailing pauses even when map app is ready", () => {
-  const plan = buildJarvisMissionPlan({
+  const plan = buildLumoMissionPlan({
     request: "Book me a cab downtown.",
     registry,
     user_id: "00000000-0000-0000-0000-000000000001",
@@ -111,7 +111,7 @@ t("unavailable ride-hailing pauses even when map app is ready", () => {
 });
 
 t("continue approval does not re-open unavailable-only mission gate", () => {
-  const plan = buildJarvisMissionPlan({
+  const plan = buildLumoMissionPlan({
     request:
       "Yes, continue with available approved apps and skip unavailable marketplace capabilities for now: Book me a cab downtown.",
     registry,

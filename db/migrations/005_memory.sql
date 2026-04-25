@@ -1,6 +1,6 @@
 -- Migration 005 — J1 Memory + J4 Ambient Context.
 --
--- This is the foundation of the "JARVIS-like" loop: the Super Agent stops
+-- This is the foundation of the "Lumo-like" loop: the Super Agent stops
 -- forgetting the user between sessions. Three tables, each with a narrow
 -- responsibility:
 --

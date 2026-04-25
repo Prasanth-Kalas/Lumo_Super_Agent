@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * LeftRail — persistent navigation column for the JARVIS dashboard.
+ * LeftRail — persistent navigation column for the Lumo dashboard.
  *
  * What the user sees at a glance:
  *   - Brand mark + "one app, any task" tag

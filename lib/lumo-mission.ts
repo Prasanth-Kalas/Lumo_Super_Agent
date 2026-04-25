@@ -1,5 +1,5 @@
 /**
- * JARVIS mission planning.
+ * Lumo mission planning.
  *
  * This is the deterministic app-store preflight that runs before the LLM sees
  * tools. It detects which marketplace apps a user request needs, determines
@@ -65,7 +65,7 @@ export interface MissionUnavailableCapability {
   requested_phrase: string;
 }
 
-export interface JarvisMissionPlan {
+export interface LumoMissionPlan {
   mission_id: string;
   original_request: string;
   mission_title: string;
@@ -280,9 +280,9 @@ const CAPABILITIES: CapabilityDefinition[] = [
 const MIN_CONFIDENCE = 0.24;
 const MIN_HEALTH_SCORE = 0.6;
 
-export function buildJarvisMissionPlan(
+export function buildLumoMissionPlan(
   input: BuildMissionPlanInput,
-): JarvisMissionPlan {
+): LumoMissionPlan {
   const request = input.request.trim();
   const detected = detectCapabilities(request);
   const connections = input.connections ?? [];
@@ -489,7 +489,7 @@ function stateForAgent(
   if (entry.manifest.connect.model === "oauth2") {
     return {
       state: "not_connected",
-      reason: "This app needs account connection before JARVIS can use it.",
+      reason: "This app needs account connection before Lumo can use it.",
     };
   }
   return {

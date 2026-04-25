@@ -40,9 +40,9 @@ import {
   type TimeSlotsSelection,
 } from "@/components/TimeSlotsSelectCard";
 import {
-  JarvisMissionCard,
-  type JarvisMissionPlan,
-} from "@/components/JarvisMissionCard";
+  LumoMissionCard,
+  type LumoMissionPlan,
+} from "@/components/LumoMissionCard";
 import {
   ReservationConfirmationCard,
   type ReservationPayload,
@@ -92,7 +92,7 @@ interface UIMessage {
   content: string;
   summary?: UISummary | null;
   selections?: UISelection[];
-  mission?: JarvisMissionPlan | null;
+  mission?: LumoMissionPlan | null;
 }
 
 // Starter suggestion cards were removed — the personalized hello
@@ -117,7 +117,7 @@ export default function Home() {
 
   // Voice mode — see components/VoiceMode.tsx. `voiceEnabled` is the
   // master toggle, persisted across reloads. `handsFree` auto-restarts
-  // the mic after each response (JARVIS loop). `spokenStreamText` is
+  // the mic after each response (Lumo loop). `spokenStreamText` is
   // the accumulating assistant text for the CURRENT in-flight turn;
   // VoiceMode reads it reactively and speaks new sentences as they
   // arrive. It resets to "" when a new turn starts.
@@ -390,7 +390,7 @@ export default function Home() {
       let assistantText = "";
       let assistantSummary: UISummary | null = null;
       let assistantSelections: UISelection[] = [];
-      let assistantMission: JarvisMissionPlan | null = null;
+      let assistantMission: LumoMissionPlan | null = null;
       let buf = "";
       const assistantId = `a-${next.id}`;
 
@@ -432,7 +432,7 @@ export default function Home() {
           } else if (frame.type === "summary") {
             assistantSummary = frame.value as UISummary;
           } else if (frame.type === "mission") {
-            assistantMission = frame.value as JarvisMissionPlan;
+            assistantMission = frame.value as LumoMissionPlan;
           } else if (frame.type === "selection") {
             const s = frame.value as UISelection;
             if (s && typeof s.kind === "string") {
@@ -749,7 +749,7 @@ export default function Home() {
       />
 
       {/* ─── 3-column operator console ──────────────────────────────
-          The JARVIS dashboard layout. LeftRail hides below `lg`
+          The Lumo dashboard layout. LeftRail hides below `lg`
           (1024); RightRail hides below `xl` (1280). Center column
           always renders.
       ──────────────────────────────────────────────────────────── */}
@@ -845,7 +845,7 @@ export default function Home() {
 
                 {m.role === "assistant" && m.mission ? (
                   <div className="pl-[18px]">
-                    <JarvisMissionCard
+                    <LumoMissionCard
                       plan={m.mission}
                       disabled={busy}
                       onContinue={(text) => void sendText(text)}

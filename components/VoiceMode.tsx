@@ -19,7 +19,7 @@
  *
  *   - A clear visual state machine — idle / listening / thinking /
  *     speaking / error — so even a glance at the screen conveys
- *     where we are. The JARVIS affordance.
+ *     where we are. The Lumo affordance.
  *
  *   - Hands-free mode: after TTS finishes speaking, auto-restart
  *     listening. Click-to-talk mode: user taps the mic each turn.
