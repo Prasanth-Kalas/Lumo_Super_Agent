@@ -40,6 +40,10 @@ import {
   type TimeSlotsSelection,
 } from "@/components/TimeSlotsSelectCard";
 import {
+  JarvisMissionCard,
+  type JarvisMissionPlan,
+} from "@/components/JarvisMissionCard";
+import {
   ReservationConfirmationCard,
   type ReservationPayload,
 } from "@/components/ReservationConfirmationCard";
@@ -88,6 +92,7 @@ interface UIMessage {
   content: string;
   summary?: UISummary | null;
   selections?: UISelection[];
+  mission?: JarvisMissionPlan | null;
 }
 
 // Starter suggestion cards were removed — the personalized hello
@@ -381,6 +386,7 @@ export default function Home() {
       let assistantText = "";
       let assistantSummary: UISummary | null = null;
       let assistantSelections: UISelection[] = [];
+      let assistantMission: JarvisMissionPlan | null = null;
       let buf = "";
       const assistantId = `a-${next.id}`;
 
@@ -421,6 +427,8 @@ export default function Home() {
             }
           } else if (frame.type === "summary") {
             assistantSummary = frame.value as UISummary;
+          } else if (frame.type === "mission") {
+            assistantMission = frame.value as JarvisMissionPlan;
           } else if (frame.type === "selection") {
             const s = frame.value as UISelection;
             if (s && typeof s.kind === "string") {
@@ -469,6 +477,7 @@ export default function Home() {
                 role: "assistant",
                 content: assistantText,
                 summary: assistantSummary,
+                mission: assistantMission,
                 selections: assistantSelections.length
                   ? assistantSelections
                   : undefined,
@@ -797,6 +806,16 @@ export default function Home() {
                       onCancel={() => void sendText("Cancel — don't book that.")}
                       disabled={busy || !!decided?.exists}
                       decidedLabel={decided?.kind ?? null}
+                    />
+                  </div>
+                ) : null}
+
+                {m.role === "assistant" && m.mission ? (
+                  <div className="pl-[18px]">
+                    <JarvisMissionCard
+                      plan={m.mission}
+                      disabled={busy}
+                      onContinue={(text) => void sendText(text)}
                     />
                   </div>
                 ) : null}

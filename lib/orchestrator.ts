@@ -30,6 +30,10 @@ import { ensureRegistry, userScopedBridge } from "./agent-registry.js";
 import { listConnectionsForUser } from "./connections.js";
 import { getSetting, isFeatureEnabled } from "./admin-settings.js";
 import { listInstalledAgentsForUser } from "./app-installs.js";
+import {
+  buildJarvisMissionPlan,
+  type JarvisMissionPlan,
+} from "./jarvis-mission.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
 import { dispatchMcpTool, isMcpToolName } from "./mcp/dispatch.js";
@@ -163,6 +167,7 @@ export interface OrchestratorTurn {
 /** Anything the route handler wants to surface as an SSE frame. Structured. */
 export type OrchestratorFrame =
   | { type: "text"; value: string }
+  | { type: "mission"; value: JarvisMissionPlan }
   | {
       type: "tool";
       value: {
@@ -254,6 +259,44 @@ export async function runTurn(
   const installedAgentIds = new Set(
     installs.filter((i) => i.status === "installed").map((i) => i.agent_id),
   );
+
+  const lastUserForMission =
+    input.messages.findLast((m) => m.role === "user")?.content ?? "";
+  const missionPlan = buildJarvisMissionPlan({
+    request: lastUserForMission,
+    registry,
+    connections,
+    installs,
+    user_id: input.user_id,
+  });
+  if (missionPlan.should_pause_for_permission) {
+    emit({ type: "text", value: missionPlan.message });
+    emit({ type: "mission", value: missionPlan });
+    emit({
+      type: "internal",
+      value: {
+        kind: "jarvis_mission_permission_gate",
+        detail: {
+          mission_id: missionPlan.mission_id,
+          proposals: missionPlan.install_proposals.map((p) => ({
+            agent_id: p.agent_id,
+            action: p.action,
+            capability: p.capability,
+          })),
+          unavailable_capabilities: missionPlan.unavailable_capabilities.map(
+            (u) => u.capability,
+          ),
+        },
+      },
+    });
+    return {
+      assistant_text: missionPlan.message,
+      tool_calls: [],
+      summary: null,
+      selections: [],
+    };
+  }
+
   const bridge = userScopedBridge(
     registry,
     connectedAgentIds,

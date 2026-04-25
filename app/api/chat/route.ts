@@ -4,6 +4,7 @@
  * Body: { session_id, messages: ChatMessage[], device_kind?, region? }
  * Response: text/event-stream (SSE) emitting frames of these types:
  *   - { type: "text",       value: string }
+ *   - { type: "mission",    value: JarvisMissionPlan }       (app install gate)
  *   - { type: "tool",       value: ToolCallTrace }           (debug only)
  *   - { type: "selection",  value: { kind, payload } }       (rich UI)
  *   - { type: "summary",    value: ConfirmationSummary }     (money gate)

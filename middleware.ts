@@ -78,6 +78,8 @@ const PROTECTED_API_PREFIXES = [
   "/api/admin",
   // App install/remove state. OAuth connection routes are separate.
   "/api/apps",
+  // Inline JARVIS marketplace installs mutate per-user app grants.
+  "/api/jarvis/mission/install",
 ];
 
 /**

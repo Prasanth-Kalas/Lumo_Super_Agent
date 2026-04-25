@@ -10,7 +10,12 @@ import type { AgentManifest } from "@lumo/agent-sdk";
 import { getSupabase } from "./db.js";
 
 export type AppInstallStatus = "installed" | "suspended" | "revoked";
-export type AppInstallSource = "marketplace" | "oauth" | "admin" | "migration";
+export type AppInstallSource =
+  | "marketplace"
+  | "oauth"
+  | "admin"
+  | "migration"
+  | "jarvis";
 
 export interface AppInstall {
   user_id: string;

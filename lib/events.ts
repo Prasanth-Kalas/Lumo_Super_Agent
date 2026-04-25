@@ -38,6 +38,7 @@ import { getSupabase } from "./db.js";
 
 export type EventFrameType =
   | "text"
+  | "mission"
   | "tool"
   | "selection"
   | "summary"
