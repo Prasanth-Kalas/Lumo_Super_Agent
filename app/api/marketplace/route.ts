@@ -295,10 +295,18 @@ export async function GET(_req: NextRequest): Promise<Response> {
 
   // Coming-soon tiles for V1.x platforms whose connectors aren't live.
   // Suppressed if a real registry entry already exposes that platform —
-  // we never want to show two tiles for the same logical platform.
+  // we never want to show two tiles for the same logical platform. The
+  // Meta tile in the registry covers BOTH instagram + facebook (one
+  // OAuth grant under the umbrella Meta App), so suppress both
+  // coming-soon variants when "meta" is registered.
   const realAgentIds = new Set(agents.map((a) => a.agent_id));
+  const metaUmbrellaPresent = realAgentIds.has("meta");
   for (const tile of COMING_SOON_TILES) {
-    if (realAgentIds.has(tile.agent_id.replace("coming-soon:", ""))) continue;
+    const aliasedId = tile.agent_id.replace("coming-soon:", "");
+    if (realAgentIds.has(aliasedId)) continue;
+    if (metaUmbrellaPresent && (aliasedId === "meta-instagram" || aliasedId === "meta-facebook")) {
+      continue;
+    }
     agents.push(tile);
   }
 

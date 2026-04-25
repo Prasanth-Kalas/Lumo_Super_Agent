@@ -84,6 +84,14 @@ import {
   spotifySearch,
   spotifySkipNext,
 } from "./spotify.js";
+import {
+  META_AGENT_ID,
+  META_AUTHORIZE_URL,
+  META_SCOPES,
+  META_SCOPE_DESCRIPTIONS,
+  META_TOKEN_URL,
+  isMetaConfigured,
+} from "./meta.js";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Public API
@@ -107,7 +115,8 @@ export function getInternalAgentEntries(): RegistryEntry[] {
   if (isGoogleConfigured()) entries.push(buildGoogleEntry());
   if (isMicrosoftConfigured()) entries.push(buildMicrosoftEntry());
   if (isSpotifyConfigured()) entries.push(buildSpotifyEntry());
-  // Future: Slack, Notion, GitHub, etc.
+  if (isMetaConfigured()) entries.push(buildMetaEntry());
+  // Future: Slack, Notion, GitHub, LinkedIn, X, Threads, Newsletter
   return entries;
 }
 
@@ -257,6 +266,7 @@ const INTERNAL_AGENT_IDS = new Set<string>([
   GOOGLE_AGENT_ID,
   MICROSOFT_AGENT_ID,
   SPOTIFY_AGENT_ID,
+  META_AGENT_ID,
 ]);
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -586,6 +596,112 @@ function buildMicrosoftEntry(): RegistryEntry {
     manifest,
     openapi: {} as never,
     last_health: { status: "ok", agent_id: MICROSOFT_AGENT_ID, version: "0.1.0", checked_at: Date.now() },
+    health_score: 1.0,
+    manifest_loaded_at: Date.now(),
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// buildMetaEntry — Facebook + Instagram + Messenger under one OAuth
+// ──────────────────────────────────────────────────────────────────────────
+//
+// V1.2 ships the OAuth + connection plumbing only — no tools registered
+// yet. The marketplace tile becomes Connect-able, the OAuth flow lands a
+// long-lived token in agent_connections, but there are no instagram_*
+// or facebook_* tools in INTERNAL_TOOL_HANDLERS until lib/integrations/
+// instagram.ts + facebook.ts ship in subsequent days.
+//
+// This intentionally lets us validate the auth surface end-to-end
+// (consent → token exchange → token persistence → reconnect flow)
+// before the read/write paths are wired.
+
+function buildMetaEntry(): RegistryEntry {
+  const manifest: AgentManifest & {
+    connect: {
+      model: "oauth2";
+      authorize_url: string;
+      token_url: string;
+      scopes: Array<{ name: string; description: string; required: boolean }>;
+      client_id_env: string;
+      client_secret_env: string;
+      client_type: "confidential";
+    };
+    listing?: {
+      category?: string;
+      pricing_note?: string;
+      about_paragraphs?: string[];
+      privacy_note?: string;
+    };
+  } = {
+    agent_id: META_AGENT_ID,
+    version: "0.1.0",
+    domain: "personal",
+    display_name: "Meta (Instagram · Facebook · Messenger)",
+    one_liner:
+      "Pull Instagram + Facebook Page metrics into /workspace, surface comments and DMs in your Inbox, publish posts and replies — every write gated by your confirmation card.",
+    intents: [
+      "instagram_account_overview",
+      "instagram_recent_media",
+      "instagram_comments_list",
+      "instagram_reply_draft",
+      "instagram_publish_draft",
+      "facebook_page_overview",
+      "facebook_page_posts_list",
+      "facebook_comments_list",
+      "messenger_threads_list",
+    ],
+    example_utterances: [
+      "show me my Instagram engagement this week",
+      "draft replies to my latest IG comments",
+      "publish that carousel on my Instagram tomorrow at 9am",
+      "what's the top-performing post on my Facebook Page this month",
+      "reply to the new Messenger DM from a customer",
+    ],
+    openapi_url: `${process.env.LUMO_SHELL_PUBLIC_URL ?? "https://lumo-super-agent.vercel.app"}/.well-known/internal/meta`,
+    ui: { components: [] },
+    health_url: `${process.env.LUMO_SHELL_PUBLIC_URL ?? "https://lumo-super-agent.vercel.app"}/api/health`,
+    sla: { p50_latency_ms: 1200, p95_latency_ms: 4500, availability_target: 0.99 },
+    pii_scope: ["name", "email"],
+    requires_payment: false,
+    supported_regions: [],
+    capabilities: {
+      sdk_version: "0.4.0",
+      supports_compound_bookings: false,
+      implements_cancellation: false,
+    },
+    connect: {
+      model: "oauth2",
+      authorize_url: META_AUTHORIZE_URL,
+      token_url: META_TOKEN_URL,
+      scopes: META_SCOPES.map((s) => ({
+        name: s,
+        description: META_SCOPE_DESCRIPTIONS[s] ?? s,
+        required: true,
+      })),
+      client_id_env: "LUMO_META_APP_ID",
+      client_secret_env: "LUMO_META_APP_SECRET",
+      client_type: "confidential",
+    },
+    listing: {
+      category: "Creator",
+      pricing_note: "Free · in Meta App Review · all writes confirmed",
+      about_paragraphs: [
+        "Lumo reads your Instagram Business + Facebook Page data on demand. The dashboard shows recent posts, comments, DMs, audience insights — and surfaces the conversations worth your attention.",
+        "Every write — publishing a post, replying to a comment, sending a DM — passes through Lumo's confirmation card. You see the exact draft and target before anything ships, regardless of your autonomy tier.",
+        "While our Meta App Review is pending, only Lumo Test Users (added in App roles → Test users) can connect. Public users will be able to connect once Meta approves the scopes (~3–4 weeks after submission).",
+        "Connect requires an Instagram Business or Creator account. If your IG account is Personal, Meta requires you switch in the IG app first.",
+      ],
+      privacy_note:
+        "Lumo never stores the bodies of your IG/FB posts, comments, or DMs beyond what's needed to render the Inbox tab during your active session. Cached audience metrics live up to 90 days; daily snapshots used for trend visualization up to 365 days. You can revoke at /connections any time, or trigger full deletion via /legal/meta-data-deletion. The Meta data-deletion callback at /api/connections/meta/data-deletion is signature-verified per Meta's spec.",
+    },
+  };
+
+  return {
+    key: "meta",
+    base_url: `internal://${META_AGENT_ID}`,
+    manifest,
+    openapi: {} as never,
+    last_health: { status: "ok", agent_id: META_AGENT_ID, version: "0.1.0", checked_at: Date.now() },
     health_score: 1.0,
     manifest_loaded_at: Date.now(),
   };
