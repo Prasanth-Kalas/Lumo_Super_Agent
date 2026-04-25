@@ -105,8 +105,37 @@ This is **not** a pivot to creator tooling. Lumo's North Star stays: personal AI
 - Personal post creation works without MDP; analytics requires MDP approval
 - Ship personal post + comment-reply first, layer analytics in when approval clears
 
-### V2 — X (deferred)
+### V1.5 — Marketing API + Lead Ads (target: 4–6 weeks of focused eng)
+
+Bundles three Meta use cases that are already bound to the app:
+- **Create & manage ads with Marketing API** — campaign + ad set + creative management
+- **Measure ad performance data with Marketing API** — ROAS, attribution, custom audiences
+- **Capture & manage ad leads with Marketing API** — Lead Ads inbox into the Inbox tab
+
+What ships:
+- New `/workspace` "Ads" sub-tab on Today (or a 6th top-level tab, TBD) with campaign overview + budget gauge
+- `lib/integrations/meta-ads.ts` — campaign CRUD, ad set CRUD, creative upload via `/api/media/upload`
+- Server-side **spend caps** enforced before any budget-bump call (per-day + per-week + per-account)
+- Confirmation card extended with monetary delta — every campaign budget change shows old + new + impact
+- Audit log gets a `monetary_delta_usd` field
+- Lead Ads webhook handler routing new leads into Inbox tab
+
+Compliance:
+- Marketing API requires **Standard Access** then **Advanced Access** review tiers (extra App Review pass with case-study submission)
+- ToS update: "Lumo manages your Meta ad spend on your behalf"
+- Possibly required: jurisdiction-specific financial-services disclosure
+
+### V2 — Threads + oEmbed
+- **Access the Threads API** — adds Threads card to Today tab + Threads platform to PostConfirmationCard
+- **Embed Facebook, Instagram, Threads content** (oEmbed) — read-only API for embedding curated content on partner sites (lumotechnologies.com case studies)
+
+### V2 — X (deferred on pricing)
 - Connector slot reserved in registry. Drop-in when budget approves $200–$5K/mo X API tier.
+
+### V3 — WhatsApp Business Platform
+- **Connect with customers through WhatsApp** — adds a "WhatsApp" surface to the Inbox tab for users with WhatsApp Business accounts
+- WhatsApp has its own approval (Cloud API tier free for first 1K conversations/mo, paid afterward) and template-message gate (outbound templates pre-approved by Meta)
+- Make this last in the creator pack — by V3 we should have learned enough about Meta App Review to nail it first try
 
 ---
 
@@ -426,6 +455,10 @@ These run in parallel with V1.0/V1.1 engineering. By the time YouTube + Newslett
 | 2026-04-25 | Mandatory confirmation card on all writes | Trust > speed in V1; can relax later if data supports |
 | 2026-04-25 | `/workspace` separate route, not new home | Lower regression risk for existing users; can promote to home in V2 if metrics warrant |
 | 2026-04-25 | Per-tile marketplace onboarding | Reuses existing pattern; zero new UX to teach |
+| 2026-04-25 | Bind ALL Meta use cases up front | Adding later = 4–6 week amendment delay. Bind everything (Marketing API ×3, Threads, WhatsApp, oEmbed, Live Video, Messenger), Add scopes only when each version ships. |
+| 2026-04-25 | V1.5 ads management is a real product investment | 4–6 weeks dedicated eng + monetary audit log + spend caps + Advanced Access App Review tier. ToS update mandatory. |
+| 2026-04-25 | Co-pilot tab V1 = preset prompts + handoff to / chat | Embedded chat would duplicate the orchestrator UI; preset prompts ship value immediately and the embedded chat slots in V1.x once we extract a clean Composer component. |
+| 2026-04-25 | Inbox lead-scoring is heuristic V1, LLM later | Keyword regex + length signal is good enough for first cut; LLM scoring is a future task once we have signal on false-positive rate. |
 
 ---
 

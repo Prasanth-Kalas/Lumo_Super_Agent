@@ -383,29 +383,11 @@ function TabBody({
     case "today":
       return <TodayTabPlaceholder connections={connections} />;
     case "content":
-      return (
-        <Placeholder
-          title="Content"
-          message="Outliers, cross-platform winners, repurpose queue, content calendar."
-          version="ships in v1.0 (Task #7)"
-        />
-      );
+      return <ContentTab />;
     case "inbox":
-      return (
-        <Placeholder
-          title="Inbox"
-          message="Unified comments, DMs, business leads detector, super-fans."
-          version="ships in v1.0 (Task #8)"
-        />
-      );
+      return <InboxTab />;
     case "copilot":
-      return (
-        <Placeholder
-          title="Co-pilot"
-          message="Chat with your connected data. The orchestrator embedded in workspace context."
-          version="ships in v1.0 (Task #9)"
-        />
-      );
+      return <CopilotTab connections={connections} />;
     case "operations":
       return <OperationsTabPlaceholder connections={connections} />;
   }
@@ -1435,6 +1417,778 @@ function ChannelSelector() {
         @media (max-width: 768px) {
           .cs { display: none; }
         }
+      `}</style>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// InboxTab — unified comments + business-lead detector
+// ──────────────────────────────────────────────────────────────────────────
+
+interface InboxItem {
+  id: string;
+  platform: "youtube" | "instagram" | "facebook" | "linkedin";
+  kind: "comment" | "dm" | "mention";
+  author_handle: string;
+  author_external_id: string | null;
+  text: string;
+  permalink_context: string;
+  received_iso: string;
+  like_count: number;
+  lead_score: number;
+  lead_reasons: string[];
+}
+interface InboxRelationshipRow {
+  handle: string;
+  count: number;
+  last_iso: string;
+  platforms: string[];
+}
+interface InboxEnvelope {
+  generated_at: string;
+  items: InboxItem[];
+  business_leads: InboxItem[];
+  relationship_index: InboxRelationshipRow[];
+  source: "live" | "cached" | "stale" | "error";
+  age_ms: number;
+  error?: string;
+}
+
+function InboxTab() {
+  const [data, setData] = useState<InboxEnvelope | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "leads">("all");
+
+  const refresh = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const r = await fetch("/api/workspace/inbox", { credentials: "include" });
+      if (!r.ok) throw new Error(`workspace/inbox ${r.status}`);
+      setData(await r.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const items = filter === "leads" ? data?.business_leads ?? [] : data?.items ?? [];
+  const leadCount = data?.business_leads.length ?? 0;
+  const totalCount = data?.items.length ?? 0;
+
+  return (
+    <div className="ix">
+      <header className="ix__head">
+        <h2 className="ix__heading">Inbox</h2>
+        <button className="ix__refresh" onClick={() => void refresh()}>
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </header>
+      <p className="ix__sub">
+        Comments and DMs across your connected platforms — Lumo flags business
+        leads, partnership requests, and podcast asks automatically.
+      </p>
+
+      {error && <div className="ix__error">Couldn&apos;t load: {error}</div>}
+
+      <div className="ix__layout">
+        <aside className="ix__rail">
+          <div className="ix__rail-head">Relationship index</div>
+          {data?.relationship_index.length ? (
+            <ul className="ix__rel">
+              {data.relationship_index.map((r) => (
+                <li key={r.handle} className="ix__rel-row">
+                  <span className="ix__rel-handle">{r.handle}</span>
+                  <span className="ix__rel-count tabular-nums">{r.count}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">No interactions yet.</p>
+          )}
+        </aside>
+
+        <main className="ix__main">
+          <div className="ix__filters">
+            <button
+              className={`ix__chip ${filter === "all" ? "active" : ""}`}
+              onClick={() => setFilter("all")}
+            >
+              All ({totalCount})
+            </button>
+            <button
+              className={`ix__chip ${filter === "leads" ? "active" : ""}`}
+              onClick={() => setFilter("leads")}
+            >
+              Business leads ({leadCount})
+            </button>
+          </div>
+          {items.length === 0 ? (
+            <p className="muted">
+              {filter === "leads"
+                ? "No business-lead candidates in the recent window."
+                : "No comments or DMs found yet."}
+            </p>
+          ) : (
+            <ul className="ix__list">
+              {items.map((it) => (
+                <li key={it.id} className={`ix__item ${it.lead_score >= 0.7 ? "lead" : ""}`}>
+                  <div className="ix__item-meta">
+                    <span className={`ix__platform ix__platform--${it.platform}`}>
+                      {it.platform}
+                    </span>
+                    <span className="ix__author">{it.author_handle}</span>
+                    <span className="ix__ago tabular-nums">{formatRelative(it.received_iso)}</span>
+                    {it.lead_score >= 0.7 && (
+                      <span className="ix__lead">
+                        ★ Lead · {it.lead_reasons.slice(0, 2).join(", ")}
+                      </span>
+                    )}
+                  </div>
+                  <div className="ix__item-text">{it.text}</div>
+                  <div className="ix__item-context">
+                    on “{it.permalink_context}”{it.like_count > 0 ? ` · ${it.like_count} likes` : ""}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </main>
+      </div>
+
+      <style jsx>{`
+        .ix__head { display: flex; align-items: center; gap: 12px; }
+        .ix__heading { font-size: 24px; font-weight: 600; margin: 0; }
+        .ix__refresh {
+          margin-left: auto;
+          padding: 6px 12px;
+          font-size: 12px;
+          background: transparent;
+          color: var(--lumo-muted);
+          border: 1px solid var(--lumo-border);
+          border-radius: 8px;
+          cursor: pointer;
+        }
+        .ix__refresh:hover { color: var(--lumo-fg); }
+        .ix__sub { color: var(--lumo-muted); margin: 4px 0 24px 0; font-size: 13px; }
+        .ix__error { padding: 10px 12px; background: color-mix(in srgb, #e0613f 12%, transparent); color: #e0613f; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+        .ix__layout {
+          display: grid;
+          grid-template-columns: 240px 1fr;
+          gap: 16px;
+        }
+        @media (max-width: 768px) {
+          .ix__layout { grid-template-columns: 1fr; }
+        }
+        .ix__rail {
+          background: var(--lumo-surface);
+          border: 1px solid var(--lumo-border);
+          border-radius: 10px;
+          padding: 14px;
+          height: fit-content;
+        }
+        .ix__rail-head {
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--lumo-muted);
+          margin-bottom: 10px;
+        }
+        .ix__rel { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+        .ix__rel-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 8px;
+        }
+        .ix__rel-handle {
+          font-size: 13px;
+          color: var(--lumo-fg);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .ix__rel-count {
+          font-size: 12px;
+          color: var(--lumo-muted);
+        }
+        .ix__filters { display: flex; gap: 6px; margin-bottom: 16px; }
+        .ix__chip {
+          padding: 6px 12px;
+          font-size: 12px;
+          font-weight: 500;
+          background: transparent;
+          color: var(--lumo-muted);
+          border: 1px solid var(--lumo-border);
+          border-radius: 999px;
+          cursor: pointer;
+        }
+        .ix__chip:hover { color: var(--lumo-fg); }
+        .ix__chip.active {
+          color: var(--lumo-bg);
+          background: var(--lumo-fg);
+          border-color: var(--lumo-fg);
+        }
+        .ix__list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+        .ix__item {
+          padding: 14px;
+          background: var(--lumo-surface);
+          border: 1px solid var(--lumo-border);
+          border-radius: 10px;
+        }
+        .ix__item.lead {
+          border-color: color-mix(in srgb, #fb923c 50%, var(--lumo-border));
+          background: color-mix(in srgb, #fb923c 6%, var(--lumo-surface));
+        }
+        .ix__item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 11px; margin-bottom: 8px; }
+        .ix__platform {
+          padding: 2px 8px;
+          font-size: 10px;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          border-radius: 999px;
+          border: 1px solid;
+        }
+        .ix__platform--youtube { color: #ff0033; border-color: rgba(255,0,51,0.3); }
+        .ix__platform--instagram { color: #e1306c; border-color: rgba(225,48,108,0.3); }
+        .ix__platform--facebook { color: #1877f2; border-color: rgba(24,119,242,0.3); }
+        .ix__platform--linkedin { color: #0a66c2; border-color: rgba(10,102,194,0.3); }
+        .ix__author { font-weight: 500; color: var(--lumo-fg); font-size: 13px; }
+        .ix__ago { color: var(--lumo-muted); }
+        .ix__lead { color: #fb923c; font-weight: 600; }
+        .ix__item-text {
+          font-size: 14px;
+          line-height: 1.5;
+          color: var(--lumo-fg);
+          margin-bottom: 6px;
+          word-break: break-word;
+        }
+        .ix__item-context { font-size: 11px; color: var(--lumo-muted); }
+        .muted { color: var(--lumo-muted); }
+      `}</style>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ContentTab — outliers + repurpose queue + content schedule
+// ──────────────────────────────────────────────────────────────────────────
+
+interface ContentOutlier {
+  id: string;
+  title: string;
+  channel_title: string;
+  views: number;
+  median_views: number;
+  multiplier: number;
+  published_at: string;
+  thumbnail_url?: string;
+}
+interface ContentScheduleItem {
+  id: string;
+  agent_id: string;
+  action_type: string;
+  status: string;
+  scheduled_for: string;
+  body_excerpt: string;
+  external_account_id: string | null;
+  origin: string;
+}
+interface ContentRepurposeCue {
+  source_id: string;
+  source_label: string;
+  multiplier: number;
+  suggestion: string;
+  target_platforms: string[];
+}
+interface ContentEnvelope {
+  generated_at: string;
+  outliers: ContentOutlier[];
+  schedule: ContentScheduleItem[];
+  repurpose_cues: ContentRepurposeCue[];
+  source: "live" | "cached" | "stale" | "error";
+  age_ms: number;
+  error?: string;
+}
+
+function ContentTab() {
+  const [data, setData] = useState<ContentEnvelope | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const r = await fetch("/api/workspace/content", { credentials: "include" });
+      if (!r.ok) throw new Error(`workspace/content ${r.status}`);
+      setData(await r.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return (
+    <div className="ct">
+      <header className="ct__head">
+        <h2 className="ct__heading">Content</h2>
+        <button className="ct__refresh" onClick={() => void refresh()}>
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </header>
+      <p className="ct__sub">
+        What&apos;s outperforming your median, what to repurpose, and what&apos;s already on
+        the schedule.
+      </p>
+
+      {error && <div className="ct__error">Couldn&apos;t load: {error}</div>}
+
+      <h3 className="ct__sec">Outliers — beating your median by ≥1.5×</h3>
+      <div className="ct__outliers">
+        {data && data.outliers.length === 0 && (
+          <p className="muted">No outliers in the last 30 uploads. Steady performance — try shipping more variants.</p>
+        )}
+        {(data?.outliers ?? []).map((o) => (
+          <article key={o.id} className="ct__out">
+            {o.thumbnail_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={o.thumbnail_url} alt="" className="ct__out-thumb" />
+            )}
+            <div className="ct__out-body">
+              <div className="ct__out-mult tabular-nums">{o.multiplier.toFixed(1)}×</div>
+              <div className="ct__out-title">{o.title}</div>
+              <div className="ct__out-meta">
+                <span className="tabular-nums">{formatCount(o.views)} views</span>
+                <span> · median {formatCount(Math.round(o.median_views))}</span>
+                <span> · {formatRelative(o.published_at)}</span>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <h3 className="ct__sec">Repurpose queue</h3>
+      <div className="ct__rep">
+        {data && data.repurpose_cues.length === 0 && (
+          <p className="muted">No suggestions yet — needs at least one outlier to seed cues.</p>
+        )}
+        {(data?.repurpose_cues ?? []).map((c) => (
+          <article key={c.source_id} className="ct__rep-row">
+            <div className="ct__rep-mult tabular-nums">{c.multiplier.toFixed(1)}×</div>
+            <div className="ct__rep-text">
+              <div className="ct__rep-suggestion">{c.suggestion}</div>
+              <div className="ct__rep-targets">
+                {c.target_platforms.map((p) => (
+                  <span key={p} className="ct__rep-target">{p}</span>
+                ))}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <h3 className="ct__sec">Schedule (next 30 days)</h3>
+      <div className="ct__sched">
+        {data && data.schedule.length === 0 && (
+          <p className="muted">Nothing on the schedule. Drop a queued post from the Co-pilot tab.</p>
+        )}
+        {(data?.schedule ?? []).map((s) => (
+          <article key={s.id} className={`ct__sched-row ct__sched-row--${s.status}`}>
+            <span className="ct__sched-when tabular-nums">
+              {new Date(s.scheduled_for).toLocaleString()}
+            </span>
+            <span className="ct__sched-platform">{s.agent_id}</span>
+            <span className="ct__sched-action">{s.action_type}</span>
+            <span className="ct__sched-status">{s.status}</span>
+            <span className="ct__sched-body">{s.body_excerpt}</span>
+          </article>
+        ))}
+      </div>
+
+      <style jsx>{`
+        .ct__head { display: flex; align-items: center; gap: 12px; }
+        .ct__heading { font-size: 24px; font-weight: 600; margin: 0; }
+        .ct__refresh {
+          margin-left: auto;
+          padding: 6px 12px;
+          font-size: 12px;
+          background: transparent;
+          color: var(--lumo-muted);
+          border: 1px solid var(--lumo-border);
+          border-radius: 8px;
+          cursor: pointer;
+        }
+        .ct__sub { color: var(--lumo-muted); margin: 4px 0 24px 0; font-size: 13px; }
+        .ct__error { padding: 10px 12px; background: color-mix(in srgb, #e0613f 12%, transparent); color: #e0613f; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+        .ct__sec {
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--lumo-muted);
+          margin: 32px 0 12px;
+        }
+        .ct__outliers {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+          gap: 12px;
+        }
+        .ct__out {
+          display: flex;
+          gap: 12px;
+          padding: 12px;
+          background: var(--lumo-surface);
+          border: 1px solid var(--lumo-border);
+          border-radius: 10px;
+        }
+        .ct__out-thumb {
+          width: 96px;
+          height: 54px;
+          object-fit: cover;
+          border-radius: 6px;
+          flex-shrink: 0;
+        }
+        .ct__out-body { flex: 1; min-width: 0; }
+        .ct__out-mult {
+          display: inline-block;
+          padding: 1px 8px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #fb923c;
+          background: color-mix(in srgb, #fb923c 12%, transparent);
+          border: 1px solid color-mix(in srgb, #fb923c 35%, transparent);
+          border-radius: 999px;
+          margin-bottom: 4px;
+        }
+        .ct__out-title {
+          font-size: 13px;
+          font-weight: 500;
+          line-height: 1.3;
+          margin-bottom: 4px;
+          overflow: hidden;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+        }
+        .ct__out-meta { color: var(--lumo-muted); font-size: 11px; }
+        .ct__rep {
+          display: grid;
+          gap: 8px;
+        }
+        .ct__rep-row {
+          display: grid;
+          grid-template-columns: 60px 1fr;
+          gap: 16px;
+          padding: 14px;
+          background: var(--lumo-surface);
+          border: 1px solid var(--lumo-border);
+          border-radius: 10px;
+        }
+        .ct__rep-mult {
+          font-size: 16px;
+          font-weight: 600;
+          color: #fb923c;
+        }
+        .ct__rep-suggestion {
+          font-size: 14px;
+          line-height: 1.5;
+          margin-bottom: 8px;
+        }
+        .ct__rep-targets { display: flex; gap: 6px; }
+        .ct__rep-target {
+          padding: 2px 8px;
+          font-size: 10px;
+          letter-spacing: 0.04em;
+          text-transform: uppercase;
+          background: var(--lumo-bg);
+          border: 1px solid var(--lumo-border);
+          border-radius: 999px;
+          color: var(--lumo-muted);
+        }
+        .ct__sched {
+          background: var(--lumo-surface);
+          border: 1px solid var(--lumo-border);
+          border-radius: 10px;
+          overflow: hidden;
+        }
+        .ct__sched-row {
+          display: grid;
+          grid-template-columns: 1.4fr 0.8fr 0.8fr 0.6fr 2fr;
+          gap: 12px;
+          padding: 10px 14px;
+          font-size: 12px;
+          border-top: 1px solid var(--lumo-border);
+          align-items: baseline;
+        }
+        .ct__sched-row:first-of-type { border-top: 0; }
+        .ct__sched-row--pending { background: color-mix(in srgb, #fb923c 6%, transparent); }
+        .ct__sched-row--draft { color: var(--lumo-muted); }
+        .ct__sched-when { color: var(--lumo-muted); }
+        .ct__sched-platform { font-weight: 500; }
+        .ct__sched-status { color: var(--lumo-muted); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+        .ct__sched-body { color: var(--lumo-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        @media (max-width: 768px) {
+          .ct__sched-row { grid-template-columns: 1fr 1fr; }
+          .ct__sched-row > *:nth-child(n+3) { grid-column: 1 / -1; }
+        }
+        .muted { color: var(--lumo-muted); }
+      `}</style>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// CopilotTab — preset prompts + freeform input that hand off to /
+// ──────────────────────────────────────────────────────────────────────────
+
+interface PresetPrompt {
+  category: string;
+  label: string;
+  prompt: string;
+  needs_agent_id?: string;
+}
+
+const ALL_PRESETS: PresetPrompt[] = [
+  {
+    category: "Calendar",
+    label: "What's on my calendar today?",
+    prompt: "What's on my calendar today and tomorrow? Include attendees and locations.",
+    needs_agent_id: "google",
+  },
+  {
+    category: "Calendar",
+    label: "Find a 30-min slot this week with Alex",
+    prompt: "Find a 30-minute slot this week when both Alex and I are free. Suggest 3 options.",
+    needs_agent_id: "google",
+  },
+  {
+    category: "Email",
+    label: "Top unread that need a reply",
+    prompt: "Look through my unread email and surface the top 5 that need a personal reply, ranked by urgency.",
+    needs_agent_id: "google",
+  },
+  {
+    category: "Email",
+    label: "Summarize my morning",
+    prompt: "Give me a 60-second briefing on what came in overnight — calendar changes, urgent emails, anything that needs action today.",
+    needs_agent_id: "google",
+  },
+  {
+    category: "YouTube",
+    label: "Top videos this month",
+    prompt: "Which of my YouTube videos performed best this month? Show watch time, traffic source, and audience retention.",
+    needs_agent_id: "google",
+  },
+  {
+    category: "YouTube",
+    label: "Reply to recent comments",
+    prompt: "Look at the last 24 hours of comments on my latest video. Draft replies for the ones that look like business leads or questions worth answering.",
+    needs_agent_id: "google",
+  },
+  {
+    category: "YouTube",
+    label: "What's working across uploads",
+    prompt: "Across my last 30 uploads, what themes or hooks consistently outperform my median? Suggest two video ideas based on the patterns.",
+    needs_agent_id: "google",
+  },
+  {
+    category: "Music",
+    label: "Set a focus playlist",
+    prompt: "Start a focus session — play something instrumental on Spotify and silence notifications for 90 minutes.",
+    needs_agent_id: "spotify",
+  },
+  {
+    category: "Cross-platform",
+    label: "What should I create next?",
+    prompt: "Look at what's working across my YouTube and email subscribers — what should I make next? Give me a hook + platform + format.",
+  },
+  {
+    category: "Cross-platform",
+    label: "Repurpose my best post",
+    prompt: "Find my best-performing post from the last 30 days across any connected platform. Draft a reel-format version optimized for Instagram.",
+  },
+];
+
+function CopilotTab({ connections }: { connections: MarketplaceConnection[] }) {
+  const [input, setInput] = useState("");
+  const activeAgents = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of connections) if (c.connection?.status === "active") set.add(c.agent_id);
+    return set;
+  }, [connections]);
+
+  const presets = ALL_PRESETS.filter(
+    (p) => !p.needs_agent_id || activeAgents.has(p.needs_agent_id),
+  );
+
+  function handoff(prompt: string) {
+    if (typeof window === "undefined") return;
+    const q = encodeURIComponent(prompt);
+    window.location.href = `/?q=${q}`;
+  }
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (input.trim().length === 0) return;
+    handoff(input.trim());
+  }
+
+  // Group presets by category for layout.
+  const grouped = useMemo(() => {
+    const m = new Map<string, PresetPrompt[]>();
+    for (const p of presets) {
+      const list = m.get(p.category) ?? [];
+      list.push(p);
+      m.set(p.category, list);
+    }
+    return Array.from(m.entries());
+  }, [presets]);
+
+  return (
+    <div className="cp">
+      <header className="cp__head">
+        <h2 className="cp__heading">Co-pilot</h2>
+      </header>
+      <p className="cp__sub">
+        Ask Lumo anything about your connected data — the orchestrator answers
+        with real numbers, drafts replies for your confirmation, or schedules
+        actions for later.
+      </p>
+
+      <form className="cp__composer" onSubmit={handleSubmit}>
+        <input
+          className="cp__input"
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="What's on my plate today? · Reply to my latest YouTube comments · Find a 30-min slot with Alex…"
+        />
+        <button className="cp__submit" type="submit" disabled={input.trim().length === 0}>
+          Ask Lumo →
+        </button>
+      </form>
+
+      <h3 className="cp__sec">Quick prompts</h3>
+      {grouped.length === 0 ? (
+        <p className="muted">Connect a service to see relevant prompts.</p>
+      ) : (
+        <div className="cp__groups">
+          {grouped.map(([cat, list]) => (
+            <div key={cat} className="cp__group">
+              <div className="cp__group-label">{cat}</div>
+              <div className="cp__chips">
+                {list.map((p) => (
+                  <button
+                    key={p.prompt}
+                    className="cp__chip"
+                    onClick={() => handoff(p.prompt)}
+                    title={p.prompt}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="cp__hint">
+        Why? <span className="cp__hint-text">Co-pilot routes you to Lumo&apos;s main chat with the prompt pre-filled. The same orchestrator that powers /workspace also handles voice — open it in a tab and ask anything.</span>
+      </p>
+
+      <style jsx>{`
+        .cp__head { display: flex; align-items: center; gap: 12px; }
+        .cp__heading { font-size: 24px; font-weight: 600; margin: 0; }
+        .cp__sub { color: var(--lumo-muted); margin: 4px 0 24px 0; font-size: 13px; }
+        .cp__composer {
+          display: flex;
+          gap: 8px;
+          padding: 8px;
+          background: var(--lumo-surface);
+          border: 1px solid var(--lumo-border);
+          border-radius: 12px;
+          margin-bottom: 24px;
+        }
+        .cp__input {
+          flex: 1;
+          background: transparent;
+          color: var(--lumo-fg);
+          border: none;
+          outline: none;
+          font-size: 15px;
+          padding: 8px 12px;
+        }
+        .cp__input::placeholder { color: var(--lumo-muted); }
+        .cp__submit {
+          padding: 8px 16px;
+          background: var(--lumo-fg);
+          color: var(--lumo-bg);
+          border: none;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+        }
+        .cp__submit:disabled { opacity: 0.4; cursor: not-allowed; }
+        .cp__sec {
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--lumo-muted);
+          margin: 16px 0 12px;
+        }
+        .cp__groups {
+          display: grid;
+          gap: 16px;
+        }
+        .cp__group-label {
+          font-size: 11px;
+          color: var(--lumo-muted);
+          margin-bottom: 8px;
+          letter-spacing: 0.04em;
+        }
+        .cp__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+        .cp__chip {
+          padding: 8px 14px;
+          background: var(--lumo-surface);
+          color: var(--lumo-fg);
+          border: 1px solid var(--lumo-border);
+          border-radius: 10px;
+          font-size: 13px;
+          text-align: left;
+          cursor: pointer;
+          transition: border-color 0.15s, background 0.15s;
+        }
+        .cp__chip:hover {
+          border-color: var(--lumo-fg);
+          background: color-mix(in srgb, var(--lumo-fg) 6%, var(--lumo-surface));
+        }
+        .cp__hint {
+          margin-top: 32px;
+          padding: 12px 14px;
+          background: var(--lumo-surface);
+          border: 1px dashed var(--lumo-border);
+          border-radius: 8px;
+          font-size: 12px;
+          color: var(--lumo-muted);
+          line-height: 1.5;
+        }
+        .cp__hint-text { color: var(--lumo-muted); }
+        .muted { color: var(--lumo-muted); }
       `}</style>
     </div>
   );
