@@ -80,6 +80,19 @@ const PROTECTED_API_PREFIXES = [
   "/api/apps",
 ];
 
+/**
+ * Carve-outs from the protected API list. These match the prefix in
+ * PROTECTED_API_PREFIXES but are intentionally unauthed because they
+ * are called by third-party platforms (Meta, etc.) that don't carry
+ * a Lumo user session. Each one verifies its own caller via signed
+ * payload / shared secret inside the route handler.
+ */
+const PUBLIC_API_EXCEPTIONS = [
+  // Meta data-deletion callback — Meta posts here without auth, route
+  // handler verifies HMAC-SHA256 against LUMO_META_APP_SECRET.
+  "/api/connections/meta/data-deletion",
+];
+
 export async function middleware(req: NextRequest) {
   // Start with a pass-through response. Supabase SSR will attach updated
   // auth cookies to this object as a side effect of getUser().
@@ -90,9 +103,14 @@ export async function middleware(req: NextRequest) {
   const isProtectedPage = PROTECTED_PAGE_PREFIXES.some((p) =>
     pathname === p || pathname.startsWith(`${p}/`),
   );
-  const isProtectedApi = PROTECTED_API_PREFIXES.some((p) =>
+  const isPublicException = PUBLIC_API_EXCEPTIONS.some((p) =>
     pathname === p || pathname.startsWith(`${p}/`),
   );
+  const isProtectedApi =
+    !isPublicException &&
+    PROTECTED_API_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(`${p}/`),
+    );
 
   const supabase = getSupabaseMiddlewareClient(req, res);
   if (!supabase) {
