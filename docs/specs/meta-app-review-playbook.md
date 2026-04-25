@@ -8,20 +8,32 @@
 
 ## TL;DR — what Lumo picks, every time
 
-For the **Lumo Super Agent** app (covers IG + FB for the `/workspace` creator pack):
+For the **Lumo Super Agent** app (covers IG + FB + Ads management + DMs for the `/workspace` creator-and-advertiser pack):
 
 | Step | Pick |
 |---|---|
 | 1. App details — name | `Lumo Super Agent` |
 | 1. App details — contact | `prasanth.kalas@lumo.rentals` |
-| 2. Use cases — primary | **Manage messaging & content on Instagram** |
-| 2. Use cases — secondary | **Manage everything on your Page** |
-| 2. Use cases — tertiary (optional, V1.3+) | **Engage with customers on Messenger from Meta** |
+| 2. Use cases — V1.2 | **Manage messaging & content on Instagram** |
+| 2. Use cases — V1.3 | **Manage everything on your Page** |
+| 2. Use cases — V1.3 | **Engage with customers on Messenger from Meta** |
+| 2. Use cases — V1.5 | **Create & manage ads with Marketing API** |
+| 2. Use cases — V1.5 | **Measure ad performance data with Marketing API** |
+| 2. Use cases — V1.5 | **Capture & manage ad leads with Marketing API** |
+| 2. Use cases — V2 | **Access the Threads API** |
+| 2. Use cases — V2 | **Embed Facebook, Instagram and Threads content in other websites** (oEmbed) |
+| 2. Use cases — V3 | **Connect with customers through WhatsApp** |
 | 3. Business | `Lumo Technologies` Business Portfolio (create if missing) |
 | 4. Requirements | Privacy URL, ToS URL, Data deletion callback (see below) |
 | 5. Overview | Review and create |
 
-Skip everything else: Marketing API, Threads, Audience Network, Catalog, WhatsApp, Live Video, Fundraisers, Instant Games, Facebook Login, ThreatExchange, oEmbed, Data Portability, Audience Network. They're either paid-ads, future verticals, or not relevant to a creator dashboard.
+**Add all use cases up front in one app submission** — Meta lets one app bind multiple use cases, and adding later requires app amendments. We bind everything at once; the eng work behind each one ships at its respective version.
+
+**Skip permanently:** Authenticate with Facebook Login (we use Supabase Auth), Audience Network (monetizing OUR app — not us), Catalog API (no e-commerce), Launch Instant Game, Access Live Video API, Share fundraisers, Allow data transfer (data portability), Join ThreatExchange, Advertise on your app with Audience Network, Other (deprecated path).
+
+### Why bind ads use cases up front even if we don't ship them in V1.0
+
+Each use case binding is independent at submission. We can ship V1.2 (IG read+write) with only `instagram_business_*` permissions submitted, even though the Marketing API use case is also bound. Binding now means we don't pay a 4–6 week amendment delay later when V1.5 lands — we just submit the additional permissions for the already-bound Marketing API use case.
 
 ---
 
@@ -197,25 +209,109 @@ This is how we ship V1.2/V1.3 internally and demo to investors before the public
 
 ---
 
+## Live app identifiers (created 2026-04-25)
+
+| Identifier | Value |
+|---|---|
+| App ID | `843352985454776` |
+| Business Portfolio | `Lumo Technologies` |
+| Business ID | `620974270974051` |
+| App admin | prasanth.kalas@lumo.rentals |
+| Status | Development Mode |
+| Use cases bound | Instagram API (Instagram Business) + Pages |
+
+---
+
+## Step 6 — Customize use case (post-creation)
+
+After Steps 1–5 complete, Meta drops you on the **Customize use case** surface for each bound use case. This is where you pick the **exact permissions + features** within that use case. Every permission has an **Add** button → adds it as "Ready for testing" → and is then submittable for App Review later.
+
+The left sidebar exposes: **Dashboard · Required actions · Use cases · Facebook Login for Business · Review (Testing · Verification · App Review) · Publish**, plus **App settings (Basic · Advanced) · App roles (Roles · Test users) · Alert Inbox · Activity Log**.
+
+### Auto-included permissions (don't touch — they're bonus from the use case enum)
+- `ads_management`, `ads_read`, `business_management`
+- `pages_read_engagement`, `pages_show_list`
+- `public_profile`
+
+### IG permissions to ADD (V1.2 — locked)
+
+| Permission | Purpose |
+|---|---|
+| `instagram_business_basic` | Read profile + media |
+| `instagram_business_content_publish` | Publish posts / reels / stories |
+| `instagram_business_manage_comments` | Read + reply to comments |
+| `instagram_business_manage_insights` | Get audience + engagement metrics |
+| `instagram_business_manage_messages` | DM inbox *(optional V1.3 — add now to save a future amendment)* |
+
+### IG permissions to SKIP
+
+`instagram_branded_content_ads_brand`, `instagram_branded_content_brand`, `instagram_branded_content_creator`, `instagram_creator_marketplace_discovery`, `instagram_manage_upcoming_events`, `instagram_shopping_tag_products`, `instagram_basic` (legacy, replaced by `instagram_business_basic`), `instagram_content_publish` (legacy, replaced by `instagram_business_content_publish`), `instagram_manage_*` (legacy variants), `email`, `Human Agent`, `Instagram Public Content Access`, `Business Asset User Profile Access`, `catalog_management`.
+
+### Switching to FB Pages use case
+
+Use the **"Use case switcher"** combobox at the top of the Customize page (currently labeled "Instagram API"). Switch to **"Manage everything on your Page"**.
+
+### Page permissions to ADD (V1.3 — locked)
+
+| Permission | Purpose |
+|---|---|
+| `pages_manage_posts` | Publish / edit / delete Page posts |
+| `pages_manage_engagement` | Reply to / hide / delete Page comments |
+| `pages_manage_metadata` | Webhooks + Page settings (needed for live refresh) |
+| `pages_messaging` | Page DMs *(V1.3+)* |
+
+(`pages_show_list` and `pages_read_engagement` already auto-included.)
+
+---
+
 ## Operator checklist for the current submission
 
-- [ ] App name + email entered in Step 1
-- [ ] Use case 1: **Manage messaging & content on Instagram**
-- [ ] Use case 2: **Manage everything on your Page**
-- [ ] (Defer: **Engage with customers on Messenger** — add in V1.3 amendment)
-- [ ] Business Portfolio: select `Lumo Technologies` (or create)
-- [ ] Privacy URL: `https://www.lumotechnologies.com/privacy`
-- [ ] ToS URL: `https://www.lumotechnologies.com/terms`
-- [ ] Data deletion URL: `https://www.lumotechnologies.com/legal/meta-data-deletion`
-- [ ] Data deletion callback: `https://lumo-super-agent.vercel.app/api/connections/meta/data-deletion`
+### Steps 1–5 (DONE 2026-04-25)
+- [x] App name + email entered in Step 1
+- [x] Use case 1: **Manage messaging & content on Instagram**
+- [x] Use case 2: **Manage everything on your Page**
+- [x] Business Portfolio: `Lumo Technologies` (Business ID `620974270974051`)
+- [x] App created → App ID `843352985454776`
+
+### Step 6 — Customize use case (CURRENT)
+- [ ] On Instagram API use case: click **Add** on `instagram_business_basic`
+- [ ] click **Add** on `instagram_business_content_publish`
+- [ ] click **Add** on `instagram_business_manage_comments`
+- [ ] click **Add** on `instagram_business_manage_insights`
+- [ ] click **Add** on `instagram_business_manage_messages` *(optional V1.3 — add now to save a future amendment)*
+- [ ] Switch use case dropdown → **Manage everything on your Page**
+- [ ] click **Add** on `pages_manage_posts`
+- [ ] click **Add** on `pages_manage_engagement`
+- [ ] click **Add** on `pages_manage_metadata`
+- [ ] click **Add** on `pages_messaging` *(V1.3)*
+
+### After permission selection — App settings
+- [ ] App settings → Basic → capture App ID + App Secret
+- [ ] Add Vercel env: `LUMO_META_APP_ID=843352985454776`, `LUMO_META_APP_SECRET=<from settings>`
+- [ ] Add OAuth redirect URI in App settings → Basic → "Valid OAuth Redirect URIs": `https://lumo-super-agent.vercel.app/api/connections/callback`
+- [ ] Privacy URL → `https://www.lumotechnologies.com/privacy`
+- [ ] ToS URL → `https://www.lumotechnologies.com/terms`
+- [ ] Data deletion callback → `https://lumo-super-agent.vercel.app/api/connections/meta/data-deletion`
+- [ ] Data deletion instructions URL → `https://www.lumotechnologies.com/legal/meta-data-deletion`
 - [ ] App icon uploaded (1024×1024 PNG)
-- [ ] App category: Productivity
-- [ ] Click Create
-- [ ] Capture App ID + App Secret (secret rotates if exposed — store in Vercel env immediately)
-- [ ] Add Vercel env: `LUMO_META_APP_ID`, `LUMO_META_APP_SECRET`
-- [ ] Add OAuth redirect URI to app settings: `https://lumo-super-agent.vercel.app/api/connections/callback`
-- [ ] Submit Business Verification in parallel
-- [ ] Plan demo-video recording session for week 1
+- [ ] App category: **Productivity**
+
+### Required actions tab — see what Meta wants
+- [ ] Open left nav → **Required actions** → resolve each item
+
+### Verification track (parallel)
+- [ ] Open left nav → **Review → Verification** → start Business Verification
+- [ ] Submit business legal docs
+
+### Once permissions added + Business Verification submitted
+- [ ] Add yourself as Test User: **App roles → Test users → Add**
+- [ ] Connect IG Business account in Test mode → verify Lumo workspace pulls live data
+- [ ] Connect FB Page in Test mode → verify Page card loads
+- [ ] Record demo videos per scope (1–3 min each, 9 total)
+- [ ] **Review → App Review** → submit each scope with its video
+- [ ] Wait 2–4 weeks
+- [ ] Address any change requests, resubmit
+- [ ] Once all scopes approved → **Publish** → flip to Live mode
 
 ---
 
