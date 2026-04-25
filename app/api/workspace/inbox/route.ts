@@ -2,8 +2,8 @@
  * GET /api/workspace/inbox — backing data for the Inbox tab.
  *
  * V1.0 surface: YouTube comments across the user's recent uploads,
- * scored for "business-lead-likelihood" with a heuristic + (when enabled)
- * an LLM pass. Returns:
+ * scored for "business-lead-likelihood" through Lumo_ML_Service's
+ * classifier with a strict heuristic fallback. Returns:
  *   - items: comments + future DMs, unified shape
  *   - relationship_index: top 10 commenters across the window
  *   - business_leads: items where lead_score >= 0.7
@@ -11,10 +11,9 @@
  * V1.x adds Instagram + Facebook + LinkedIn surfaces under the same
  * shape so the UI doesn't change as connectors light up.
  *
- * Heuristic-only V1: keyword scoring against a short corpus of
- * partnership / collaboration / sponsorship / hire / podcast asks.
- * The LLM pass is a future task once we want better recall on
- * non-English or implicit asks.
+ * Hot-path SLO: classifier gets a 300ms budget. If it is missing, slow,
+ * or unhealthy, the existing heuristic scoring is used and the Inbox still
+ * renders.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -26,6 +25,8 @@ import {
   listVideoComments,
 } from "@/lib/integrations/youtube";
 import { getDispatchableConnection } from "@/lib/connections";
+import { scoreLeadHeuristic } from "@/lib/lead-scoring";
+import { classifyLeadItems } from "@/lib/workspace-lead-classifier";
 
 export const runtime = "nodejs";
 
@@ -41,6 +42,7 @@ interface InboxItem {
   like_count: number;
   lead_score: number; // 0..1 — business-lead heuristic
   lead_reasons: string[]; // why we flagged it
+  lead_source: "heuristic" | "ml";
 }
 
 interface RelationshipRow {
@@ -57,34 +59,9 @@ interface InboxEnvelope {
   relationship_index: RelationshipRow[];
   source: "live" | "cached" | "stale" | "error";
   age_ms: number;
+  lead_scoring_source: "heuristic" | "ml";
+  lead_scoring_latency_ms: number;
   error?: string;
-}
-
-const LEAD_KEYWORDS: Array<{ pattern: RegExp; reason: string; weight: number }> = [
-  { pattern: /\b(partner(ship)?|collab(oration)?)\b/i, reason: "partnership", weight: 0.4 },
-  { pattern: /\b(sponsor(ship)?|advertis(e|ing|ement))\b/i, reason: "sponsorship", weight: 0.4 },
-  { pattern: /\b(podcast|interview|on your show|on my show)\b/i, reason: "podcast/interview", weight: 0.35 },
-  { pattern: /\b(hire|hiring|join (your|our) team|career|role|position)\b/i, reason: "hiring", weight: 0.4 },
-  { pattern: /\b(consult(ing|ant)?|advisory|advisor)\b/i, reason: "consulting", weight: 0.3 },
-  { pattern: /\b(brand( deal)?|paid promo|paid post)\b/i, reason: "brand-deal", weight: 0.4 },
-  { pattern: /\b(business email|reach out|in touch|email me|dm me|message me)\b/i, reason: "contact-request", weight: 0.25 },
-  { pattern: /\b(invite|invited|invitation)\b/i, reason: "invitation", weight: 0.2 },
-  { pattern: /@?[a-z0-9._-]+@[a-z0-9.-]+\.[a-z]{2,}/i, reason: "email-shared", weight: 0.35 },
-];
-
-function scoreLead(text: string): { score: number; reasons: string[] } {
-  let score = 0;
-  const reasons: string[] = [];
-  for (const k of LEAD_KEYWORDS) {
-    if (k.pattern.test(text)) {
-      score += k.weight;
-      if (!reasons.includes(k.reason)) reasons.push(k.reason);
-    }
-  }
-  // Long messages are more likely to be substantive asks.
-  if (text.length > 200) score += 0.1;
-  if (text.length > 500) score += 0.1;
-  return { score: Math.min(score, 1), reasons };
 }
 
 export async function GET(_req: NextRequest) {
@@ -142,7 +119,7 @@ export async function GET(_req: NextRequest) {
             continue;
           }
           for (const c of comments.comments) {
-            const lead = scoreLead(c.textOriginal);
+            const lead = scoreLeadHeuristic(c.textOriginal);
             items.push({
               id: `yt:${c.id}`,
               platform: "youtube",
@@ -155,6 +132,7 @@ export async function GET(_req: NextRequest) {
               like_count: c.likeCount ?? 0,
               lead_score: lead.score,
               lead_reasons: lead.reasons,
+              lead_source: lead.source,
             });
           }
         }
@@ -170,6 +148,18 @@ export async function GET(_req: NextRequest) {
 
   // Trim to last 50 to keep the dashboard lean.
   const trimmed = items.slice(0, 50);
+  const classified = await classifyLeadItems(
+    user.id,
+    trimmed.map((item) => ({ text: item.text })),
+  );
+  trimmed.forEach((item, index) => {
+    const score = classified.scores[index];
+    if (!score) return;
+    item.lead_score = score.score;
+    item.lead_reasons = score.reasons;
+    item.lead_source = score.source;
+  });
+
   const business_leads = trimmed
     .filter((i) => i.lead_score >= 0.7)
     .sort((a, b) => b.lead_score - a.lead_score)
@@ -206,6 +196,8 @@ export async function GET(_req: NextRequest) {
     relationship_index,
     source,
     age_ms,
+    lead_scoring_source: classified.source,
+    lead_scoring_latency_ms: classified.latency_ms,
     ...(error ? { error } : {}),
   };
   return NextResponse.json(envelope);

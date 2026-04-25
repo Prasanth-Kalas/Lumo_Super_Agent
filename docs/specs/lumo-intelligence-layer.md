@@ -283,12 +283,19 @@ The orchestrator should use these tools as follows:
 
 ### Workspace inbox
 
-`app/api/workspace/inbox/route.ts` currently uses regex keyword scoring through
-`scoreLead()`. Phase 1 replaces this with `classify` using a calibrated lead
-classifier trained on the first 100 hand-labelled examples.
+`app/api/workspace/inbox/route.ts` now starts every item with the local heuristic
+and upgrades the score through `Lumo_ML_Service` `/api/tools/classify` when the
+brain answers inside the 300ms hot-path budget. The route records each classifier
+attempt through `agent_tool_usage` with `agent_id=lumo-ml` and
+`tool_name=lumo_classify`.
 
-The fallback remains the existing heuristic if the ML service is unavailable or
-misses the 300ms p95 budget.
+The fallback remains the existing heuristic if the ML service is unconfigured,
+unavailable, malformed, or misses the 300ms budget. The labelled Day-4 seed set
+lives in `Lumo_ML_Service/tests/test_classify.py`: 100 hand-curated synthetic
+examples stratified across sponsorship, consulting, speaker/podcast invites,
+hiring, licensing, spam, and ordinary viewer chatter. The current seed-set eval:
+classifier precision 1.00 / recall 1.00 / F1 1.00 vs. previous regex F1 0.148
+at threshold `0.7`.
 
 ## 8. Safety rules
 
