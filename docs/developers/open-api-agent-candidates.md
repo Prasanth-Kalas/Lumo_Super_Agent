@@ -1,6 +1,6 @@
 # Open API Agent Candidates
 
-Last reviewed: 2026-04-24
+Last reviewed: 2026-04-25
 
 This list is the first-party bridge plan for useful public or self-service APIs
 while partner companies build native Lumo agents. These candidates are not loaded
@@ -13,15 +13,15 @@ automatically; implement each as its own agent service, then add that service to
 | --- | --- | --- | --- |
 | `open-weather` | Open-Meteo, National Weather Service | Trip planning, packing, severe-weather checks | None; NWS requires a descriptive User-Agent |
 | `open-maps` | Nominatim, OSRM | Geocoding, drive/cab estimates, routing fallback | None, but public Nominatim is strictly rate-limited |
+| `open-ev-charging` | Open Charge Map, Nominatim | EV road-trip and rental-car support | Server API key required for charger calls |
+| `open-events` | Wikidata, optional Ticketmaster Discovery | Event discovery in destination cities | None for Wikidata; optional Ticketmaster server key |
+| `open-attractions` | Nominatim, Overpass API | Destination discovery and itinerary suggestions | None, but public OSM endpoints are rate-limited |
 
 ## Build Next
 
 | Agent | Backing APIs | Why it matters | Auth |
 | --- | --- | --- | --- |
-| `open-attractions` | OpenTripMap | Destination discovery and itinerary suggestions | Server API key |
-| `open-events` | Ticketmaster Discovery | Event discovery in destination cities | Server API key |
 | `open-air-quality` | OpenAQ v3 | Travel-health context | Server API key |
-| `open-ev-charging` | Open Charge Map | EV road-trip and rental-car support | Public/community API; keep env hook for a key |
 | `open-transit` | Transitland v2 REST | Public transit fallback before cab/ride partners ship | Server API key |
 
 ## Partner Or Paid-Key Candidates
@@ -54,7 +54,8 @@ The machine-readable version lives in
 - [National Weather Service API](https://www.weather.gov/documentation/services-web-api)
 - [OpenStreetMap Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/)
 - [OSRM API](https://project-osrm.org/docs/v26.4.0/)
-- [OpenTripMap API](https://dev.opentripmap.org/)
+- [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API)
+- [Wikidata Query Service](https://www.wikidata.org/wiki/Wikidata:SPARQL_query_service)
 - [Ticketmaster Discovery API](https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/)
 - [OpenAQ API](https://docs.openaq.org/about/about)
 - [Open Charge Map API](https://www.openchargemap.org/develop/api)

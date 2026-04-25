@@ -1,6 +1,6 @@
 {
   "$schema_hint": "Candidate first-party agents backed by public/self-service APIs. These are not auto-loaded by lib/agent-registry.ts until a matching agent service is implemented and added to agents.registry*.json.",
-  "last_reviewed": "2026-04-24",
+  "last_reviewed": "2026-04-25",
   "candidates": [
     {
       "agent_id": "open-weather",
@@ -62,13 +62,19 @@
       "display_name": "Open Attractions",
       "category": "Travel",
       "connect_model": "none",
-      "status": "ready_to_build_with_server_key",
+      "status": "built_first_party",
       "primary_apis": [
         {
-          "name": "OpenTripMap",
-          "docs_url": "https://dev.opentripmap.org/",
-          "auth": "server API key",
-          "env": ["OPENTRIPMAP_API_KEY"]
+          "name": "OpenStreetMap Nominatim",
+          "docs_url": "https://operations.osmfoundation.org/policies/nominatim/",
+          "auth": "none on public instance; strict usage policy",
+          "env": ["NOMINATIM_USER_AGENT"]
+        },
+        {
+          "name": "Overpass API",
+          "docs_url": "https://wiki.openstreetmap.org/wiki/Overpass_API",
+          "auth": "none on public instance; strict usage policy",
+          "env": ["OVERPASS_API_URL"]
         }
       ],
       "tools": [
@@ -76,19 +82,25 @@
         "attractions_details",
         "attractions_autosuggest"
       ],
-      "notes": "Use for destination discovery, Vegas itinerary suggestions, and neighborhood context. Read-only."
+      "notes": "Implemented in Lumo_Open_Attractions_Agent_Web. Use for destination discovery, Vegas itinerary suggestions, and neighborhood context. Read-only."
     },
     {
       "agent_id": "open-events",
       "display_name": "Open Events",
       "category": "Events",
       "connect_model": "none",
-      "status": "ready_to_build_with_server_key",
+      "status": "built_first_party",
       "primary_apis": [
+        {
+          "name": "Wikidata Query/Search APIs",
+          "docs_url": "https://www.wikidata.org/wiki/Wikidata:SPARQL_query_service",
+          "auth": "none",
+          "env": []
+        },
         {
           "name": "Ticketmaster Discovery API",
           "docs_url": "https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/",
-          "auth": "server API key",
+          "auth": "optional server API key for richer live inventory",
           "env": ["TICKETMASTER_API_KEY"]
         }
       ],
@@ -97,7 +109,7 @@
         "events_get",
         "venues_search"
       ],
-      "notes": "Discovery and deep links only. Ticket purchase should remain a handoff until commerce/partner access is approved."
+      "notes": "Implemented in Lumo_Open_Events_Agent_Web. Discovery and deep links only. Ticket purchase should remain a handoff until commerce/partner access is approved."
     },
     {
       "agent_id": "open-air-quality",
@@ -125,12 +137,12 @@
       "display_name": "Open EV Charging",
       "category": "Ground Transport",
       "connect_model": "none",
-      "status": "ready_to_build",
+      "status": "built_first_party",
       "primary_apis": [
         {
           "name": "Open Charge Map",
           "docs_url": "https://www.openchargemap.org/develop/api",
-          "auth": "public/community API; use a server key if issued",
+          "auth": "server API key required for normal API use",
           "env": ["OPENCHARGEMAP_API_KEY"]
         }
       ],
@@ -138,7 +150,7 @@
         "ev_chargers_nearby",
         "ev_charger_details"
       ],
-      "notes": "Useful for road trips and rental-car planning. Not a booking/payment agent."
+      "notes": "Implemented in Lumo_Open_EV_Charging_Agent_Web. Useful for road trips and rental-car planning. Not a booking/payment agent."
     },
     {
       "agent_id": "open-transit",

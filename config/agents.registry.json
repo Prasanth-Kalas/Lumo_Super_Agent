@@ -44,6 +44,27 @@
       "base_url": "http://localhost:3006",
       "version": "^0.1.0",
       "_notes": "Lumo Open Maps Agent. Nominatim geocoding and OSRM driving route/matrix estimates. Local dev port 3006."
+    },
+    {
+      "key": "open-ev-charging",
+      "enabled": true,
+      "base_url": "http://localhost:3007",
+      "version": "^0.1.0",
+      "_notes": "Lumo Open EV Charging Agent. Open Charge Map charger discovery; requires OPENCHARGEMAP_API_KEY for tool calls. Local dev port 3007."
+    },
+    {
+      "key": "open-events",
+      "enabled": true,
+      "base_url": "http://localhost:3008",
+      "version": "^0.1.0",
+      "_notes": "Lumo Open Events Agent. Wikidata no-key event discovery with optional Ticketmaster Discovery API key. Local dev port 3008."
+    },
+    {
+      "key": "open-attractions",
+      "enabled": true,
+      "base_url": "http://localhost:3009",
+      "version": "^0.1.0",
+      "_notes": "Lumo Open Attractions Agent. Nominatim autosuggest and Overpass attraction discovery. Local dev port 3009."
     }
   ]
 }
