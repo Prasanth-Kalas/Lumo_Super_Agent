@@ -110,6 +110,20 @@ t("unavailable ride-hailing pauses even when map app is ready", () => {
   assert.equal(plan.should_pause_for_permission, true);
 });
 
+t("continue approval does not re-open unavailable-only mission gate", () => {
+  const plan = buildJarvisMissionPlan({
+    request:
+      "Yes, continue with available approved apps and skip unavailable marketplace capabilities for now: Book me a cab downtown.",
+    registry,
+    user_id: "00000000-0000-0000-0000-000000000001",
+    installs: [install("open-maps")],
+  });
+  assert.equal(plan.install_proposals.length, 0);
+  assert.equal(plan.unavailable_capabilities[0]?.capability, "ride_hailing_booking");
+  assert.equal(plan.should_pause_for_permission, false);
+  assert.equal(plan.can_continue_now, true);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
 

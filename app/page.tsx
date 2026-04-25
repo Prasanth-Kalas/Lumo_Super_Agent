@@ -380,6 +380,10 @@ export default function Home() {
         }),
       });
 
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`chat_http_${res.status}:${detail.slice(0, 240)}`);
+      }
       if (!res.body) throw new Error("no stream body");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -465,7 +469,14 @@ export default function Home() {
           } else if (frame.type === "error") {
             assistantText =
               assistantText ||
-              "Something broke on my end. Try again in a moment.";
+              friendlyChatError(
+                new Error(
+                  String(
+                    (frame.value as { message?: unknown } | undefined)
+                      ?.message ?? "stream_error",
+                  ),
+                ),
+              );
           }
 
           setMessages((m) => {
@@ -492,8 +503,7 @@ export default function Home() {
         {
           id: `err-${Date.now()}`,
           role: "assistant",
-          content:
-            "Something broke on my end. Try again in a moment — I've logged it.",
+          content: friendlyChatError(err),
         },
       ]);
       console.error(err);
@@ -511,6 +521,29 @@ export default function Home() {
     const text = input.trim();
     if (!text) return;
     void sendText(text);
+  }
+
+  function friendlyChatError(err: unknown): string {
+    const message =
+      err instanceof Error ? err.message : typeof err === "string" ? err : "";
+    const lower = message.toLowerCase();
+    if (
+      lower.includes("failed to fetch") ||
+      lower.includes("load failed") ||
+      lower.includes("networkerror")
+    ) {
+      return "I can't reach the local Lumo server at localhost:3000. Start the Super Agent dev server and try again.";
+    }
+    if (lower.includes("anthropic_api_key") || lower.includes("authentication")) {
+      return "The local orchestrator model key is not configured. Set ANTHROPIC_API_KEY for this dev session, then try again.";
+    }
+    if (lower.startsWith("chat_http_401")) {
+      return "Please sign in, then try that again.";
+    }
+    if (lower.startsWith("chat_http_503")) {
+      return "Authentication or persistence is not configured for this local server. Check the Super Agent environment variables, then try again.";
+    }
+    return "Something broke on my end. Try again in a moment — I've logged it.";
   }
 
   function indexOfMessage(id: string): number {

@@ -366,7 +366,27 @@ export async function runTurn(
     })) as unknown as typeof META_TOOLS),
   ];
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicApiKey) {
+    const message =
+      "The local orchestrator model key is not configured. Set ANTHROPIC_API_KEY for this dev session, then try again.";
+    emit({ type: "text", value: message });
+    emit({
+      type: "internal",
+      value: {
+        kind: "orchestrator_model_not_configured",
+        detail: { env: "ANTHROPIC_API_KEY" },
+      },
+    });
+    return {
+      assistant_text: message,
+      tool_calls: [],
+      summary: null,
+      selections: [],
+    };
+  }
+
+  const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
   const priorSummary = findPriorSummary(input.messages);
   const lastUser = input.messages.findLast((m) => m.role === "user")?.content ?? "";

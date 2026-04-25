@@ -142,7 +142,7 @@ export function JarvisMissionCard({
 
   function continueMission() {
     onContinue(
-      `Yes, continue with the approved apps for this request: ${plan.original_request}`,
+      `Yes, continue with available approved apps and skip unavailable marketplace capabilities for now: ${plan.original_request}`,
     );
   }
 

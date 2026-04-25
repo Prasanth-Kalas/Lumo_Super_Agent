@@ -328,10 +328,13 @@ export function buildJarvisMissionPlan(
 
   const mission_id = stableMissionId(request, dedupedAgents, unavailable_capabilities);
   const mission_title = inferMissionTitle(request, dedupedAgents);
+  const continueApproved = isMissionContinueApproval(request);
   const should_pause_for_permission =
-    install_proposals.length > 0 || unavailable_capabilities.length > 0;
+    install_proposals.length > 0 ||
+    (unavailable_capabilities.length > 0 && !continueApproved);
   const can_continue_now =
-    !should_pause_for_permission && unavailable_capabilities.length === 0;
+    !should_pause_for_permission &&
+    (unavailable_capabilities.length === 0 || continueApproved);
   const message = buildMissionMessage({
     mission_title,
     ready_agents,
@@ -358,6 +361,15 @@ function detectCapabilities(request: string): CapabilityDefinition[] {
   if (!normalized) return [];
   return CAPABILITIES.filter((capability) =>
     capability.keywords.some((keyword) => includesPhrase(normalized, keyword)),
+  );
+}
+
+function isMissionContinueApproval(request: string): boolean {
+  const normalized = normalizeText(request);
+  return (
+    includesPhrase(normalized, "continue with available approved apps") ||
+    includesPhrase(normalized, "skip unavailable marketplace capabilities") ||
+    includesPhrase(normalized, "continue with the parts")
   );
 }
 
