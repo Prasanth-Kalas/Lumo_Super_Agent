@@ -43,6 +43,7 @@ The [`architecture/`](architecture/README.md) folder is audience-agnostic — it
 | See every `LUMO_*` env var | [operators/env-vars.md](operators/env-vars.md) |
 | Understand how the orchestrator picks tools | [architecture/orchestration.md](architecture/orchestration.md) |
 | Understand memory + embeddings | [architecture/memory-system.md](architecture/memory-system.md) |
+| Review the Intelligence Layer plan | [specs/lumo-intelligence-layer.md](specs/lumo-intelligence-layer.md) |
 | Recover from an incident | [operators/incident-runbook.md](operators/incident-runbook.md) |
 
 ---
