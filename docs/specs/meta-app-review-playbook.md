@@ -214,11 +214,51 @@ This is how we ship V1.2/V1.3 internally and demo to investors before the public
 | Identifier | Value |
 |---|---|
 | App ID | `843352985454776` |
+| App Secret | (in App settings → Basic → click Show. Store as `LUMO_META_APP_SECRET` in Vercel.) |
 | Business Portfolio | `Lumo Technologies` |
 | Business ID | `620974270974051` |
+| Instagram (sub-)app ID | `845859035210425` |
+| Instagram app name | `Lumo Technologies-IG` |
 | App admin | prasanth.kalas@lumo.rentals |
-| Status | Development Mode |
-| Use cases bound | Instagram API (Instagram Business) + Pages |
+| Status | Development Mode (Unpublished) |
+| Use cases auto-bound on creation (all 11) | Marketing API (3 ad use cases), Meta Ads Manager, Threads, IG, Pages, oEmbed, Live Video, Messenger, WhatsApp |
+
+### Permissions added (state as of 2026-04-25 evening)
+
+**Instagram API use case — V1.2 set complete:**
+- `instagram_business_basic` ✓
+- `instagram_manage_comments` ✓
+- `instagram_business_manage_messages` ✓
+- `instagram_business_content_publish` ✓
+- `instagram_business_manage_insights` ✓
+- (auto-included as "Ready for testing": `ads_management`, `ads_read`, `business_management`, `pages_read_engagement`, `pages_show_list`, `public_profile`)
+
+**Pages API use case — V1.3 set complete:**
+- `pages_manage_posts` ✓
+- `pages_manage_engagement` ✓
+- `pages_manage_metadata` (auto-included as "Ready for testing")
+- `pages_show_list` (auto-included)
+- `pages_read_engagement` (auto-included)
+
+**Marketing API / Threads / WhatsApp / oEmbed / Messenger / Live Video / Meta Ads Manager use cases — bound but no permissions Added yet** (intentional — adding scopes there triggers their App Review tier; we Add when V1.5/V2/V3 eng is ready).
+
+### App Submission readiness — blockers
+
+App settings → Basic shows banner "Currently Ineligible for Submission" with 4 missing fields. These are the V1.0 blockers to surface in App Review:
+
+| Missing field | Action | Dependency |
+|---|---|---|
+| App icon (1024×1024) | Upload final Lumo logo PNG | Operator |
+| Privacy policy URL | Paste `https://www.lumotechnologies.com/privacy` | Build page first (Task #22) |
+| User data deletion URL | Paste `https://www.lumotechnologies.com/legal/meta-data-deletion` + the callback `https://lumo-super-agent.vercel.app/api/connections/meta/data-deletion` | Build page + endpoint first (Task #22) |
+| Category | Select **Productivity** dropdown | Operator (60 sec) |
+
+Plus separately required (not in the banner but blocking):
+- **Terms of Service URL** field on same page — paste `https://www.lumotechnologies.com/terms` (Task #22 ships this page)
+- **OAuth Redirect URI** in Facebook Login for Business → Settings — paste `https://lumo-super-agent.vercel.app/api/connections/callback`
+- **Business Verification** in Review → Verification — needs operator-side legal docs
+
+---
 
 ---
 
