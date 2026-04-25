@@ -22,6 +22,8 @@ import {
   getInternalAgentEntries,
   mergeInternalIntoBridge,
 } from "./integrations/registry.js";
+import { filterBridgeForUser } from "./agent-bridge-scope.js";
+import { validateRegistryConfig } from "./registry-config-validation.js";
 
 // Static JSON imports so Next.js' file tracer pulls these into the
 // serverless bundle. We had been reading the registry via
@@ -115,6 +117,7 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
   // pointed at something bespoke.
   const bundled = bundledRegistryFor(path);
   const config: RegistryConfigFile = bundled ?? (JSON.parse(await readFile(path, "utf8")) as RegistryConfigFile);
+  validateRegistryConfig(config, path);
 
   const entries: RegistryEntry[] = [];
   for (const a of config.agents) {
@@ -241,29 +244,14 @@ export function userScopedBridge(
   allowPublicWithoutInstall = false,
 ): BridgeResult {
   const base = healthyBridge(registry, minScore);
-  const eligibleAgents = new Set<string>();
-  for (const e of Object.values(registry.agents)) {
-    if (e.health_score < minScore) continue;
-    if (e.system === true && !allowPublicWithoutInstall) {
-      eligibleAgents.add(e.manifest.agent_id);
-    } else if (connectedAgentIds.has(e.manifest.agent_id)) {
-      eligibleAgents.add(e.manifest.agent_id);
-    } else if (installedAgentIds.has(e.manifest.agent_id)) {
-      eligibleAgents.add(e.manifest.agent_id);
-    } else if (allowPublicWithoutInstall && e.manifest.connect.model === "none") {
-      eligibleAgents.add(e.manifest.agent_id);
-    }
-  }
-  const filteredTools = base.tools.filter((t) => {
-    const routing = base.routing[t.name];
-    return routing ? eligibleAgents.has(routing.agent_id) : false;
-  });
-  const filteredRouting = Object.fromEntries(
-    Object.entries(base.routing).filter(([, v]) =>
-      eligibleAgents.has(v.agent_id),
-    ),
+  return filterBridgeForUser(
+    base,
+    Object.values(registry.agents),
+    connectedAgentIds,
+    installedAgentIds,
+    minScore,
+    allowPublicWithoutInstall,
   );
-  return { tools: filteredTools, routing: filteredRouting };
 }
 
 /**

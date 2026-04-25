@@ -14,11 +14,14 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getServerUser } from "@/lib/auth";
 import { getSupabase } from "@/lib/db";
+import { ensureRegistry } from "@/lib/agent-registry";
 
 export const runtime = "nodejs";
 
 interface ConnectorRow {
   agent_id: string;
+  display_name?: string;
+  source?: "oauth" | "system";
   status: "active" | "expired" | "revoked" | "error";
   connected_at: string;
   last_used_at: string | null;
@@ -59,11 +62,27 @@ export async function GET(_req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const registry = await ensureRegistry();
+  const systemConnectors: ConnectorRow[] = Object.values(registry.agents)
+    .filter((entry) => entry.system === true && entry.health_score >= 0.6)
+    .map((entry) => ({
+      agent_id: entry.manifest.agent_id,
+      display_name: entry.manifest.display_name,
+      source: "system" as const,
+      status: "active" as const,
+      connected_at: new Date(registry.loaded_at).toISOString(),
+      last_used_at: null,
+      last_refreshed_at: null,
+      expires_at: null,
+      expires_in_seconds: null,
+      scope_count: 1,
+    }));
+
   const sb = getSupabase();
   if (!sb) {
     return NextResponse.json({
       generated_at: new Date().toISOString(),
-      connectors: [],
+      connectors: systemConnectors,
       audit: [],
       cache: [],
     } satisfies OpsEnvelope);
@@ -84,22 +103,26 @@ export async function GET(_req: NextRequest) {
     console.error("[ops] agent_connections read failed", connErr);
   }
 
-  const connectors: ConnectorRow[] = (connRows ?? []).map((row) => {
-    const expiresAt = row.expires_at as string | null;
-    const expiresInSeconds = expiresAt
-      ? Math.floor((new Date(expiresAt).getTime() - now) / 1000)
-      : null;
-    return {
-      agent_id: row.agent_id as string,
-      status: row.status as ConnectorRow["status"],
-      connected_at: row.connected_at as string,
-      last_used_at: (row.last_used_at as string | null) ?? null,
-      last_refreshed_at: (row.last_refreshed_at as string | null) ?? null,
-      expires_at: expiresAt,
-      expires_in_seconds: expiresInSeconds,
-      scope_count: Array.isArray(row.scopes) ? row.scopes.length : 0,
-    };
-  });
+  const connectors: ConnectorRow[] = [
+    ...systemConnectors,
+    ...(connRows ?? []).map((row) => {
+      const expiresAt = row.expires_at as string | null;
+      const expiresInSeconds = expiresAt
+        ? Math.floor((new Date(expiresAt).getTime() - now) / 1000)
+        : null;
+      return {
+        agent_id: row.agent_id as string,
+        source: "oauth" as const,
+        status: row.status as ConnectorRow["status"],
+        connected_at: row.connected_at as string,
+        last_used_at: (row.last_used_at as string | null) ?? null,
+        last_refreshed_at: (row.last_refreshed_at as string | null) ?? null,
+        expires_at: expiresAt,
+        expires_in_seconds: expiresInSeconds,
+        scope_count: Array.isArray(row.scopes) ? row.scopes.length : 0,
+      };
+    }),
+  ];
 
   // 2) Audit log — last 30 across platforms
   const { data: auditRows, error: auditErr } = await sb

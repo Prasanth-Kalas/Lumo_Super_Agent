@@ -1132,6 +1132,8 @@ function OperationsTabPlaceholder({
 
 interface OpsConnectorRow {
   agent_id: string;
+  display_name?: string;
+  source?: "oauth" | "system";
   status: "active" | "expired" | "revoked" | "error";
   connected_at: string;
   last_used_at: string | null;
@@ -1240,7 +1242,12 @@ function OperationsTab({ fallbackConnections }: { fallbackConnections: Marketpla
                     : "ok";
             return (
               <div key={c.agent_id} className="ops__tr">
-                <span className="ops__cell-name">{displayMap.get(c.agent_id) ?? c.agent_id}</span>
+                <span className="ops__cell-name">
+                  {c.display_name ?? displayMap.get(c.agent_id) ?? c.agent_id}
+                  {c.source === "system" ? (
+                    <span className="ops__tag">System</span>
+                  ) : null}
+                </span>
                 <span className={`ops__pill ops__pill--${c.status}`}>{c.status}</span>
                 <span className={`ops__exp ops__exp--${expClass}`}>
                   {exp === null ? "—" : exp <= 0 ? "expired" : formatDuration(exp)}
@@ -1252,7 +1259,11 @@ function OperationsTab({ fallbackConnections }: { fallbackConnections: Marketpla
                   {cache ? `${cache.rows} rows` : "—"}
                 </span>
                 <span>
-                  {(c.status === "expired" || (exp !== null && exp <= 300)) ? (
+                  {c.source === "system" ? (
+                    <Link href="/connections" className="ops__action ops__action--ghost">
+                      Audit
+                    </Link>
+                  ) : (c.status === "expired" || (exp !== null && exp <= 300)) ? (
                     <Link href={`/connections?reauth=${c.agent_id}`} className="ops__action">
                       Re-auth
                     </Link>
@@ -1346,6 +1357,7 @@ function OperationsTab({ fallbackConnections }: { fallbackConnections: Marketpla
         .ops__tr { border-top: 1px solid var(--lumo-border); }
         .ops__tr:first-of-type { border-top: 0; }
         .ops__cell-name { font-weight: 500; }
+        .ops__tag { margin-left: 8px; color: var(--lumo-accent); font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
         .ops__cell-muted { color: var(--lumo-muted); font-size: 12px; }
         .ops__pill {
           display: inline-block;

@@ -22,6 +22,9 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 interface ConnectionMeta {
   id: string;
   agent_id: string;
+  display_name?: string;
+  one_liner?: string;
+  source?: "oauth" | "system";
   status: "active" | "expired" | "revoked" | "error";
   scopes: string[];
   expires_at: string | null;
@@ -189,6 +192,7 @@ function ConnectionsInner() {
           <ul className="space-y-2">
             {active.map((c) => {
               const a = agentsById[c.agent_id];
+              const isSystem = c.source === "system";
               return (
                 <li
                   key={c.id}
@@ -197,16 +201,24 @@ function ConnectionsInner() {
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex items-center gap-2">
                       <div className="text-[14px] font-semibold text-lumo-fg truncate">
-                        {a?.display_name ?? c.agent_id}
+                        {c.display_name ?? a?.display_name ?? c.agent_id}
                       </div>
+                      {isSystem ? (
+                        <span className="inline-flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-lumo-accent border border-lumo-accent/30 bg-lumo-accent/10 rounded px-1.5 py-0.5">
+                          System
+                        </span>
+                      ) : null}
                       <span className="inline-flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-lumo-ok border border-lumo-ok/30 bg-lumo-ok/10 rounded px-1.5 py-0.5">
                         <span className="h-1.5 w-1.5 rounded-full bg-lumo-ok" />
                         Active
                       </span>
                     </div>
                     <div className="text-[12px] text-lumo-fg-mid">
-                      Connected {relativeTime(c.connected_at)}
-                      {c.last_used_at ? ` · Last used ${relativeTime(c.last_used_at)}` : ""}
+                      {isSystem
+                        ? "Active by default as part of Lumo Core"
+                        : `Connected ${relativeTime(c.connected_at)}${
+                            c.last_used_at ? ` · Last used ${relativeTime(c.last_used_at)}` : ""
+                          }`}
                     </div>
                     {c.scopes.length > 0 ? (
                       <div className="text-[11.5px] text-lumo-fg-low">
@@ -214,14 +226,20 @@ function ConnectionsInner() {
                       </div>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void disconnect(c.id)}
-                    disabled={busy === c.id}
-                    className="h-7 px-3 rounded-md border border-lumo-hair text-[12px] text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge disabled:opacity-60 transition-colors"
-                  >
-                    {busy === c.id ? "Disconnecting…" : "Disconnect"}
-                  </button>
+                  {isSystem ? (
+                    <span className="h-7 px-3 rounded-md border border-lumo-hair text-[12px] text-lumo-fg-low inline-flex items-center">
+                      Managed by Lumo
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void disconnect(c.id)}
+                      disabled={busy === c.id}
+                      className="h-7 px-3 rounded-md border border-lumo-hair text-[12px] text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge disabled:opacity-60 transition-colors"
+                    >
+                      {busy === c.id ? "Disconnecting…" : "Disconnect"}
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -242,7 +260,7 @@ function ConnectionsInner() {
                     className="flex items-center justify-between text-[12px] text-lumo-fg-low"
                   >
                     <span>
-                      {a?.display_name ?? c.agent_id}{" "}
+                      {c.display_name ?? a?.display_name ?? c.agent_id}{" "}
                       <span className="text-lumo-fg-low">· {c.status}</span>
                     </span>
                     <span>{relativeTime(c.updated_at ?? c.revoked_at ?? c.connected_at)}</span>
@@ -272,4 +290,3 @@ function relativeTime(isoString: string | null): string {
   if (d < 30) return `${d}d ago`;
   return new Date(isoString).toLocaleDateString();
 }
-

@@ -13,6 +13,13 @@ import sub-agent code into the shell.
 
 ## Schema
 
+Registry JSON is validated at boot by `lib/registry-config-validation.ts` and
+in CI via:
+
+```bash
+npm run lint:registry
+```
+
 ```ts
 interface RegistryConfigFile {
   agents: Array<{

@@ -115,6 +115,10 @@ Rules:
    audit logging.
 5. System status should be visible in admin/operations UI, but not removable by
    regular users.
+6. System agents and user-installable OAuth agents are mutually exclusive in
+   Phase 1. If an agent ever needs both behaviors, dispatch must explicitly
+   prefer the user's OAuth connection for user-scoped write tools and reserve
+   service JWTs for system-only tools.
 
 ### Manifest shape
 
@@ -409,6 +413,9 @@ Phase 1 is accepted only when all of these pass:
    to the existing `1536`-dimensional OpenAI embedding path before production.
 6. Decide whether marketplace risk grades are shown as `low/medium/high` or a
    numeric trust score plus reasons.
+7. Plan the production auth migration from shared-secret HS256 service JWTs to
+   RS256 with a Lumo Core JWKS endpoint so key rotation does not require a
+   coordinated Super Agent + Intelligence Layer deploy.
 
 ## 15. Decision log
 

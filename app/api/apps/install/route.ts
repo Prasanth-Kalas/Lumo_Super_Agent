@@ -30,6 +30,15 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const entry = await findAgent(agent_id);
   if (!entry) return json({ error: "unknown_agent" }, 404);
+  if (entry.system === true) {
+    return json(
+      {
+        error: "system_agent",
+        detail: "System agents are managed by Lumo Core and cannot be installed manually.",
+      },
+      403,
+    );
+  }
   if (entry.manifest.connect.model === "oauth2") {
     return json(
       {
@@ -53,6 +62,17 @@ export async function DELETE(req: NextRequest): Promise<Response> {
   const user = await requireServerUser();
   const agent_id = await readAgentId(req);
   if (!agent_id) return json({ error: "missing_agent_id" }, 400);
+
+  const entry = await findAgent(agent_id);
+  if (entry?.system === true) {
+    return json(
+      {
+        error: "system_agent",
+        detail: "System agents are managed by Lumo Core and cannot be removed manually.",
+      },
+      403,
+    );
+  }
 
   await revokeAgentInstall(user.id, agent_id);
   return json({ revoked: true });

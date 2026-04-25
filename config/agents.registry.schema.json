@@ -1,19 +1,25 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://lumo.rentals/schemas/agents.registry.schema.json",
   "title": "Lumo agent registry",
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "required": ["env", "agents"],
   "properties": {
     "env": {
+      "type": "string"
+    },
+    "$schema": {
+      "type": "string"
+    },
+    "_comment": {
       "type": "string"
     },
     "agents": {
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "required": ["key", "enabled", "base_url"],
         "properties": {
           "key": {

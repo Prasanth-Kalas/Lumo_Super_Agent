@@ -203,53 +203,55 @@ export async function GET(_req: NextRequest): Promise<Response> {
     installs.filter((i) => i.status === "installed").map((i) => [i.agent_id, i]),
   );
 
-  const agents: MarketplaceAgent[] = Object.values(registry.agents).map((e) => {
-    const m = e.manifest;
-    const connect = m.connect;
-    const required_scopes =
-      connect.model === "oauth2"
-        ? connect.scopes
-            .filter((s) => s.required)
-            .map(({ name, description }) => ({ name, description }))
-        : [];
-    const conn = connByAgent.get(m.agent_id) ?? null;
-    const install = installByAgent.get(m.agent_id) ?? null;
+  const agents: MarketplaceAgent[] = Object.values(registry.agents)
+    .filter((e) => e.system !== true)
+    .map((e) => {
+      const m = e.manifest;
+      const connect = m.connect;
+      const required_scopes =
+        connect.model === "oauth2"
+          ? connect.scopes
+              .filter((s) => s.required)
+              .map(({ name, description }) => ({ name, description }))
+          : [];
+      const conn = connByAgent.get(m.agent_id) ?? null;
+      const install = installByAgent.get(m.agent_id) ?? null;
 
-    return {
-      agent_id: m.agent_id,
-      display_name: m.display_name,
-      one_liner: m.one_liner,
-      domain: m.domain,
-      version: m.version,
-      intents: m.intents,
-      listing: m.listing ?? null,
-      connect_model: connect.model,
-      required_scopes,
-      health_score: e.health_score,
-      source: "lumo",
-      connection: conn
-        ? {
-            id: conn.id,
-            status: conn.status,
-            connected_at: conn.connected_at,
-            last_used_at: conn.last_used_at,
-          }
-        : null,
-      install: install
-        ? {
-            status: install.status,
-            installed_at: install.installed_at,
-            last_used_at: install.last_used_at,
-          }
-        : conn
+      return {
+        agent_id: m.agent_id,
+        display_name: m.display_name,
+        one_liner: m.one_liner,
+        domain: m.domain,
+        version: m.version,
+        intents: m.intents,
+        listing: m.listing ?? null,
+        connect_model: connect.model,
+        required_scopes,
+        health_score: e.health_score,
+        source: "lumo",
+        connection: conn
           ? {
-              status: "installed",
-              installed_at: conn.connected_at,
+              id: conn.id,
+              status: conn.status,
+              connected_at: conn.connected_at,
               last_used_at: conn.last_used_at,
             }
           : null,
-    };
-  });
+        install: install
+          ? {
+              status: install.status,
+              installed_at: install.installed_at,
+              last_used_at: install.last_used_at,
+            }
+          : conn
+            ? {
+                status: "installed",
+                installed_at: conn.connected_at,
+                last_used_at: conn.last_used_at,
+              }
+            : null,
+      };
+    });
 
   // MCP-backed entries. Merge alongside native agents so the
   // /marketplace and /onboarding grids render both under one set
