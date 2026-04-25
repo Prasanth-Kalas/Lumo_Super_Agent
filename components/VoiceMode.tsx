@@ -11,11 +11,11 @@
  *     Safari, Edge). When the user speaks, we capture their final
  *     transcript and hand it back to the shell via `onUserUtterance`.
  *
- *   - Browser-native TTS via speechSynthesis. As the agent streams
- *     text frames, the shell accumulates assistant text and passes
- *     it here via `spokenText`. We debounce + chunk into sentence
- *     pushes so we start speaking early instead of waiting for the
- *     full response.
+ *   - Premium streamed TTS via /api/tts, with browser-native
+ *     speechSynthesis as the reliable fallback. As the agent streams
+ *     text frames, the shell accumulates assistant text and passes it
+ *     here via `spokenText`; we chunk on sentence boundaries so Lumo
+ *     starts speaking before the full response is complete.
  *
  *   - A clear visual state machine — idle / listening / thinking /
  *     speaking / error — so even a glance at the screen conveys
@@ -29,9 +29,6 @@
  *     itself. No throws.
  *
  * NOT in v1:
- *   - Wake word ("Hey Lumo"). Planned for v2 via picovoice.
- *   - Barge-in (user speaking interrupts TTS). v2/v3.
- *   - Premium TTS (ElevenLabs streaming). v2.
  *   - Multi-lingual.
  *
  * The component is self-contained — it doesn't know about SSE,
@@ -58,6 +55,7 @@ import {
 // long enough to avoid thrash on every chunk, short enough to recover
 // within a single conversation once upstream heals.
 const PREMIUM_TTS_COOLDOWN_MS = 60_000;
+const PREMIUM_TTS_TIMEOUT_MS = 10_000;
 
 // ─── Types for the Web Speech API that TS doesn't ship ────────────
 // We declare only what we touch. See:
@@ -293,9 +291,14 @@ export default function VoiceMode(props: VoiceModeProps) {
   const lastSpokenTextRef = useRef<string>(spokenText);
   const userStoppedListeningRef = useRef<boolean>(false); // user intent to be off
   const wantHandsFreeRef = useRef<boolean>(handsFree);
+  const enabledRef = useRef<boolean>(enabled);
+  const autoListenUnlockedRef = useRef<boolean>(false);
   useEffect(() => {
     wantHandsFreeRef.current = handsFree;
   }, [handsFree]);
+  useEffect(() => {
+    enabledRef.current = enabled;
+  }, [enabled]);
 
   // J5 — barge-in: a second mic pipeline that stays open while TTS is
   // playing. When it detects user speech, we cancel TTS and pivot to
@@ -356,10 +359,13 @@ export default function VoiceMode(props: VoiceModeProps) {
       }
 
       let res: Response;
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), PREMIUM_TTS_TIMEOUT_MS);
       try {
         res = await fetch("/api/tts", {
           method: "POST",
           headers: { "content-type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             text,
             voice_id: getSelectedVoiceId(),
@@ -370,6 +376,8 @@ export default function VoiceMode(props: VoiceModeProps) {
         premiumStatusRef.current = "unavailable";
         premiumUnavailableSinceRef.current = Date.now();
         return "unavailable";
+      } finally {
+        window.clearTimeout(timeout);
       }
 
       if (!res.ok || !res.body) {
@@ -386,17 +394,35 @@ export default function VoiceMode(props: VoiceModeProps) {
       premiumStatusRef.current = "available";
       premiumUnavailableSinceRef.current = 0;
 
-      return new Promise<"played" | "aborted">((resolve) => {
-        const handle = playAudioStream(res, {
-          onStart: () => onStart(),
-          onEnd: (reason) => {
-            if (activeStreamRef.current === handle) {
-              activeStreamRef.current = null;
-            }
-            resolve(reason === "played" ? "played" : "aborted");
-          },
-        });
-        activeStreamRef.current = handle;
+      return new Promise<"played" | "unavailable" | "aborted">((resolve) => {
+        let handle: StreamingAudioHandle;
+        try {
+          handle = playAudioStream(res, {
+            onStart: () => onStart(),
+            onEnd: (reason) => {
+              if (activeStreamRef.current === handle) {
+                activeStreamRef.current = null;
+              }
+              if (reason === "played") {
+                resolve("played");
+                return;
+              }
+              if (reason === "stopped") {
+                resolve("aborted");
+                return;
+              }
+              premiumStatusRef.current = "unavailable";
+              premiumUnavailableSinceRef.current = Date.now();
+              resolve("unavailable");
+            },
+          });
+          activeStreamRef.current = handle;
+        } catch (err) {
+          console.warn("[voice] premium TTS playback failed, falling back:", err);
+          premiumStatusRef.current = "unavailable";
+          premiumUnavailableSinceRef.current = Date.now();
+          resolve("unavailable");
+        }
       });
     },
     [],
@@ -587,6 +613,8 @@ export default function VoiceMode(props: VoiceModeProps) {
       return;
     }
 
+    userStoppedListeningRef.current = false;
+
     // Stop any current TTS first — user wants to speak now. This
     // also empties the queue and bumps the turn id so any in-flight
     // worker exits before grabbing another chunk.
@@ -659,6 +687,9 @@ export default function VoiceMode(props: VoiceModeProps) {
     };
 
     rec.onstart = () => {
+      autoListenUnlockedRef.current = true;
+      userStoppedListeningRef.current = false;
+      setErrorMessage(null);
       setState("listening");
       setInterim("");
     };
@@ -700,17 +731,34 @@ export default function VoiceMode(props: VoiceModeProps) {
     };
     rec.onerror = (e) => {
       const code = e.error ?? "unknown";
+      clearSilenceTimer();
       if (code === "no-speech" || code === "aborted") {
         // Benign. If we have buffered text, dispatch it; otherwise
         // just drop back to idle.
-        clearSilenceTimer();
         const buffered = finalBufferRef.current.trim();
         finalBufferRef.current = "";
+        setInterim("");
+        if (recognitionRef.current === rec) {
+          recognitionRef.current = null;
+        }
         if (buffered) onUserUtterance(buffered);
         setState("idle");
         return;
       }
-      setErrorMessage(code);
+      const buffered = finalBufferRef.current.trim();
+      finalBufferRef.current = "";
+      setInterim("");
+      if (recognitionRef.current === rec) {
+        recognitionRef.current = null;
+      }
+      if (buffered) {
+        try {
+          onUserUtterance(buffered);
+        } catch {
+          /* ignore */
+        }
+      }
+      setErrorMessage(friendlySpeechError(code));
       setState("error");
     };
     rec.onend = () => {
@@ -737,11 +785,38 @@ export default function VoiceMode(props: VoiceModeProps) {
     try {
       rec.start();
     } catch (err) {
-      // Calling start() while recognition is already running throws
-      // "InvalidStateError" — treat as a no-op.
+      recognitionRef.current = null;
+      clearSilenceTimer();
+      finalBufferRef.current = "";
+      setInterim("");
+      const message =
+        err instanceof DOMException
+          ? friendlySpeechError(err.name)
+          : err instanceof Error
+            ? friendlySpeechError(err.message)
+            : "Voice could not start. Tap to try again.";
+      setErrorMessage(message);
+      setState("error");
       console.warn("[voice] start failed:", err);
     }
   }, [onUserUtterance, cancelTts, clearSilenceTimer]);
+
+  const scheduleHandsFreeListening = useCallback(
+    (delayMs = 200) => {
+      if (!autoListenUnlockedRef.current) return;
+      if (!wantHandsFreeRef.current) return;
+      if (userStoppedListeningRef.current) return;
+      window.setTimeout(() => {
+        if (!autoListenUnlockedRef.current) return;
+        if (!wantHandsFreeRef.current) return;
+        if (userStoppedListeningRef.current) return;
+        if (!enabledRef.current) return;
+        if (busyRef.current) return;
+        startListening();
+      }, delayMs);
+    },
+    [startListening],
+  );
 
   const stopListening = useCallback(() => {
     const rec = recognitionRef.current;
@@ -826,12 +901,19 @@ export default function VoiceMode(props: VoiceModeProps) {
         setState("thinking");
       } else if (wantHandsFreeRef.current && enabled) {
         setState("idle");
-        setTimeout(() => startListening(), 200);
+        scheduleHandsFreeListening();
       } else {
         setState("idle");
       }
     });
-  }, [spokenText, enabled, startListening, muted, enqueueTts, cancelTts]);
+  }, [
+    spokenText,
+    enabled,
+    muted,
+    enqueueTts,
+    cancelTts,
+    scheduleHandsFreeListening,
+  ]);
 
   // Flush the tail once the agent turn ends (!busy) so we don't
   // drop the last sentence if it didn't end with punctuation. Also
@@ -850,11 +932,10 @@ export default function VoiceMode(props: VoiceModeProps) {
       if (
         !ttsWorkerRunningRef.current &&
         wantHandsFreeRef.current &&
-        enabled &&
-        !muted
+        enabled
       ) {
         setState("idle");
-        setTimeout(() => startListening(), 200);
+        scheduleHandsFreeListening();
       }
       return;
     }
@@ -864,7 +945,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     if (muted) {
       if (wantHandsFreeRef.current && enabled) {
         setState("idle");
-        setTimeout(() => startListening(), 200);
+        scheduleHandsFreeListening();
       } else {
         setState("idle");
       }
@@ -874,12 +955,19 @@ export default function VoiceMode(props: VoiceModeProps) {
     enqueueTts(tail, () => {
       if (wantHandsFreeRef.current && enabled) {
         setState("idle");
-        setTimeout(() => startListening(), 200);
+        scheduleHandsFreeListening();
       } else {
         setState("idle");
       }
     });
-  }, [busy, spokenText, enabled, startListening, muted, enqueueTts]);
+  }, [
+    busy,
+    spokenText,
+    enabled,
+    muted,
+    enqueueTts,
+    scheduleHandsFreeListening,
+  ]);
 
   // Belt-and-suspenders safety net: if we're idle by intent (no
   // queue, no worker, no recognizer, not busy) but state is stuck
@@ -897,11 +985,11 @@ export default function VoiceMode(props: VoiceModeProps) {
     const noRec = recognitionRef.current === null;
     if (noQueue && noWorker && noRec) {
       setState("idle");
-      if (wantHandsFreeRef.current && !muted) {
-        setTimeout(() => startListening(), 200);
+      if (wantHandsFreeRef.current) {
+        scheduleHandsFreeListening();
       }
     }
-  }, [busy, state, enabled, muted, startListening, spokenText]);
+  }, [busy, state, enabled, scheduleHandsFreeListening, spokenText]);
 
   // While the network is busy, reflect "thinking" if we're not mid-TTS.
   useEffect(() => {
@@ -938,6 +1026,7 @@ export default function VoiceMode(props: VoiceModeProps) {
               }
             }
             stopPremiumAudio();
+            userStoppedListeningRef.current = false;
             startListening();
           },
         });
@@ -950,7 +1039,10 @@ export default function VoiceMode(props: VoiceModeProps) {
         // Mic permission denied or browser too old — silent fallback.
         // The existing "tap mic to talk" UX still works; barge-in just
         // won't interrupt. No user-visible error.
-        console.info("[voice] barge-in unavailable:", err instanceof Error ? err.message : err);
+        console.info(
+          "[voice] barge-in unavailable:",
+          err instanceof Error ? err.message : err,
+        );
       }
     })();
     return () => {
@@ -981,6 +1073,7 @@ export default function VoiceMode(props: VoiceModeProps) {
             // Wake word fired — jump to listening. Clear any interim
             // from a previous aborted attempt.
             setInterim("");
+            userStoppedListeningRef.current = false;
             startListening();
           },
         });
@@ -1143,7 +1236,8 @@ export default function VoiceMode(props: VoiceModeProps) {
               stopPremiumAudio();
               setState("idle");
               if (wantHandsFreeRef.current) {
-                setTimeout(() => startListening(), 100);
+                userStoppedListeningRef.current = false;
+                startListening();
               }
             }}
             className="ml-auto rounded-full border border-lumo-hair px-4 py-2 text-[13px] text-lumo-fg hover:bg-lumo-elevated transition-colors"
@@ -1167,6 +1261,27 @@ export default function VoiceMode(props: VoiceModeProps) {
       ) : null}
     </div>
   );
+}
+
+function friendlySpeechError(code: string): string {
+  const normalized = code.toLowerCase();
+  if (
+    normalized.includes("not-allowed") ||
+    normalized.includes("permission") ||
+    normalized.includes("denied")
+  ) {
+    return "microphone permission is blocked";
+  }
+  if (normalized.includes("audio-capture") || normalized.includes("notfound")) {
+    return "no microphone was found";
+  }
+  if (normalized.includes("network")) {
+    return "speech recognition could not reach the browser speech service";
+  }
+  if (normalized.includes("invalidstate")) {
+    return "speech recognition was already starting";
+  }
+  return code || "voice could not start";
 }
 
 function stateLabel(s: VoiceState): string {
