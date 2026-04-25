@@ -25,6 +25,7 @@ export interface RuntimePolicyInput {
   tool_name: string;
   cost_tier: ToolRoutingEntry["cost_tier"];
   has_active_connection: boolean;
+  system_agent?: boolean;
 }
 
 interface RuntimeOverride {
@@ -62,7 +63,7 @@ export async function evaluateRuntimePolicy(
   }
 
   const isAnon = !input.user_id || input.user_id === "anon";
-  if (!isAnon) {
+  if (!isAnon && !input.system_agent) {
     const installed = input.has_active_connection
       ? true
       : (await getInstallForUser(input.user_id, input.agent_id))?.status === "installed";
@@ -90,6 +91,7 @@ export async function recordRuntimeUsage(args: {
   ok: boolean;
   error_code?: string;
   latency_ms: number;
+  system_agent?: boolean;
 }): Promise<void> {
   const db = getSupabase();
   if (!db) return;
@@ -107,7 +109,7 @@ export async function recordRuntimeUsage(args: {
   if (error) {
     console.warn("[runtime-policy] usage insert failed:", error.message);
   }
-  if (user_id && args.ok) {
+  if (user_id && args.ok && !args.system_agent) {
     void touchAgentInstallLastUsed(user_id, args.agent_id);
   }
 }

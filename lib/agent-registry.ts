@@ -53,6 +53,11 @@ function bundledRegistryFor(path: string): RegistryConfigFile | null {
 export interface RegistryEntry {
   /** Key used in config/agents.registry.json. */
   key: string;
+  /**
+   * Lumo-owned registry policy: system agents are auto-eligible for
+   * authenticated users. Never trust this bit from a partner manifest.
+   */
+  system?: boolean;
   /** Environment-specific base URL for this agent. */
   base_url: string;
   /** Full manifest, parsed and validated. */
@@ -77,6 +82,8 @@ interface RegistryConfigFile {
   agents: Array<{
     key: string;
     enabled: boolean;
+    /** Lumo-owned policy bit. Partner manifests cannot set this. */
+    system?: boolean;
     base_url: string;
     /** Optional version pin (semver range). */
     version?: string;
@@ -123,7 +130,7 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
       continue;
     }
     try {
-      const entry = await loadAgent(a.key, base_url);
+      const entry = await loadAgent(a.key, base_url, { system: a.system === true });
       entries.push(entry);
     } catch (err) {
       console.error(`[registry] failed to load agent "${a.key}":`, err);
@@ -237,7 +244,9 @@ export function userScopedBridge(
   const eligibleAgents = new Set<string>();
   for (const e of Object.values(registry.agents)) {
     if (e.health_score < minScore) continue;
-    if (connectedAgentIds.has(e.manifest.agent_id)) {
+    if (e.system === true && !allowPublicWithoutInstall) {
+      eligibleAgents.add(e.manifest.agent_id);
+    } else if (connectedAgentIds.has(e.manifest.agent_id)) {
       eligibleAgents.add(e.manifest.agent_id);
     } else if (installedAgentIds.has(e.manifest.agent_id)) {
       eligibleAgents.add(e.manifest.agent_id);
@@ -283,7 +292,11 @@ export function healthyBridge(registry: Registry, minScore = 0.6): BridgeResult 
 // Internals
 // ──────────────────────────────────────────────────────────────────────────
 
-async function loadAgent(key: string, base_url: string): Promise<RegistryEntry> {
+async function loadAgent(
+  key: string,
+  base_url: string,
+  opts: { system?: boolean } = {},
+): Promise<RegistryEntry> {
   const manifestUrl = new URL("/.well-known/agent.json", base_url).toString();
   const manifestRes = await fetchWithTimeout(manifestUrl, 5_000);
   const manifest = parseManifest(await manifestRes.json());
@@ -296,6 +309,7 @@ async function loadAgent(key: string, base_url: string): Promise<RegistryEntry> 
 
   return {
     key,
+    system: opts.system === true,
     base_url,
     manifest,
     openapi,

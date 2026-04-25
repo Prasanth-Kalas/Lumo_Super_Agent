@@ -3,6 +3,14 @@
   "env": "vercel",
   "agents": [
     {
+      "key": "lumo-ml",
+      "enabled": true,
+      "system": true,
+      "base_url": "${LUMO_ML_AGENT_URL}",
+      "version": "0.1.0",
+      "_notes": "Lumo Intelligence Layer. Cloud Run/FastAPI system agent. Set LUMO_ML_AGENT_URL after deploying Lumo_ML_Service."
+    },
+    {
       "key": "food",
       "enabled": true,
       "base_url": "${LUMO_FOOD_AGENT_URL}",

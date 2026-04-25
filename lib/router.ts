@@ -34,6 +34,7 @@ import {
   evaluateRuntimePolicy,
   recordRuntimeUsage,
 } from "./runtime-policy.js";
+import { signLumoServiceJwt } from "./service-jwt.js";
 
 export interface DispatchContext {
   user_id: string;
@@ -152,6 +153,28 @@ export async function dispatchToolCall(
       }
       throw err;
     }
+  } else if (agent.system === true) {
+    if (!ctx.user_id || ctx.user_id === "anon") {
+      return failure(
+        "connection_required",
+        `${agent.manifest.display_name} requires you to sign in first.`,
+        started,
+      );
+    }
+    try {
+      authHeader = `Bearer ${signLumoServiceJwt({
+        audience: agent.manifest.agent_id,
+        user_id: ctx.user_id,
+        scope: toolName,
+        request_id: ctx.idempotency_key,
+      })}`;
+    } catch (err) {
+      return failure(
+        "upstream_error",
+        err instanceof Error ? err.message : "System-agent auth is not configured.",
+        started,
+      );
+    }
   }
 
   const runtimePolicy = await evaluateRuntimePolicy({
@@ -162,6 +185,7 @@ export async function dispatchToolCall(
     tool_name: toolName,
     cost_tier: routing.cost_tier,
     has_active_connection: connectionId !== null,
+    system_agent: agent.system === true,
   });
   if (!runtimePolicy.ok) {
     return failure(
@@ -181,6 +205,7 @@ export async function dispatchToolCall(
       ok: outcome.ok,
       error_code: outcome.ok ? undefined : outcome.error.code,
       latency_ms: outcome.latency_ms,
+      system_agent: agent.system === true,
     });
     return outcome;
   };

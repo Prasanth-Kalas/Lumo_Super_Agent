@@ -3,6 +3,14 @@
   "env": "prod",
   "agents": [
     {
+      "key": "lumo-ml",
+      "enabled": false,
+      "system": true,
+      "base_url": "https://ml.agents.lumo.rentals",
+      "version": "0.1.0",
+      "_notes": "Flip enabled=true after Lumo_ML_Service is deployed on Cloud Run and LUMO_ML_SERVICE_JWT_SECRET is set in both Super Agent and the service."
+    },
+    {
       "key": "food",
       "enabled": true,
       "base_url": "https://food.agents.lumo.rentals",

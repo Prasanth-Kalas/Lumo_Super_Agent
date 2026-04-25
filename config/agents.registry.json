@@ -4,6 +4,14 @@
   "env": "dev",
   "agents": [
     {
+      "key": "lumo-ml",
+      "enabled": true,
+      "system": true,
+      "base_url": "http://localhost:3010",
+      "version": "^0.1.0",
+      "_notes": "Lumo Intelligence Layer. Python/FastAPI system agent for planning, recall, marketplace ranking, permission risk scoring, and safe computation."
+    },
+    {
       "key": "food",
       "enabled": true,
       "base_url": "http://localhost:3001",

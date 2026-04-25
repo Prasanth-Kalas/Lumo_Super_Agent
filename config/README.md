@@ -18,6 +18,7 @@ interface RegistryConfigFile {
   agents: Array<{
     key: string;       // stable short id, used in logs and the registry map
     enabled: boolean;  // false = skip on load (still dispatches 404 if called)
+    system?: boolean;  // Lumo-owned auto-install policy; never manifest-owned
     base_url: string;  // agent's public hostname, no trailing slash
     version?: string;  // semver range in dev, exact pin in prod
   }>;
@@ -29,11 +30,16 @@ Each agent at `base_url` **must** expose:
 - `GET /.well-known/agent.json` — the `AgentManifest` (see `@lumo/agent-sdk`)
 - `GET /openapi.json` (or whatever `manifest.openapi_url` points at) — OpenAPI 3.1
   with `x-lumo-tool: true` on every operation the orchestrator can call
-- `GET /health` — a `HealthReport` (see `@lumo/agent-sdk/health`)
+- `GET /api/health` — a `HealthReport` (see `@lumo/agent-sdk/health`)
 
 If any of the three 404s or fails validation, the shell logs and **skips that
 agent** — the rest of the platform keeps running. This is the fault-isolation
 promise the whole architecture is built around.
+
+`system: true` is reserved for Lumo-owned agents such as `lumo-ml`. A system
+agent is auto-eligible for authenticated users in `userScopedBridge()` without a
+per-user install row. The bit is only read from this registry config; partner
+manifests and marketplace submissions cannot self-declare it.
 
 ## Env selection
 

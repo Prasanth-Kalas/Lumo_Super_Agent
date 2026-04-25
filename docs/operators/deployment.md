@@ -54,6 +54,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 LUMO_ENCRYPTION_KEY=<64 hex chars — generate with: openssl rand -hex 32>
 CRON_SECRET=<random bearer token — generate with: openssl rand -hex 32>
+LUMO_ML_SERVICE_JWT_SECRET=<random bearer token — generate with: openssl rand -hex 32>
 ```
 
 **Admin-gated ops dashboard** (set to your email):
@@ -66,6 +67,11 @@ LUMO_ADMIN_EMAILS=you@yourco.com
 ELEVENLABS_API_KEY=...
 OPENAI_TTS_MODEL=gpt-4o-mini-tts
 OPENAI_TTS_VOICE=cedar
+```
+
+**Lumo Intelligence Layer** (required when `lumo-ml` is enabled in the registry):
+```
+LUMO_ML_AGENT_URL=https://<your-cloud-run-lumo-ml-service-url>
 ```
 
 **OAuth providers** (each optional — omit to hide that provider's card from marketplace):
@@ -81,7 +87,7 @@ LUMO_SPOTIFY_CLIENT_SECRET=...
 Provider app registration: see [oauth-apps/google.md](oauth-apps/google.md), [microsoft.md](oauth-apps/microsoft.md), [spotify.md](oauth-apps/spotify.md).
 
 **Sensitive-marking guidance:**
-- Mark `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `LUMO_ENCRYPTION_KEY`, `CRON_SECRET`, `ELEVENLABS_API_KEY`, and all `*_CLIENT_SECRET` env vars as Sensitive.
+- Mark `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `LUMO_ENCRYPTION_KEY`, `CRON_SECRET`, `LUMO_ML_SERVICE_JWT_SECRET`, `ELEVENLABS_API_KEY`, and all `*_CLIENT_SECRET` env vars as Sensitive.
 - `NEXT_PUBLIC_*` vars are by definition not sensitive (they're baked into the client bundle).
 - Non-sensitive non-public (like `LUMO_GOOGLE_CLIENT_ID`): Sensitive in production, not required but harmless in preview.
 

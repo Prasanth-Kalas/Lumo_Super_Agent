@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lumo.rentals/schemas/agents.registry.schema.json",
+  "title": "Lumo agent registry",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["env", "agents"],
+  "properties": {
+    "env": {
+      "type": "string"
+    },
+    "agents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["key", "enabled", "base_url"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "system": {
+            "type": "boolean",
+            "description": "Lumo-owned policy bit. System agents are auto-eligible for authenticated users. Never read this from partner manifests."
+          },
+          "base_url": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "string"
+          },
+          "_notes": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

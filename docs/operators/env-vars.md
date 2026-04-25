@@ -76,6 +76,24 @@ openssl rand -hex 32
 ```
 **Rotation:** Update here and in any external services calling your cron endpoints. No client-side dependency.
 
+### `LUMO_ML_SERVICE_JWT_SECRET`
+
+**Type:** Sensitive
+**Required:** Yes when `lumo-ml` is enabled in the registry
+**Purpose:** HMAC secret used by Lumo Core to sign short-lived service JWTs for the `Lumo_ML_Service` system agent. The same value must be set on the Python service. This is how the Intelligence Layer accepts tool calls without exposing raw user OAuth tokens or app secrets.
+**Source:** Generate once per environment with:
+```
+openssl rand -hex 32
+```
+**Rotation:** Rotate both the Super Agent and `Lumo_ML_Service` together. In-flight Intelligence Layer calls may fail during the rollout window.
+
+### `LUMO_ML_AGENT_URL`
+
+**Type:** Not sensitive
+**Required:** Yes when using `config/agents.registry.vercel.json` with `lumo-ml` enabled
+**Purpose:** Public base URL for `Lumo_ML_Service`, used by the registry overlay to fetch `/.well-known/agent.json`, `/openapi.json`, and dispatch tool calls.
+**Example:** `https://lumo-ml-service-xxxxx-uc.a.run.app`
+
 ## OAuth provider credentials
 
 All optional — omit a pair to hide that provider's marketplace card.
