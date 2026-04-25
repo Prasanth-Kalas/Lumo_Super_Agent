@@ -51,6 +51,23 @@ const DEFAULT_MODEL_ID = "eleven_turbo_v2_5";
 const DEFAULT_STABILITY = 0.42;
 const DEFAULT_SIMILARITY = 0.8;
 const DEFAULT_STYLE = 0.55;
+const DEFAULT_OPENAI_MODEL_ID = "gpt-4o-mini-tts";
+const DEFAULT_OPENAI_VOICE = "cedar";
+const OPENAI_VOICES = new Set([
+  "alloy",
+  "ash",
+  "ballad",
+  "cedar",
+  "coral",
+  "echo",
+  "fable",
+  "marin",
+  "nova",
+  "onyx",
+  "sage",
+  "shimmer",
+  "verse",
+]);
 
 // Hard caps so a runaway turn doesn't burn through the ElevenLabs
 // character quota. Speech at ~150wpm ≈ 13 chars/sec, so 5000 chars
@@ -75,13 +92,6 @@ export async function POST(req: NextRequest): Promise<Response> {
     return json(503, { reason: "voice_mode_disabled" });
   }
 
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) {
-    // Graceful fallback signal — client reads this and flips to
-    // speechSynthesis for the rest of the session.
-    return json(503, { reason: "elevenlabs_not_configured" });
-  }
-
   let body: Body;
   try {
     body = (await req.json()) as Body;
@@ -97,6 +107,14 @@ export async function POST(req: NextRequest): Promise<Response> {
       limit: MAX_TEXT_CHARS,
       got: text.length,
     });
+  }
+
+  const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
+  const openAiApiKey = process.env.OPENAI_API_KEY;
+  if (!elevenLabsApiKey && !openAiApiKey) {
+    // Graceful fallback signal — client reads this and flips to
+    // speechSynthesis for the rest of the session.
+    return json(503, { reason: "tts_not_configured" });
   }
 
   // Pull live config from admin_settings. The body's voice_id wins
@@ -123,70 +141,145 @@ export async function POST(req: NextRequest): Promise<Response> {
       ? body.voice_id
       : adminVoiceId;
 
-  const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
-    voiceId,
-  )}/stream?output_format=mp3_44100_128`;
+  const providerErrors: Array<{ provider: string; status?: number; reason: string }> = [];
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(url, {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-        "content-type": "application/json",
-        accept: "audio/mpeg",
-      },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-        // Live from admin_settings. Defaults are the "warm friend"
-        // baseline (stability 0.42, similarity 0.80, style 0.55) but
-        // an operator can retune from /admin/settings without a
-        // deploy. Settings cache is 30s so changes propagate fast.
-        voice_settings: {
-          stability,
-          similarity_boost: similarityBoost,
-          style,
-          use_speaker_boost: true,
+  if (elevenLabsApiKey) {
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
+      voiceId,
+    )}/stream?output_format=mp3_44100_128`;
+
+    let upstream: Response;
+    try {
+      upstream = await fetch(url, {
+        method: "POST",
+        headers: {
+          "xi-api-key": elevenLabsApiKey,
+          "content-type": "application/json",
+          accept: "audio/mpeg",
         },
-      }),
-    });
-  } catch (err) {
-    console.error("[tts] network error reaching ElevenLabs:", err);
-    return json(502, { reason: "upstream_unreachable" });
-  }
-
-  if (!upstream.ok || !upstream.body) {
-    const errBody = await safeText(upstream);
-    console.error(
-      "[tts] ElevenLabs upstream error:",
-      upstream.status,
-      errBody.slice(0, 500),
-    );
-    // 401 from upstream means the key is wrong — surface as 503
-    // so the client treats it like "not configured" and falls
-    // back cleanly without retrying on every chunk.
-    if (upstream.status === 401) {
-      return json(503, { reason: "elevenlabs_auth_failed" });
+        body: JSON.stringify({
+          text,
+          model_id: modelId,
+          // Live from admin_settings. Defaults are the "warm friend"
+          // baseline (stability 0.42, similarity 0.80, style 0.55) but
+          // an operator can retune from /admin/settings without a
+          // deploy. Settings cache is 30s so changes propagate fast.
+          voice_settings: {
+            stability,
+            similarity_boost: similarityBoost,
+            style,
+            use_speaker_boost: true,
+          },
+        }),
+      });
+    } catch (err) {
+      console.error("[tts] network error reaching ElevenLabs:", err);
+      providerErrors.push({ provider: "elevenlabs", reason: "network_error" });
+      upstream = null as unknown as Response;
     }
-    return json(502, {
-      reason: "upstream_error",
-      upstream_status: upstream.status,
-    });
+
+    if (upstream?.ok && upstream.body) {
+      return audio(upstream.body, "elevenlabs");
+    }
+
+    if (upstream) {
+      const errBody = await safeText(upstream);
+      console.error(
+        "[tts] ElevenLabs upstream error:",
+        upstream.status,
+        errBody.slice(0, 500),
+      );
+      providerErrors.push({
+        provider: "elevenlabs",
+        status: upstream.status,
+        reason: upstream.status === 401 ? "auth_failed" : "upstream_error",
+      });
+    }
   }
 
+  if (openAiApiKey) {
+    const openAiModel =
+      process.env.OPENAI_TTS_MODEL?.trim() || DEFAULT_OPENAI_MODEL_ID;
+    const openAiVoice = pickOpenAiVoice(body.voice_id);
+    let upstream: Response;
+    try {
+      upstream = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${openAiApiKey}`,
+          "content-type": "application/json",
+          accept: "audio/mpeg",
+        },
+        body: JSON.stringify({
+          model: openAiModel,
+          voice: openAiVoice,
+          input: text,
+          response_format: "mp3",
+          ...(openAiModel.startsWith("gpt-4o")
+            ? {
+                instructions:
+                  "Speak like Lumo: warm, concise, composed, and useful. Keep a natural conversational pace.",
+              }
+            : {}),
+        }),
+      });
+    } catch (err) {
+      console.error("[tts] network error reaching OpenAI TTS:", err);
+      providerErrors.push({ provider: "openai", reason: "network_error" });
+      upstream = null as unknown as Response;
+    }
+
+    if (upstream?.ok && upstream.body) {
+      return audio(upstream.body, "openai");
+    }
+
+    if (upstream) {
+      const errBody = await safeText(upstream);
+      console.error(
+        "[tts] OpenAI TTS upstream error:",
+        upstream.status,
+        errBody.slice(0, 500),
+      );
+      providerErrors.push({
+        provider: "openai",
+        status: upstream.status,
+        reason: upstream.status === 401 ? "auth_failed" : "upstream_error",
+      });
+    }
+  }
+
+  const hasConfiguredProvider = Boolean(elevenLabsApiKey || openAiApiKey);
+  return json(hasConfiguredProvider ? 502 : 503, {
+    reason: hasConfiguredProvider
+      ? "tts_providers_unavailable"
+      : "tts_not_configured",
+    providers: providerErrors,
+  });
+}
+
+function audio(body: ReadableStream<Uint8Array>, provider: string): Response {
   // Stream the upstream MP3 body straight through to the client.
   // No buffering — first audio chunk lands in the browser as soon
-  // as ElevenLabs emits it.
-  return new Response(upstream.body, {
+  // as the provider emits it.
+  return new Response(body, {
     status: 200,
     headers: {
       "content-type": "audio/mpeg",
       "cache-control": "no-store",
+      "x-lumo-tts-provider": provider,
       // Advertise streaming so fetch doesn't buffer.
       "transfer-encoding": "chunked",
     },
   });
+}
+
+function pickOpenAiVoice(requested: unknown): string {
+  if (typeof requested === "string" && OPENAI_VOICES.has(requested)) {
+    return requested;
+  }
+  const envVoice = process.env.OPENAI_TTS_VOICE?.trim();
+  if (envVoice && OPENAI_VOICES.has(envVoice)) return envVoice;
+  return DEFAULT_OPENAI_VOICE;
 }
 
 function json(status: number, body: unknown): Response {

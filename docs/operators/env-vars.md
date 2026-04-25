@@ -106,10 +106,32 @@ Setup: [oauth-apps/spotify.md](oauth-apps/spotify.md). Note the Premium requirem
 ### `ELEVENLABS_API_KEY`
 
 **Type:** Sensitive
-**Required:** No (omit and voice falls back to browser TTS)
+**Required:** No (omit and voice tries OpenAI TTS, then browser TTS)
 **Purpose:** Streaming TTS via ElevenLabs. Read by `app/api/tts/route.ts`.
 **Source:** [elevenlabs.io](https://elevenlabs.io) → Profile → API keys.
 **Rotation:** Any time; old keys invalidate on next use.
+
+### `OPENAI_API_KEY`
+
+**Type:** Sensitive
+**Required:** No for voice, yes for OpenAI-backed fallback features
+**Purpose:** Server-side TTS fallback when `ELEVENLABS_API_KEY` is absent or ElevenLabs is unhealthy.
+**Source:** [platform.openai.com](https://platform.openai.com) → API keys.
+**Rotation:** Any time; old keys invalidate on next use.
+
+### `OPENAI_TTS_MODEL`
+
+**Type:** Not sensitive
+**Required:** No
+**Default:** `gpt-4o-mini-tts`
+**Purpose:** OpenAI speech model for the `/api/tts` fallback path.
+
+### `OPENAI_TTS_VOICE`
+
+**Type:** Not sensitive
+**Required:** No
+**Default:** `cedar`
+**Purpose:** OpenAI voice used by the fallback path when the user-selected ElevenLabs voice ID is not an OpenAI voice.
 
 ### `LUMO_PICOVOICE_KEY` *(if wake word enabled)*
 

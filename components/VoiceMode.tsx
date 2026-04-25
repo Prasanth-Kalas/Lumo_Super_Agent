@@ -56,6 +56,8 @@ import {
 // within a single conversation once upstream heals.
 const PREMIUM_TTS_COOLDOWN_MS = 60_000;
 const PREMIUM_TTS_TIMEOUT_MS = 10_000;
+const BROWSER_TTS_START_TIMEOUT_MS = 2_500;
+const BROWSER_TTS_DONE_TIMEOUT_MS = 45_000;
 
 // ─── Types for the Web Speech API that TS doesn't ship ────────────
 // We declare only what we touch. See:
@@ -254,6 +256,11 @@ export default function VoiceMode(props: VoiceModeProps) {
   // Active streaming-audio handle for the in-flight premium TTS
   // chunk, if any. Mute / cancel / barge-in call .stop() on it.
   const activeStreamRef = useRef<StreamingAudioHandle | null>(null);
+  // Keep the current browser-native utterance strongly referenced.
+  // Some WebKit/Chromium builds can garbage-collect a local-only
+  // SpeechSynthesisUtterance before it speaks, which presents as
+  // "TTS is silent" with no console error.
+  const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   // Serialized TTS queue. The root cause of "multiple voices"
   // playing over each other was that every spokenText change that
   // produced a speakable chunk called speakWithFallback() directly,
@@ -451,6 +458,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     async (text: string, onStart: () => void): Promise<void> => {
       if (!text.trim()) return;
       const speakable = toSpeakable(text);
+      if (!speakable.trim()) return;
 
       const premium = await playPremiumTts(speakable, onStart);
       if (premium === "played" || premium === "aborted") return;
@@ -461,16 +469,102 @@ export default function VoiceMode(props: VoiceModeProps) {
       ) {
         return;
       }
-      const u = new SpeechSynthesisUtterance(speakable);
-      if (voiceRef.current) u.voice = voiceRef.current;
-      u.rate = 1.05;
-      u.pitch = 1.0;
-      u.volume = 1.0;
       await new Promise<void>((resolve) => {
-        u.onstart = onStart;
-        u.onend = () => resolve();
-        u.onerror = () => resolve();
-        window.speechSynthesis.speak(u);
+        const synth = window.speechSynthesis;
+        let done = false;
+        let startFired = false;
+        let startTimer: number | null = null;
+        let doneTimer: number | null = null;
+
+        const clearTimers = () => {
+          if (startTimer) window.clearTimeout(startTimer);
+          if (doneTimer) window.clearTimeout(doneTimer);
+          startTimer = null;
+          doneTimer = null;
+        };
+
+        const finish = () => {
+          if (done) return;
+          done = true;
+          clearTimers();
+          activeUtteranceRef.current = null;
+          resolve();
+        };
+
+        const markStarted = () => {
+          if (startFired) return;
+          startFired = true;
+          onStart();
+        };
+
+        const speak = (retry: boolean) => {
+          const u = new SpeechSynthesisUtterance(speakable);
+          activeUtteranceRef.current = u;
+          if (voiceRef.current) u.voice = voiceRef.current;
+          u.rate = 1.05;
+          u.pitch = 1.0;
+          u.volume = 1.0;
+          u.onstart = markStarted;
+          u.onend = finish;
+          u.onerror = (event) => {
+            console.warn("[voice] browser TTS failed:", event.error);
+            finish();
+          };
+
+          try {
+            synth.cancel();
+            synth.resume?.();
+          } catch {
+            /* ignore */
+          }
+
+          try {
+            synth.speak(u);
+          } catch (err) {
+            console.warn("[voice] browser TTS speak() failed:", err);
+            finish();
+            return;
+          }
+
+          startTimer = window.setTimeout(() => {
+            if (done || startFired) return;
+            try {
+              synth.resume?.();
+            } catch {
+              /* ignore */
+            }
+            if (retry) {
+              clearTimers();
+              try {
+                synth.cancel();
+              } catch {
+                /* ignore */
+              }
+              speak(false);
+              return;
+            }
+            // Some browsers do not reliably fire onstart, but still
+            // speak. Move the UI/state forward and let onend or the
+            // done watchdog finish the queue.
+            markStarted();
+          }, BROWSER_TTS_START_TIMEOUT_MS);
+
+          const ms = Math.max(
+            BROWSER_TTS_DONE_TIMEOUT_MS,
+            Math.min(120_000, speakable.length * 90),
+          );
+          doneTimer = window.setTimeout(() => {
+            console.warn("[voice] browser TTS timed out; clearing queue");
+            try {
+              synth.cancel();
+            } catch {
+              /* ignore */
+            }
+            finish();
+          }, ms);
+        };
+
+        speak(true);
       });
     },
     [playPremiumTts],
@@ -555,6 +649,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         /* ignore */
       }
     }
+    activeUtteranceRef.current = null;
   }, [stopPremiumAudio]);
 
   // ─── STT lifecycle ───────────────────────────────────────────
@@ -1230,10 +1325,7 @@ export default function VoiceMode(props: VoiceModeProps) {
           <button
             type="button"
             onClick={() => {
-              if (typeof window !== "undefined") {
-                window.speechSynthesis?.cancel();
-              }
-              stopPremiumAudio();
+              cancelTts();
               setState("idle");
               if (wantHandsFreeRef.current) {
                 userStoppedListeningRef.current = false;

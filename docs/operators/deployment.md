@@ -8,8 +8,8 @@ Standing up a Lumo Super Agent on Vercel + Supabase. End-to-end checklist; if yo
 - **A Supabase account** (free tier is fine for <1000 users; bump tier for production load).
 - **A Vercel account** — Pro tier if you want sub-daily crons (proactive scan + intent eval run every 15 minutes on Pro; degrade to daily on Hobby).
 - **An Anthropic API key** ([console.anthropic.com](https://console.anthropic.com)).
-- **An OpenAI API key** ([platform.openai.com](https://platform.openai.com)) — for embeddings.
-- **(Optional) An ElevenLabs account** — for voice. Any paid tier works; Free doesn't allow Web API.
+- **An OpenAI API key** ([platform.openai.com](https://platform.openai.com)) — for embeddings and voice fallback.
+- **(Optional) An ElevenLabs account** — for premium voice. Any paid tier works; Free doesn't allow Web API.
 
 ## 1. Create the Supabase project
 
@@ -61,9 +61,11 @@ CRON_SECRET=<random bearer token — generate with: openssl rand -hex 32>
 LUMO_ADMIN_EMAILS=you@yourco.com
 ```
 
-**ElevenLabs** (optional — for voice):
+**Voice** (optional — ElevenLabs first, OpenAI fallback):
 ```
 ELEVENLABS_API_KEY=...
+OPENAI_TTS_MODEL=gpt-4o-mini-tts
+OPENAI_TTS_VOICE=cedar
 ```
 
 **OAuth providers** (each optional — omit to hide that provider's card from marketplace):
