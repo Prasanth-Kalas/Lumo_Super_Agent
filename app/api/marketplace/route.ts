@@ -32,11 +32,21 @@ interface MarketplaceAgent {
   version: string;
   intents: string[];
   listing: NonNullable<AgentManifest["listing"]> | null;
-  connect_model: AgentManifest["connect"]["model"] | "mcp_bearer" | "mcp_none";
+  connect_model:
+    | AgentManifest["connect"]["model"]
+    | "mcp_bearer"
+    | "mcp_none"
+    | "coming_soon";
   required_scopes: Array<{ name: string; description: string }>;
   health_score: number;
-  /** "lumo" for native agents, "mcp" for MCP-backed entries. */
-  source: "lumo" | "mcp";
+  /** "lumo" for native agents, "mcp" for MCP-backed, "coming_soon" for placeholders. */
+  source: "lumo" | "mcp" | "coming_soon";
+  /** Set on coming_soon entries — explains current status to the UI. */
+  coming_soon?: {
+    status: "in_review" | "planned";
+    eta_label: string;
+    rationale: string;
+  };
   connection?: {
     id: string;
     status: ConnectionMeta["status"] | "active";
@@ -49,6 +59,134 @@ interface MarketplaceAgent {
     last_used_at: string | null;
   } | null;
 }
+
+/**
+ * Coming-soon tiles for V1.x platforms whose connectors aren't live yet.
+ *
+ * Marketing surface: shows the user that Lumo is wiring these up,
+ * sets expectations on timeline, and reduces "is this a YouTube-only
+ * dashboard?" confusion. The Connect button is disabled — UI renders
+ * the eta_label pill instead.
+ *
+ * When a connector ships, remove its entry here AND make sure the
+ * registry exposes the real entry; if both ship simultaneously the
+ * coming_soon tile is suppressed below.
+ */
+const COMING_SOON_TILES: MarketplaceAgent[] = [
+  {
+    agent_id: "coming-soon:meta-instagram",
+    display_name: "Instagram",
+    one_liner:
+      "Pull post analytics, manage comments, and publish — gated by your confirmation card.",
+    domain: "personal",
+    version: "v1.2",
+    intents: [],
+    listing: {
+      category: "Creator",
+      pricing_note: "Free · in Meta App Review",
+      logo_url: "/logos/instagram.svg",
+    } as NonNullable<AgentManifest["listing"]>,
+    connect_model: "coming_soon",
+    required_scopes: [],
+    health_score: 1,
+    source: "coming_soon",
+    coming_soon: {
+      status: "in_review",
+      eta_label: "Coming soon — in review",
+      rationale: "Meta App Review (~2–4 weeks). All scopes added; demo videos pending.",
+    },
+  },
+  {
+    agent_id: "coming-soon:meta-facebook",
+    display_name: "Facebook Pages",
+    one_liner: "Page insights + post management + comment replies, all gated.",
+    domain: "personal",
+    version: "v1.3",
+    intents: [],
+    listing: {
+      category: "Creator",
+      pricing_note: "Free · in Meta App Review",
+      logo_url: "/logos/facebook.svg",
+    } as NonNullable<AgentManifest["listing"]>,
+    connect_model: "coming_soon",
+    required_scopes: [],
+    health_score: 1,
+    source: "coming_soon",
+    coming_soon: {
+      status: "in_review",
+      eta_label: "Coming soon — in review",
+      rationale: "Same Meta App Review pass as Instagram.",
+    },
+  },
+  {
+    agent_id: "coming-soon:linkedin",
+    display_name: "LinkedIn",
+    one_liner:
+      "Personal post + analytics + comment management for executives and creators.",
+    domain: "personal",
+    version: "v1.4",
+    intents: [],
+    listing: {
+      category: "Creator",
+      pricing_note: "Free · LinkedIn MDP review pending",
+      logo_url: "/logos/linkedin.svg",
+    } as NonNullable<AgentManifest["listing"]>,
+    connect_model: "coming_soon",
+    required_scopes: [],
+    health_score: 1,
+    source: "coming_soon",
+    coming_soon: {
+      status: "in_review",
+      eta_label: "Coming soon — pending MDP",
+      rationale: "LinkedIn Marketing Developer Platform approval (~4–8 weeks).",
+    },
+  },
+  {
+    agent_id: "coming-soon:newsletter",
+    display_name: "Newsletter (Beehiiv · Mailchimp · Substack)",
+    one_liner: "Subscriber count, open rate, top issues — alongside your social.",
+    domain: "personal",
+    version: "v1.1",
+    intents: [],
+    listing: {
+      category: "Creator",
+      pricing_note: "Free",
+      logo_url: "/logos/newsletter.svg",
+    } as NonNullable<AgentManifest["listing"]>,
+    connect_model: "coming_soon",
+    required_scopes: [],
+    health_score: 1,
+    source: "coming_soon",
+    coming_soon: {
+      status: "planned",
+      eta_label: "Coming next sprint",
+      rationale: "Beehiiv + Mailchimp APIs are simple OAuth/API key. Substack via RSS read-only.",
+    },
+  },
+  {
+    agent_id: "coming-soon:x",
+    display_name: "X (Twitter)",
+    one_liner: "Reads + posting once X API pricing makes V1 economics work.",
+    domain: "personal",
+    version: "v2",
+    intents: [],
+    listing: {
+      category: "Creator",
+      pricing_note: "Deferred · API tier review",
+      logo_url: "/logos/x.svg",
+    } as NonNullable<AgentManifest["listing"]>,
+    connect_model: "coming_soon",
+    required_scopes: [],
+    health_score: 1,
+    source: "coming_soon",
+    coming_soon: {
+      status: "planned",
+      eta_label: "V2 — TBD",
+      rationale:
+        "X API Basic tier is $200/mo and excludes analytics. Holding until budget or pricing improves.",
+    },
+  },
+];
 
 export async function GET(_req: NextRequest): Promise<Response> {
   const registry = await ensureRegistry();
@@ -153,6 +291,15 @@ export async function GET(_req: NextRequest): Promise<Response> {
           }
         : null,
     });
+  }
+
+  // Coming-soon tiles for V1.x platforms whose connectors aren't live.
+  // Suppressed if a real registry entry already exposes that platform —
+  // we never want to show two tiles for the same logical platform.
+  const realAgentIds = new Set(agents.map((a) => a.agent_id));
+  for (const tile of COMING_SOON_TILES) {
+    if (realAgentIds.has(tile.agent_id.replace("coming-soon:", ""))) continue;
+    agents.push(tile);
   }
 
   return new Response(

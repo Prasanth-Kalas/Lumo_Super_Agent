@@ -63,6 +63,16 @@ interface MarketplaceConnection {
   connection: { status: "active" | "expired" | "revoked" | "error" } | null;
 }
 
+interface SubAccount {
+  id: string;
+  agent_id: string;
+  external_account_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  account_type: string;
+  is_workspace_default: boolean;
+}
+
 interface WorkspaceData {
   connections: MarketplaceConnection[];
 }
@@ -130,6 +140,7 @@ export default function WorkspacePage() {
           Workspace
           <span className="workspace__title-tag">v1.0</span>
         </h1>
+        <ChannelSelector />
         <div className="workspace__header-spacer" />
         <Link href="/marketplace" className="workspace__nav-link">
           Marketplace
@@ -1232,6 +1243,197 @@ function ChatStrip() {
           .strip {
             padding: 8px 16px env(safe-area-inset-bottom, 8px) 16px;
           }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ChannelSelector — multi-account dropdown in the workspace header
+// ──────────────────────────────────────────────────────────────────────────
+
+function ChannelSelector() {
+  const [accounts, setAccounts] = useState<SubAccount[]>([]);
+  const [open, setOpen] = useState(false);
+  const [switching, setSwitching] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/workspace/accounts", { credentials: "include" });
+        if (!r.ok) return;
+        const body = (await r.json()) as { accounts: SubAccount[] };
+        if (!cancelled) setAccounts(body.accounts ?? []);
+      } catch {
+        // Best effort — selector simply hides if accounts can't load.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Don't render anything if there's only 0 or 1 account total — selector
+  // adds nothing in that case.
+  if (accounts.length < 2) return null;
+
+  // Group by agent. The selector only shows when at least one agent has
+  // multiple sub-accounts; otherwise the user has nothing to switch
+  // between.
+  const byAgent = new Map<string, SubAccount[]>();
+  for (const a of accounts) {
+    const list = byAgent.get(a.agent_id) ?? [];
+    list.push(a);
+    byAgent.set(a.agent_id, list);
+  }
+  const hasMulti = Array.from(byAgent.values()).some((list) => list.length > 1);
+  if (!hasMulti) return null;
+
+  const defaultsByAgent = new Map<string, SubAccount>();
+  for (const [agent, list] of byAgent) {
+    const def = list.find((a) => a.is_workspace_default) ?? list[0];
+    if (def) defaultsByAgent.set(agent, def);
+  }
+
+  async function setActive(account: SubAccount) {
+    try {
+      setSwitching(account.id);
+      const r = await fetch("/api/workspace/accounts", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          agent_id: account.agent_id,
+          external_account_id: account.external_account_id,
+        }),
+      });
+      if (r.ok) {
+        setAccounts((cur) =>
+          cur.map((a) => ({
+            ...a,
+            is_workspace_default:
+              a.agent_id === account.agent_id ? a.id === account.id : a.is_workspace_default,
+          })),
+        );
+        setOpen(false);
+        // Soft refresh — the page will re-fetch /workspace/today on next render.
+        // For now, hard reload to redraw cards against the new default account.
+        if (typeof window !== "undefined") window.location.reload();
+      }
+    } finally {
+      setSwitching(null);
+    }
+  }
+
+  // Pick the most-multi agent for the trigger label; show a count badge.
+  const triggerAgent = Array.from(byAgent.entries()).find(([, l]) => l.length > 1);
+  const triggerLabel = triggerAgent
+    ? defaultsByAgent.get(triggerAgent[0])?.display_name ?? "Pick channel"
+    : "Channels";
+
+  return (
+    <div className="cs">
+      <button className="cs__btn" onClick={() => setOpen((o) => !o)}>
+        <span className="cs__dot" /> {triggerLabel} ▾
+      </button>
+      {open && (
+        <div className="cs__menu" role="menu">
+          {Array.from(byAgent.entries()).map(([agent, list]) => (
+            <div key={agent} className="cs__group">
+              <div className="cs__group-label">{agent}</div>
+              {list.map((a) => (
+                <button
+                  key={a.id}
+                  className={
+                    "cs__item" + (a.is_workspace_default ? " cs__item--active" : "")
+                  }
+                  onClick={() => void setActive(a)}
+                  disabled={switching === a.id}
+                  role="menuitem"
+                >
+                  {a.avatar_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={a.avatar_url} alt="" className="cs__avatar" />
+                  )}
+                  <span className="cs__name">{a.display_name}</span>
+                  {a.is_workspace_default && <span className="cs__check">✓</span>}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+      <style jsx>{`
+        .cs { position: relative; }
+        .cs__btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 10px;
+          font-size: 13px;
+          background: transparent;
+          border: 1px solid var(--lumo-border);
+          border-radius: 8px;
+          color: var(--lumo-fg);
+          cursor: pointer;
+        }
+        .cs__btn:hover { background: var(--lumo-surface); }
+        .cs__dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #2ea84a;
+        }
+        .cs__menu {
+          position: absolute;
+          top: calc(100% + 4px);
+          left: 0;
+          min-width: 240px;
+          background: var(--lumo-surface);
+          border: 1px solid var(--lumo-border);
+          border-radius: 10px;
+          box-shadow: 0 8px 24px color-mix(in srgb, var(--lumo-bg), transparent 0%);
+          padding: 6px;
+          z-index: 50;
+        }
+        .cs__group { padding: 4px 0; }
+        .cs__group-label {
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--lumo-muted);
+          padding: 4px 10px;
+        }
+        .cs__item {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          width: 100%;
+          padding: 8px 10px;
+          background: transparent;
+          color: var(--lumo-fg);
+          border: none;
+          font-size: 13px;
+          text-align: left;
+          border-radius: 6px;
+          cursor: pointer;
+        }
+        .cs__item:hover:not(:disabled) { background: var(--lumo-bg); }
+        .cs__item:disabled { opacity: 0.5; cursor: wait; }
+        .cs__item--active { color: #2ea84a; }
+        .cs__avatar {
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          object-fit: cover;
+        }
+        .cs__name { flex: 1; }
+        .cs__check { color: #2ea84a; }
+        @media (max-width: 768px) {
+          .cs { display: none; }
         }
       `}</style>
     </div>

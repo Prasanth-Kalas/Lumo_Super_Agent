@@ -28,11 +28,14 @@ export interface AgentCardProps {
   linkToDetail?: boolean;
   /**
    * "lumo" (default) for native agents, "mcp" for Model Context
-   * Protocol servers. Drives the small "via MCP" badge so users
-   * can distinguish transactional Lumo agents from third-party
-   * read-heavy integrations at a glance.
+   * Protocol servers, "coming_soon" for placeholder tiles whose
+   * real connector is being built or in App Review.
    */
-  source?: "lumo" | "mcp";
+  source?: "lumo" | "mcp" | "coming_soon";
+  /** When source==='coming_soon', the pill label rendered in place of Connect. */
+  coming_soon_label?: string;
+  /** When source==='coming_soon', tooltip-shown rationale (eta + why). */
+  coming_soon_rationale?: string;
 }
 
 export function AgentCard(props: AgentCardProps) {
@@ -75,7 +78,14 @@ export function AgentCard(props: AgentCardProps) {
         <div className="text-[11px] text-lumo-fg-low">
           {props.pricing_note ?? ""}
         </div>
-        {props.onConnect ? (
+        {props.source === "coming_soon" ? (
+          <span
+            className="inline-flex items-center h-7 px-3 rounded-md text-[11px] uppercase tracking-[0.06em] font-medium border border-dashed border-lumo-hair text-lumo-fg-low cursor-default"
+            title={props.coming_soon_rationale ?? ""}
+          >
+            {props.coming_soon_label ?? "Coming soon"}
+          </span>
+        ) : props.onConnect ? (
           <button
             type="button"
             onClick={(e) => {

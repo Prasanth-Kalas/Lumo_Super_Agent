@@ -30,11 +30,22 @@ interface MarketplaceAgent {
     category?: string;
     pricing_note?: string;
   } | null;
-  connect_model: "oauth2" | "lumo_id" | "none" | "mcp_bearer" | "mcp_none";
+  connect_model:
+    | "oauth2"
+    | "lumo_id"
+    | "none"
+    | "mcp_bearer"
+    | "mcp_none"
+    | "coming_soon";
   required_scopes: Array<{ name: string; description: string }>;
   health_score: number;
-  /** "lumo" for native agents, "mcp" for MCP-backed entries. */
-  source?: "lumo" | "mcp";
+  /** "lumo" for native agents, "mcp" for MCP-backed, "coming_soon" for placeholders. */
+  source?: "lumo" | "mcp" | "coming_soon";
+  coming_soon?: {
+    status: "in_review" | "planned";
+    eta_label: string;
+    rationale: string;
+  };
   connection: {
     id: string;
     status: "active" | "expired" | "revoked" | "error";
@@ -274,8 +285,12 @@ export default function MarketplacePage() {
                     : undefined
                 }
                 source={a.source}
+                coming_soon_label={a.coming_soon?.eta_label}
+                coming_soon_rationale={a.coming_soon?.rationale}
                 onConnect={
-                  a.connect_model === "none" && a.source !== "mcp"
+                  a.source === "coming_soon"
+                    ? undefined
+                    : a.connect_model === "none" && a.source !== "mcp"
                     ? () => void toggleInstall(a)
                     : a.connect_model === "oauth2" ||
                         a.connect_model === "mcp_bearer"

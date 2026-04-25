@@ -28,6 +28,41 @@
       "base_url": "${LUMO_HOTEL_AGENT_URL}",
       "version": "0.1.0",
       "_notes": "Hotel Agent runs mock-first. Amadeus ships a self-serve test API so partner gating is not a blocker — once AMADEUS_CLIENT_ID + AMADEUS_CLIENT_SECRET land on the hotel agent's project, the façade flips reads to the real client without code changes here. Set LUMO_HOTEL_AGENT_URL on the Vercel project to the deployed agent host."
+    },
+    {
+      "key": "open-weather",
+      "enabled": true,
+      "base_url": "${LUMO_OPEN_WEATHER_AGENT_URL}",
+      "version": "0.1.0",
+      "_notes": "Open Weather Agent (Open-Meteo + NWS). Public read-only data, no per-user auth. Deploy Lumo_Open_Weather_Agent_Web to Vercel and set LUMO_OPEN_WEATHER_AGENT_URL on this project."
+    },
+    {
+      "key": "open-maps",
+      "enabled": true,
+      "base_url": "${LUMO_OPEN_MAPS_AGENT_URL}",
+      "version": "0.1.0",
+      "_notes": "Open Maps Agent (Nominatim + OSRM). Public read-only data. Set LUMO_OPEN_MAPS_AGENT_URL once deployed."
+    },
+    {
+      "key": "open-ev-charging",
+      "enabled": true,
+      "base_url": "${LUMO_OPEN_EV_CHARGING_AGENT_URL}",
+      "version": "0.1.0",
+      "_notes": "Open EV Charging Agent (Open Charge Map). Requires OPENCHARGEMAP_API_KEY on the agent's own project. Set LUMO_OPEN_EV_CHARGING_AGENT_URL once deployed."
+    },
+    {
+      "key": "open-events",
+      "enabled": true,
+      "base_url": "${LUMO_OPEN_EVENTS_AGENT_URL}",
+      "version": "0.1.0",
+      "_notes": "Open Events Agent (Wikidata + optional Ticketmaster). Set LUMO_OPEN_EVENTS_AGENT_URL once deployed; optional TICKETMASTER_API_KEY on the agent's own project."
+    },
+    {
+      "key": "open-attractions",
+      "enabled": true,
+      "base_url": "${LUMO_OPEN_ATTRACTIONS_AGENT_URL}",
+      "version": "0.1.0",
+      "_notes": "Open Attractions Agent (Nominatim + Overpass). Public read-only data. Set LUMO_OPEN_ATTRACTIONS_AGENT_URL once deployed."
     }
   ]
 }
