@@ -681,6 +681,21 @@ export default function Home() {
               <span>New</span>
             </button>
 
+            {/* Workspace CTA — primary nav target. Sends users to the
+                unified dashboard (Today / Content / Inbox / Co-pilot /
+                Operations). Accented styling so it stands out from
+                History / Sign-in. Hidden on mobile; the drawer surfaces
+                Workspace as the first quick-link there. */}
+            <a
+              href="/workspace"
+              aria-label="Workspace"
+              title="Your unified dashboard — Today, Content, Inbox, Co-pilot, Operations"
+              className="hidden sm:inline-flex h-8 px-2.5 rounded-md items-center gap-1.5 text-[12.5px] font-medium text-lumo-fg bg-lumo-elevated border border-lumo-edge hover:bg-lumo-elevated/80 transition-colors"
+            >
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-lumo-accent" />
+              <span>Workspace</span>
+            </a>
+
             <a
               href="/history"
               aria-label="History"

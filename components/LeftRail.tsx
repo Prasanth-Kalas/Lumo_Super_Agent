@@ -371,6 +371,7 @@ export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps)
         ) : null}
 
         <div className="px-4 pt-2 pb-3 space-y-0.5">
+          <FooterLink href="/workspace" label="Workspace" highlight />
           <FooterLink href="/history" label="History" />
           <FooterLink href="/marketplace" label="Marketplace" />
           <FooterLink href="/connections" label="Connections" />
@@ -388,7 +389,31 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FooterLink({ href, label }: { href: string; label: string }) {
+function FooterLink({
+  href,
+  label,
+  highlight,
+}: {
+  href: string;
+  label: string;
+  /**
+   * When true, renders as the primary nav target with a left-bar accent.
+   * Used for /workspace — the demo surface — so it's visually distinct
+   * from secondary admin links like History / Connections.
+   */
+  highlight?: boolean;
+}) {
+  if (highlight) {
+    return (
+      <Link
+        href={href}
+        className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium text-lumo-fg hover:bg-lumo-elevated/80 transition-colors border-l-2 border-lumo-accent -ml-px"
+      >
+        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-lumo-accent" />
+        {label}
+      </Link>
+    );
+  }
   return (
     <Link
       href={href}

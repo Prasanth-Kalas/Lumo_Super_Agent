@@ -349,6 +349,12 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
           <div className="pt-1 border-t border-lumo-hair">
             <SectionHeader className="pt-3">Explore</SectionHeader>
             <ul className="mt-2 space-y-0.5">
+              <MobileNavLink
+                href="/workspace"
+                label="Workspace"
+                onNavigate={onClose}
+                highlight
+              />
               <MobileNavLink href="/history" label="History" onNavigate={onClose} />
               <MobileNavLink href="/memory" label="Memory" onNavigate={onClose} />
               <MobileNavLink href="/marketplace" label="Marketplace" onNavigate={onClose} />
@@ -421,11 +427,36 @@ function MobileNavLink({
   href,
   label,
   onNavigate,
+  highlight,
 }: {
   href: string;
   label: string;
   onNavigate: () => void;
+  /**
+   * Primary nav target — gets a left accent bar + dot + bolder text.
+   * Used for /workspace so users find the dashboard immediately.
+   */
+  highlight?: boolean;
 }) {
+  if (highlight) {
+    return (
+      <li>
+        <Link
+          href={href}
+          onClick={onNavigate}
+          className="flex items-center justify-between rounded-lg px-3 py-2.5 text-[14.5px] font-medium text-lumo-fg hover:bg-lumo-elevated/80 transition-colors border-l-2 border-lumo-accent"
+        >
+          <span className="flex items-center gap-2">
+            <span className="inline-flex h-1.5 w-1.5 rounded-full bg-lumo-accent" />
+            {label}
+          </span>
+          <span className="text-lumo-fg-low" aria-hidden>
+            →
+          </span>
+        </Link>
+      </li>
+    );
+  }
   return (
     <li>
       <Link
