@@ -11,6 +11,8 @@ export interface MlClassifiedItem {
   above_threshold?: boolean;
 }
 
+export const LEAD_SCORE_THRESHOLD = 0.7;
+
 const LEAD_KEYWORDS: Array<{ pattern: RegExp; reason: string; weight: number }> = [
   { pattern: /\b(partner(ship)?|collab(oration)?)\b/i, reason: "partnership", weight: 0.4 },
   { pattern: /\b(sponsor(ship)?|advertis(e|ing|ement))\b/i, reason: "sponsorship", weight: 0.4 },

@@ -1,16 +1,17 @@
 import { signLumoServiceJwt } from "./service-jwt.js";
 import { recordRuntimeUsage } from "./runtime-policy.js";
+import { redactForEmbedding } from "./content-indexing.js";
+import { classifyLeadItemsCore } from "./workspace-lead-classifier-core.js";
 import {
-  mergeMlLeadScore,
+  LEAD_SCORE_THRESHOLD,
   scoreLeadHeuristic,
   type LeadScore,
-  type MlClassifiedItem,
 } from "./lead-scoring.js";
 
 const LUMO_ML_AGENT_ID = "lumo-ml";
 const LUMO_CLASSIFY_TOOL = "lumo_classify";
 const CLASSIFY_TIMEOUT_MS = 300;
-const CLASSIFY_THRESHOLD = 0.7;
+const CLASSIFY_ITEM_CAP = 100;
 
 export interface LeadClassifiableItem {
   text: string;
@@ -23,11 +24,6 @@ export interface LeadClassificationResult {
   error?: string;
 }
 
-interface ClassifyResponse {
-  classifier?: string;
-  items?: MlClassifiedItem[];
-}
-
 export async function classifyLeadItems(
   user_id: string,
   items: LeadClassifiableItem[],
@@ -38,7 +34,6 @@ export async function classifyLeadItems(
     recordUsage?: boolean;
   } = {},
 ): Promise<LeadClassificationResult> {
-  const started = Date.now();
   const fallback = items.map((item) => scoreLeadHeuristic(item.text));
   if (items.length === 0) {
     return { scores: fallback, source: "heuristic", latency_ms: 0 };
@@ -49,70 +44,30 @@ export async function classifyLeadItems(
     process.env.LUMO_ML_AGENT_URL ??
     (process.env.NODE_ENV === "development" ? "http://localhost:3010" : "")
   ).replace(/\/+$/, "");
-  if (!baseUrl || !process.env.LUMO_ML_SERVICE_JWT_SECRET) {
-    return {
-      scores: fallback,
-      source: "heuristic",
-      latency_ms: Date.now() - started,
-      error: "ml_classifier_not_configured",
-    };
-  }
-
   const timeoutMs = clampInt(options.timeoutMs, 50, 2000, CLASSIFY_TIMEOUT_MS);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  let error_code: string | undefined;
-
-  try {
-    const token = signLumoServiceJwt({
+  const authHeader = baseUrl && process.env.LUMO_ML_SERVICE_JWT_SECRET
+    ? `Bearer ${signLumoServiceJwt({
       audience: LUMO_ML_AGENT_ID,
       user_id,
       scope: LUMO_CLASSIFY_TOOL,
       ttl_seconds: 60,
-    });
-    const res = await (options.fetchImpl ?? fetch)(`${baseUrl}/api/tools/classify`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${token}`,
-        "x-lumo-user-id": user_id,
-      },
-      body: JSON.stringify({
-        classifier: "lead",
-        threshold: CLASSIFY_THRESHOLD,
-        items: items.map((item) => item.text).slice(0, 100),
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    const latency_ms = Date.now() - started;
-    if (!res.ok) {
-      error_code = `http_${res.status}`;
-      await recordClassifierUsage(user_id, false, error_code, latency_ms, options.recordUsage);
-      return {
-        scores: fallback,
-        source: "heuristic",
-        latency_ms,
-        error: error_code,
-      };
-    }
-    const body = (await res.json()) as ClassifyResponse;
-    const mlItems = Array.isArray(body.items) ? body.items : [];
-    const scores = fallback.map((score, index) => mergeMlLeadScore(score, mlItems[index]));
-    await recordClassifierUsage(user_id, true, undefined, latency_ms, options.recordUsage);
-    return { scores, source: "ml", latency_ms };
-  } catch (err) {
-    clearTimeout(timeout);
-    const latency_ms = Date.now() - started;
-    error_code = err instanceof Error && err.name === "AbortError" ? "timeout" : "upstream_error";
-    await recordClassifierUsage(user_id, false, error_code, latency_ms, options.recordUsage);
-    return {
-      scores: fallback,
-      source: "heuristic",
-      latency_ms,
-      error: error_code,
-    };
-  }
+    })}`
+    : null;
+
+  return classifyLeadItemsCore({
+    user_id,
+    redactedTexts: items.map((item) => redactForEmbedding(item.text).text),
+    fallbackScores: fallback,
+    baseUrl,
+    authorizationHeader: authHeader,
+    fetchImpl: options.fetchImpl ?? fetch,
+    timeoutMs,
+    threshold: LEAD_SCORE_THRESHOLD,
+    itemCap: CLASSIFY_ITEM_CAP,
+    warn: (message) => console.warn(message),
+    recordUsage: (ok, error_code, latency_ms) =>
+      recordClassifierUsage(user_id, ok, error_code, latency_ms, options.recordUsage),
+  });
 }
 
 async function recordClassifierUsage(

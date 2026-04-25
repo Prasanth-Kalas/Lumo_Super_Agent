@@ -290,12 +290,20 @@ attempt through `agent_tool_usage` with `agent_id=lumo-ml` and
 `tool_name=lumo_classify`.
 
 The fallback remains the existing heuristic if the ML service is unconfigured,
-unavailable, malformed, or misses the 300ms budget. The labelled Day-4 seed set
-lives in `Lumo_ML_Service/tests/test_classify.py`: 100 hand-curated synthetic
-examples stratified across sponsorship, consulting, speaker/podcast invites,
-hiring, licensing, spam, and ordinary viewer chatter. The current seed-set eval:
+unavailable, malformed, or misses the 300ms budget. Classifier payloads are
+redacted through the same Core helper used by the archive indexer before they
+cross into the brain service; if an inbox window exceeds the 100-item classify
+cap, tail items keep the heuristic score and the route logs the cap.
+
+The labelled Day-4 seed set lives in
+`Lumo_ML_Service/tests/test_classify.py`: 100 hand-curated synthetic examples
+stratified across sponsorship, consulting, speaker/podcast invites, hiring,
+licensing, spam, and ordinary viewer chatter. The current seed-set eval is
 classifier precision 1.00 / recall 1.00 / F1 1.00 vs. previous regex F1 0.148
-at threshold `0.7`.
+at the shared lead threshold. This number is a seed/regression result, not a
+held-out generalisation claim, and must not be used in external or board
+communications until replaced by a randomly sampled held-out eval with a
+separate validation-calibrated threshold.
 
 ## 8. Safety rules
 

@@ -6,7 +6,7 @@
  * classifier with a strict heuristic fallback. Returns:
  *   - items: comments + future DMs, unified shape
  *   - relationship_index: top 10 commenters across the window
- *   - business_leads: items where lead_score >= 0.7
+ *   - business_leads: items at or above the configured lead threshold
  *
  * V1.x adds Instagram + Facebook + LinkedIn surfaces under the same
  * shape so the UI doesn't change as connectors light up.
@@ -25,7 +25,7 @@ import {
   listVideoComments,
 } from "@/lib/integrations/youtube";
 import { getDispatchableConnection } from "@/lib/connections";
-import { scoreLeadHeuristic } from "@/lib/lead-scoring";
+import { LEAD_SCORE_THRESHOLD, scoreLeadHeuristic } from "@/lib/lead-scoring";
 import { classifyLeadItems } from "@/lib/workspace-lead-classifier";
 
 export const runtime = "nodejs";
@@ -161,7 +161,7 @@ export async function GET(_req: NextRequest) {
   });
 
   const business_leads = trimmed
-    .filter((i) => i.lead_score >= 0.7)
+    .filter((i) => i.lead_score >= LEAD_SCORE_THRESHOLD)
     .sort((a, b) => b.lead_score - a.lead_score)
     .slice(0, 10);
 
