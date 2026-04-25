@@ -28,6 +28,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ensureRegistry, userScopedBridge } from "./agent-registry.js";
 import { listConnectionsForUser } from "./connections.js";
+import { getSetting, isFeatureEnabled } from "./admin-settings.js";
 import { listInstalledAgentsForUser } from "./app-installs.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
@@ -213,7 +214,16 @@ const MAX_TOOL_LOOP = 6;
 // the orchestrator turn specifically. Specialist agents that run their
 // own LLM (e.g. Food Agent's /api/chat) continue to pick Sonnet or Haiku
 // for their own in-house flows.
-const MODEL = "claude-sonnet-4-6";
+const DEFAULT_MODEL = "claude-sonnet-4-6";
+
+// Pull the orchestrator's Claude model from admin_settings on every
+// turn (cached 30s in lib/admin-settings.ts so the cost is negligible)
+// so the operator can flip Opus/Sonnet/Haiku from /admin/settings
+// without redeploying. Falls back to DEFAULT_MODEL if Supabase is
+// unreachable.
+async function resolveModel(): Promise<string> {
+  return getSetting<string>("llm.model", DEFAULT_MODEL);
+}
 
 // ──────────────────────────────────────────────────────────────────────────
 // runTurn — one Claude turn, optionally emitting live SSE frames
@@ -347,9 +357,14 @@ export async function runTurn(
   let renderedSummary: ConfirmationSummary | null = null;
   const loopAssistantMessages: Anthropic.MessageParam[] = [];
 
+  // Resolve the model once per turn (not per loop iteration) so a
+  // mid-tool-call admin flip doesn't accidentally swap models in the
+  // middle of a Saga. Cache TTL inside getSetting keeps this cheap.
+  const model = await resolveModel();
+
   for (let i = 0; i < MAX_TOOL_LOOP; i++) {
     const response = await anthropic.messages.create({
-      model: MODEL,
+      model,
       max_tokens: 1024,
       system,
       tools: toolsForClaude,

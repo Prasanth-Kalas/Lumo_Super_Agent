@@ -38,18 +38,19 @@
  */
 
 import type { NextRequest } from "next/server";
+import { getSetting, isFeatureEnabled } from "@/lib/admin-settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Compile-time fallbacks. Admin-settings overrides win at runtime;
+// these are what the route uses if the DB is unreachable or the
+// settings rows are missing.
 const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // Rachel
-// Reverted from "eleven_v3" — v3's variable first-chunk latency
-// plus occasional mid-stream artifacts made the voice feel
-// rushed and broken. Turbo v2.5 is our stable ground truth.
-//   - "eleven_v3"         — experimental, richer prosody but
-//                           inconsistent streaming. Revisit later.
-//   - "eleven_flash_v2_5" — 75 ms, flatter delivery.
-const MODEL_ID = "eleven_turbo_v2_5";
+const DEFAULT_MODEL_ID = "eleven_turbo_v2_5";
+const DEFAULT_STABILITY = 0.42;
+const DEFAULT_SIMILARITY = 0.8;
+const DEFAULT_STYLE = 0.55;
 
 // Hard caps so a runaway turn doesn't burn through the ElevenLabs
 // character quota. Speech at ~150wpm ≈ 13 chars/sec, so 5000 chars
@@ -63,6 +64,17 @@ interface Body {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  // Voice mode disabled by feature flag → tell the client to use
+  // browser speechSynthesis. Same response shape as "not configured"
+  // so the client's existing fallback path handles it.
+  const voiceEnabled = await isFeatureEnabled(
+    "feature.voice_mode_enabled",
+    true,
+  );
+  if (!voiceEnabled) {
+    return json(503, { reason: "voice_mode_disabled" });
+  }
+
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {
     // Graceful fallback signal — client reads this and flips to
@@ -87,10 +99,29 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
   }
 
+  // Pull live config from admin_settings. The body's voice_id wins
+  // (lets the user pick a different voice in /memory's voice picker
+  // without changing the global default for everyone), then admin
+  // setting, then compile-time fallback.
+  const adminVoiceId = await getSetting<string>(
+    "voice.voice_id",
+    DEFAULT_VOICE_ID,
+  );
+  const modelId = await getSetting<string>("voice.model", DEFAULT_MODEL_ID);
+  const stability = await getSetting<number>(
+    "voice.stability",
+    DEFAULT_STABILITY,
+  );
+  const similarityBoost = await getSetting<number>(
+    "voice.similarity_boost",
+    DEFAULT_SIMILARITY,
+  );
+  const style = await getSetting<number>("voice.style", DEFAULT_STYLE);
+
   const voiceId =
     typeof body.voice_id === "string" && body.voice_id.length > 0
       ? body.voice_id
-      : DEFAULT_VOICE_ID;
+      : adminVoiceId;
 
   const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
     voiceId,
@@ -107,30 +138,15 @@ export async function POST(req: NextRequest): Promise<Response> {
       },
       body: JSON.stringify({
         text,
-        model_id: MODEL_ID,
-        // Voice settings retuned for "friend-like" warmth on turbo
-        // v2.5. Prior settings (stability 0.5, style 0.3) were
-        // safe but read as polite-concierge. Users want
-        // conversational — someone you'd actually call.
-        //
-        //   stability 0.42 — slight drop from 0.5 lets the cadence
-        //     breathe. Below 0.4 this model starts slurring;
-        //     0.42-0.45 is the sweet spot for turbo v2.5 where
-        //     prosody opens up without losing pace.
-        //   similarity_boost 0.80 — bumped from 0.75 to hold the
-        //     voice identity (Rachel) even as stability drops.
-        //     Without this pairing, the voice drifts character
-        //     across long responses.
-        //   style 0.55 — real emotional inference. The model picks
-        //     up punctuation cues (em-dashes, ellipses, question
-        //     marks) and leans into them. Above 0.7 it starts
-        //     over-acting; 0.55 is warm-but-honest.
-        //   use_speaker_boost — keeps clarity on phone + laptop
-        //     speakers where mids get muddy.
+        model_id: modelId,
+        // Live from admin_settings. Defaults are the "warm friend"
+        // baseline (stability 0.42, similarity 0.80, style 0.55) but
+        // an operator can retune from /admin/settings without a
+        // deploy. Settings cache is 30s so changes propagate fast.
         voice_settings: {
-          stability: 0.42,
-          similarity_boost: 0.8,
-          style: 0.55,
+          stability,
+          similarity_boost: similarityBoost,
+          style,
           use_speaker_boost: true,
         },
       }),
