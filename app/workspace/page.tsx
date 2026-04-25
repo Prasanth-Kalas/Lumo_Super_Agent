@@ -183,6 +183,11 @@ export default function WorkspacePage() {
             Couldn&apos;t load workspace data: {error}.{" "}
             <button onClick={() => void fetchWorkspace()}>Retry</button>
           </div>
+        ) : activeTab === "today" ? (
+          // Today is the welcoming surface — show even when there are
+          // zero connections so the user lands on a real hero + platform
+          // tiles instead of a stark "your workspace is empty" page.
+          <TabBody tab={activeTab} connections={activeConnections} />
         ) : !hasAnyConnection ? (
           <EmptyState />
         ) : (
@@ -471,20 +476,29 @@ function TodayTab({ connections }: { connections: MarketplaceConnection[] }) {
   const hasGoogle = connections.some((c) => c.agent_id === "google" && c.connection?.status === "active");
   const hasMicrosoft = connections.some((c) => c.agent_id === "microsoft" && c.connection?.status === "active");
   const hasSpotify = connections.some((c) => c.agent_id === "spotify" && c.connection?.status === "active");
+  const hasMeta = connections.some((c) => c.agent_id === "meta" && c.connection?.status === "active");
+  const totalConnected = [hasGoogle, hasMicrosoft, hasSpotify, hasMeta].filter(Boolean).length;
+  const greeting = greetingForHour(new Date().getHours());
 
   return (
     <div className="today">
-      <header className="today__header">
-        <h2 className="today__heading">Today</h2>
-        <button className="today__refresh" onClick={() => void refresh()}>
-          {loading ? "Refreshing…" : "Refresh"}
+      <header className="today__hero">
+        <div>
+          <div className="today__kicker">{greeting} · {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</div>
+          <h2 className="today__heading">Your day, in one place.</h2>
+          <p className="today__sub">
+            {totalConnected === 0
+              ? "Connect a service to start. Cards below show live data the moment you do."
+              : `${totalConnected} service${totalConnected === 1 ? "" : "s"} connected · ${data ? `updated ${formatTime(data.generated_at)}` : "syncing…"}`}
+          </p>
+        </div>
+        <button className="today__refresh" onClick={() => void refresh()} disabled={loading}>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden>
+            <path d="M2 6.5a4.5 4.5 0 0 1 7.7-3.2M11 6.5a4.5 4.5 0 0 1-7.7 3.2M9.5 1.5v2.5h-2.5M3.5 11.5V9h2.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          {loading ? "Refreshing" : "Refresh"}
         </button>
       </header>
-      <p className="today__sub">
-        {data
-          ? `Updated ${new Date(data.generated_at).toLocaleTimeString()}`
-          : "Loading your live data…"}
-      </p>
 
       {error && (
         <div className="today__error">Couldn&apos;t load all cards: {error}</div>
@@ -497,50 +511,167 @@ function TodayTab({ connections }: { connections: MarketplaceConnection[] }) {
         <YouTubeCard envelope={data?.youtube} hasAny={hasGoogle} />
       </div>
 
+      {totalConnected === 0 && (
+        <section className="today__getstarted">
+          <h3 className="today__getstarted-title">Get started — connect a service</h3>
+          <p className="today__getstarted-sub">Each connection lights up the card above and adds tools your co-pilot can use.</p>
+          <div className="today__platforms">
+            <PlatformTile agent_id="google" name="Google" hint="Gmail · Calendar · YouTube · Contacts" accent="#4285F4" />
+            <PlatformTile agent_id="microsoft" name="Microsoft" hint="Outlook · Calendar · Contacts" accent="#00A4EF" />
+            <PlatformTile agent_id="spotify" name="Spotify" hint="Now playing · playlists · queue" accent="#1ED760" />
+            <PlatformTile agent_id="meta" name="Meta" hint="Instagram · Facebook · Messenger" accent="#E1306C" />
+          </div>
+        </section>
+      )}
+
       <style jsx>{`
-        .today__header {
+        .today__hero {
           display: flex;
-          align-items: center;
-          gap: 12px;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 16px;
+          padding: 8px 0 28px 0;
+          margin-bottom: 8px;
+          border-bottom: 1px solid var(--lumo-border);
+        }
+        .today__kicker {
+          font-size: 12px;
+          color: var(--lumo-muted);
+          letter-spacing: 0.02em;
+          text-transform: capitalize;
+          margin-bottom: 6px;
         }
         .today__heading {
-          font-size: 24px;
+          font-size: 28px;
           font-weight: 600;
+          letter-spacing: -0.02em;
           margin: 0;
-        }
-        .today__refresh {
-          margin-left: auto;
-          padding: 6px 12px;
-          font-size: 12px;
-          background: transparent;
-          color: var(--lumo-muted);
-          border: 1px solid var(--lumo-border);
-          border-radius: 8px;
-          cursor: pointer;
-        }
-        .today__refresh:hover {
-          color: var(--lumo-fg);
+          line-height: 1.15;
         }
         .today__sub {
           color: var(--lumo-muted);
-          margin: 4px 0 24px 0;
-          font-size: 13px;
+          margin: 8px 0 0 0;
+          font-size: 14px;
+          max-width: 580px;
+          line-height: 1.5;
         }
+        .today__refresh {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 12px;
+          font-size: 12px;
+          background: var(--lumo-surface);
+          color: var(--lumo-fg);
+          border: 1px solid var(--lumo-border);
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 500;
+          flex-shrink: 0;
+        }
+        .today__refresh:hover { background: color-mix(in srgb, var(--lumo-fg) 5%, var(--lumo-surface)); }
+        .today__refresh:disabled { opacity: 0.55; cursor: wait; }
         .today__error {
           padding: 10px 12px;
           background: color-mix(in srgb, #e0613f 12%, transparent);
           color: #e0613f;
           border-radius: 8px;
-          margin-bottom: 16px;
+          margin: 16px 0;
           font-size: 13px;
         }
         .today__grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 16px;
+          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          gap: 14px;
+          margin-top: 24px;
+        }
+        .today__getstarted {
+          margin-top: 40px;
+          padding: 24px;
+          background: color-mix(in srgb, var(--lumo-fg) 3%, var(--lumo-surface));
+          border: 1px solid var(--lumo-border);
+          border-radius: 14px;
+        }
+        .today__getstarted-title {
+          font-size: 16px;
+          font-weight: 600;
+          margin: 0 0 4px 0;
+        }
+        .today__getstarted-sub {
+          color: var(--lumo-muted);
+          margin: 0 0 18px 0;
+          font-size: 13px;
+        }
+        .today__platforms {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 10px;
+        }
+        @media (max-width: 640px) {
+          .today__heading { font-size: 22px; }
+          .today__hero { flex-direction: column; }
         }
       `}</style>
     </div>
+  );
+}
+
+function greetingForHour(h: number): string {
+  if (h < 5) return "Late night";
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  if (h < 21) return "Good evening";
+  return "Good evening";
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function PlatformTile({
+  agent_id,
+  name,
+  hint,
+  accent,
+}: {
+  agent_id: string;
+  name: string;
+  hint: string;
+  accent: string;
+}) {
+  return (
+    <Link href={`/marketplace#${agent_id}`} className="ptile">
+      <span className="ptile__dot" style={{ background: accent }} />
+      <span className="ptile__body">
+        <span className="ptile__name">{name}</span>
+        <span className="ptile__hint">{hint}</span>
+      </span>
+      <span className="ptile__arrow" aria-hidden>→</span>
+      <style jsx>{`
+        .ptile {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 14px;
+          background: var(--lumo-bg);
+          border: 1px solid var(--lumo-border);
+          border-radius: 10px;
+          color: var(--lumo-fg);
+          text-decoration: none;
+          transition: border-color 0.15s, transform 0.05s;
+        }
+        .ptile:hover { border-color: var(--lumo-fg); }
+        .ptile:active { transform: translateY(1px); }
+        .ptile__dot {
+          width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+          box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 8%, transparent);
+        }
+        .ptile__body { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+        .ptile__name { font-size: 13px; font-weight: 600; }
+        .ptile__hint { font-size: 11px; color: var(--lumo-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ptile__arrow { color: var(--lumo-muted); font-size: 14px; }
+      `}</style>
+    </Link>
   );
 }
 
@@ -575,28 +706,63 @@ function SourcePill({ source, age_ms }: { source?: TodayCardEnvelope["source"]; 
 
 function Card({
   title,
+  subtitle,
   envelope,
   hasAny,
   emptyConnect,
+  accent,
+  icon,
   children,
 }: {
   title: string;
+  subtitle?: string;
   envelope?: TodayCardEnvelope;
   hasAny: boolean;
-  emptyConnect: { label: string; href: string };
+  emptyConnect: { label: string; href: string; preview?: string };
+  accent: string;
+  icon: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section className="card">
+      <div className="card__bar" style={{ background: accent }} />
       <header className="card__head">
-        <h3 className="card__title">{title}</h3>
+        <span
+          className="card__icon"
+          style={{
+            background: `color-mix(in srgb, ${accent} 14%, transparent)`,
+            color: accent,
+          }}
+          aria-hidden
+        >
+          {icon}
+        </span>
+        <div className="card__heading">
+          <h3 className="card__title">{title}</h3>
+          {subtitle && <span className="card__subtitle">{subtitle}</span>}
+        </div>
         <SourcePill source={envelope?.source} age_ms={envelope?.age_ms} />
       </header>
       {!hasAny ? (
         <div className="card__empty">
-          <p>Connect a service to populate this card.</p>
-          <Link href={emptyConnect.href} className="card__connect">
+          <div className="card__skeleton" aria-hidden>
+            <div className="sk sk--80" />
+            <div className="sk sk--60" />
+            <div className="sk sk--70" />
+          </div>
+          <p className="card__empty-msg">
+            {emptyConnect.preview ?? "Connect to see live data here."}
+          </p>
+          <Link
+            href={emptyConnect.href}
+            className="card__connect"
+            style={{
+              background: accent,
+              boxShadow: `0 8px 22px -10px ${accent}`,
+            }}
+          >
             {emptyConnect.label}
+            <span aria-hidden>→</span>
           </Link>
         </div>
       ) : (
@@ -604,51 +770,159 @@ function Card({
       )}
       <style jsx>{`
         .card {
-          padding: 16px;
+          position: relative;
+          padding: 20px 18px 18px 18px;
           background: var(--lumo-surface);
           border: 1px solid var(--lumo-border);
-          border-radius: 10px;
+          border-radius: 14px;
+          overflow: hidden;
+          transition: border-color 0.2s, transform 0.05s;
+        }
+        .card:hover {
+          border-color: color-mix(in srgb, var(--lumo-fg) 16%, var(--lumo-border));
+        }
+        .card__bar {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 3px;
         }
         .card__head {
           display: flex;
           align-items: center;
-          margin-bottom: 12px;
+          gap: 10px;
+          margin-bottom: 14px;
+        }
+        .card__icon {
+          width: 34px;
+          height: 34px;
+          border-radius: 9px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        .card__heading {
+          display: flex;
+          flex-direction: column;
+          flex: 1;
+          min-width: 0;
         }
         .card__title {
-          font-size: 13px;
+          font-size: 14px;
           font-weight: 600;
-          letter-spacing: 0.04em;
-          text-transform: uppercase;
-          color: var(--lumo-muted);
+          color: var(--lumo-fg);
           margin: 0;
+          line-height: 1.2;
+        }
+        .card__subtitle {
+          font-size: 11px;
+          color: var(--lumo-muted);
+          margin-top: 2px;
+          letter-spacing: 0.01em;
         }
         .card__body {
           font-size: 14px;
         }
         .card__empty {
-          padding: 8px 0;
           color: var(--lumo-muted);
-          font-size: 13px;
+        }
+        .card__skeleton {
+          display: grid;
+          gap: 9px;
+          padding: 4px 0 16px 0;
+        }
+        .sk {
+          height: 9px;
+          border-radius: 999px;
+          background: linear-gradient(
+            90deg,
+            color-mix(in srgb, var(--lumo-fg) 5%, var(--lumo-bg)),
+            color-mix(in srgb, var(--lumo-fg) 11%, var(--lumo-bg)),
+            color-mix(in srgb, var(--lumo-fg) 5%, var(--lumo-bg))
+          );
+          background-size: 200% 100%;
+          animation: sk-shimmer 2.6s linear infinite;
+        }
+        .sk--80 { width: 82%; }
+        .sk--70 { width: 68%; }
+        .sk--60 { width: 54%; }
+        @keyframes sk-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        .card__empty-msg {
+          margin: 0 0 14px 0;
+          font-size: 12.5px;
+          line-height: 1.5;
         }
         .card__connect {
-          display: inline-block;
-          margin-top: 8px;
-          padding: 6px 10px;
-          background: var(--lumo-fg);
-          color: var(--lumo-bg);
-          border-radius: 6px;
-          font-size: 12px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 14px;
+          color: #fff;
+          border-radius: 9px;
+          font-size: 12.5px;
+          font-weight: 600;
           text-decoration: none;
+          letter-spacing: 0.005em;
+          transition: filter 0.15s, transform 0.05s;
         }
+        .card__connect:hover { filter: brightness(1.08); }
+        .card__connect:active { transform: translateY(1px); }
       `}</style>
     </section>
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// Brand-coloured glyphs for each platform card. Stroke-only at currentColor
+// so the parent's tinted background reads cleanly.
+// ──────────────────────────────────────────────────────────────────────────
+
+const ICON_CALENDAR = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.4" />
+    <path d="M2 6.5h12M5 1.5v3M11 1.5v3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+  </svg>
+);
+const ICON_MAIL = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <rect x="2" y="3.5" width="12" height="9" rx="1.6" stroke="currentColor" strokeWidth="1.4" />
+    <path d="M2.5 4.5l5.5 4 5.5-4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const ICON_SPOTIFY = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.4" />
+    <path d="M5 6.5c2-.6 4-.4 5.7.8M5.3 9c1.6-.4 3.3-.2 4.7.8M5.7 11.2c1.2-.3 2.4-.1 3.4.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </svg>
+);
+const ICON_YOUTUBE = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <rect x="1.8" y="3.8" width="12.4" height="8.4" rx="2" stroke="currentColor" strokeWidth="1.4" />
+    <path d="M7 6.4l3 1.6-3 1.6V6.4z" fill="currentColor" />
+  </svg>
+);
+
 function CalendarCard({ envelope, hasAny }: { envelope?: TodayEnvelope["calendar"]; hasAny: boolean }) {
   const events = envelope?.events ?? [];
   return (
-    <Card title="Next on your calendar" envelope={envelope} hasAny={hasAny} emptyConnect={{ label: "Connect Google or Microsoft", href: "/marketplace" }}>
+    <Card
+      title="Next on your calendar"
+      subtitle="Upcoming meetings · Google + Microsoft"
+      envelope={envelope}
+      hasAny={hasAny}
+      accent="#4285F4"
+      icon={ICON_CALENDAR}
+      emptyConnect={{
+        label: "Connect calendar",
+        href: "/marketplace",
+        preview: "We'll surface your next 5 meetings, attendees, and locations here.",
+      }}
+    >
       {events.length === 0 ? (
         <p className="muted">Nothing in the next 30 days.</p>
       ) : (
@@ -678,7 +952,19 @@ function CalendarCard({ envelope, hasAny }: { envelope?: TodayEnvelope["calendar
 function EmailCard({ envelope, hasAny }: { envelope?: TodayEnvelope["email"]; hasAny: boolean }) {
   const messages = envelope?.messages ?? [];
   return (
-    <Card title="Top unread" envelope={envelope} hasAny={hasAny} emptyConnect={{ label: "Connect Google or Microsoft", href: "/marketplace" }}>
+    <Card
+      title="Top unread"
+      subtitle="What needs a reply · Gmail + Outlook"
+      envelope={envelope}
+      hasAny={hasAny}
+      accent="#EA4335"
+      icon={ICON_MAIL}
+      emptyConnect={{
+        label: "Connect inbox",
+        href: "/marketplace",
+        preview: "Your most important unread emails surface here — sender, subject, and snippet.",
+      }}
+    >
       {messages.length === 0 ? (
         <p className="muted">Inbox zero. Nice.</p>
       ) : (
@@ -708,7 +994,19 @@ function EmailCard({ envelope, hasAny }: { envelope?: TodayEnvelope["email"]; ha
 function SpotifyCard({ envelope, hasAny }: { envelope?: TodayEnvelope["spotify"]; hasAny: boolean }) {
   const np = envelope?.now_playing;
   return (
-    <Card title="Now playing" envelope={envelope} hasAny={hasAny} emptyConnect={{ label: "Connect Spotify", href: "/marketplace" }}>
+    <Card
+      title="Now playing"
+      subtitle="Live from Spotify"
+      envelope={envelope}
+      hasAny={hasAny}
+      accent="#1ED760"
+      icon={ICON_SPOTIFY}
+      emptyConnect={{
+        label: "Connect Spotify",
+        href: "/marketplace",
+        preview: "See what's playing right now, queue tracks, and pull recent listens.",
+      }}
+    >
       {!np || !np.is_playing ? (
         <p className="muted">Nothing playing.</p>
       ) : (
@@ -737,7 +1035,19 @@ function SpotifyCard({ envelope, hasAny }: { envelope?: TodayEnvelope["spotify"]
 function YouTubeCard({ envelope, hasAny }: { envelope?: TodayEnvelope["youtube"]; hasAny: boolean }) {
   const channels = envelope?.channels ?? [];
   return (
-    <Card title="YouTube — recent uploads" envelope={envelope} hasAny={hasAny} emptyConnect={{ label: "Connect Google to add YouTube", href: "/marketplace" }}>
+    <Card
+      title="YouTube — recent uploads"
+      subtitle="Latest from your channels"
+      envelope={envelope}
+      hasAny={hasAny}
+      accent="#FF0033"
+      icon={ICON_YOUTUBE}
+      emptyConnect={{
+        label: "Connect YouTube",
+        href: "/marketplace",
+        preview: "Recent uploads, view counts, and outliers across all your channels.",
+      }}
+    >
       {channels.length === 0 ? (
         <p className="muted">No YouTube channels found on this Google account.</p>
       ) : (
