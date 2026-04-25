@@ -1146,7 +1146,7 @@ function LocationPrompt({ userId }: { userId: string }) {
     }
   }
 
-  async function useCurrentLocation() {
+  async function saveCurrentLocation() {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setErr("This browser doesn't support location.");
       return;
@@ -1239,7 +1239,7 @@ function LocationPrompt({ userId }: { userId: string }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void useCurrentLocation()}
+                  onClick={() => void saveCurrentLocation()}
                   disabled={phase === "saving"}
                   className="h-8 px-3 rounded-md border border-lumo-hair bg-lumo-bg text-[12.5px] text-lumo-fg hover:bg-lumo-elevated transition-colors inline-flex items-center gap-1.5"
                 >

@@ -44,6 +44,11 @@ interface MarketplaceAgent {
     connected_at: string;
     last_used_at: string | null;
   } | null;
+  install: {
+    status: "installed" | "suspended" | "revoked";
+    installed_at: string;
+    last_used_at: string | null;
+  } | null;
 }
 
 export default function AgentDetailPage() {
@@ -128,7 +133,36 @@ export default function AgentDetailPage() {
     }
   }, [agent, agent_id, router]);
 
+  const toggleInstall = useCallback(async () => {
+    if (!agent || connecting) return;
+    setConnecting(true);
+    setError(null);
+    const installed = agent.install?.status === "installed";
+    try {
+      const res = await fetch("/api/apps/install", {
+        method: installed ? "DELETE" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agent_id: agent.agent_id }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error(j?.detail ?? j?.error ?? `HTTP ${res.status}`);
+      }
+      const fresh = await fetch("/api/marketplace", { cache: "no-store" });
+      if (fresh.ok) {
+        const data = (await fresh.json()) as { agents: MarketplaceAgent[] };
+        const found = data.agents.find((a) => a.agent_id === agent_id) ?? null;
+        setAgent(found);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConnecting(false);
+    }
+  }, [agent, agent_id, connecting]);
+
   const isConnected = agent?.connection?.status === "active";
+  const isInstalled = agent?.install?.status === "installed";
 
   if (loading) {
     return (
@@ -287,6 +321,26 @@ export default function AgentDetailPage() {
                     {agent.listing.pricing_note}
                   </div>
                 ) : null}
+              </>
+            ) : agent.connect_model === "none" ? (
+              <>
+                <button
+                  type="button"
+                  disabled={connecting}
+                  onClick={() => void toggleInstall()}
+                  className="w-full h-9 rounded-md bg-lumo-fg text-lumo-bg text-[13px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:opacity-60 transition-colors"
+                >
+                  {connecting
+                    ? "Saving…"
+                    : isInstalled
+                      ? `Remove ${agent.display_name}`
+                      : `Install ${agent.display_name}`}
+                </button>
+                <div className="text-[11px] text-lumo-fg-low text-center">
+                  {isInstalled
+                    ? "Installed apps are available to Lumo in chat."
+                    : "Install to let Lumo use this app in chat."}
+                </div>
               </>
             ) : (
               <div className="text-[12.5px] text-lumo-fg-mid">

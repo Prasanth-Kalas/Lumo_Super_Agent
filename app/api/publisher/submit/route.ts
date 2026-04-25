@@ -6,10 +6,11 @@
  * Validation steps, in order:
  *   1. Caller is an authenticated user on LUMO_PUBLISHER_EMAILS.
  *      Anyone else gets 403 — we don't even hit the URL.
- *   2. The manifest URL is reachable over HTTPS in < 5s.
- *   3. The body parses through @lumo/agent-sdk :: parseManifest.
- *   4. The referenced /openapi.json is reachable and parses.
- *   5. Idempotent upsert into partner_agents (pending status).
+ *   2. The manifest URL is certified: manifest, OpenAPI, health,
+ *      permissions, OAuth metadata, and money-tool safety checks.
+ *   3. Idempotent upsert into partner_agents. Passing agents go to
+ *      pending review; failing agents are saved as certification_failed
+ *      so publishers can see the report and resubmit after fixing.
  *
  * Anything that passes 1-4 lands in the review queue. Rejecting at
  * this layer is a gentler UX than letting a bad submission sit in
@@ -17,15 +18,13 @@
  */
 
 import type { NextRequest } from "next/server";
-import { parseManifest, type AgentManifest } from "@lumo/agent-sdk";
 import { requireServerUser } from "@/lib/auth";
 import { getSupabase } from "@/lib/db";
 import { isPublisher } from "@/lib/publisher/access";
+import { certifyAgentManifestUrl } from "@/lib/agent-certification";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const FETCH_TIMEOUT_MS = 5_000;
 
 interface Body {
   manifest_url?: unknown;
@@ -58,63 +57,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  // --- 1) Manifest reachability + schema -----------------------
-  let manifest: AgentManifest;
-  try {
-    const res = await fetchWithTimeout(manifest_url, FETCH_TIMEOUT_MS);
-    if (!res.ok) {
-      return json(
-        {
-          error: "manifest_unreachable",
-          detail: `Manifest URL returned HTTP ${res.status}.`,
-        },
-        400,
-      );
-    }
-    const rawJson = (await res.json()) as unknown;
-    manifest = parseManifest(rawJson);
-  } catch (err) {
-    return json(
-      {
-        error: "manifest_invalid",
-        detail: err instanceof Error ? err.message : "Could not read manifest.",
-      },
-      400,
-    );
-  }
+  const { report, manifest } = await certifyAgentManifestUrl(manifest_url);
 
-  // --- 2) OpenAPI reachability ---------------------------------
-  // Resolve openapi_url relative to the manifest URL so relative
-  // paths like "/openapi.json" work without the publisher hard-
-  // coding their own origin.
-  try {
-    const openapiUrl = manifest.openapi_url.startsWith("http")
-      ? manifest.openapi_url
-      : new URL(manifest.openapi_url, manifest_url).toString();
-    const res = await fetchWithTimeout(openapiUrl, FETCH_TIMEOUT_MS);
-    if (!res.ok) {
-      return json(
-        {
-          error: "openapi_unreachable",
-          detail: `openapi_url returned HTTP ${res.status}.`,
-        },
-        400,
-      );
-    }
-    await res.json();
-  } catch (err) {
-    return json(
-      {
-        error: "openapi_invalid",
-        detail: err instanceof Error ? err.message : "Could not read openapi.",
-      },
-      400,
-    );
-  }
-
-  // --- 3) Upsert into partner_agents ---------------------------
   const sb = getSupabase();
   if (!sb) return json({ error: "db_unavailable" }, 503);
+
+  const nextStatus =
+    report.status === "passed" ? "pending" : "certification_failed";
 
   const { data, error } = await sb
     .from("partner_agents")
@@ -123,35 +72,30 @@ export async function POST(req: NextRequest): Promise<Response> {
         publisher_email: user.email!.toLowerCase(),
         manifest_url,
         parsed_manifest: manifest,
-        status: "pending",
+        certification_status: report.status,
+        certification_report: report,
+        certified_at: report.checked_at,
+        status: nextStatus,
         submitted_at: new Date().toISOString(),
       },
       { onConflict: "publisher_email,manifest_url" },
     )
-    .select("id, publisher_email, manifest_url, status, submitted_at")
+    .select("id, publisher_email, manifest_url, status, certification_status, certification_report, submitted_at")
     .single();
 
   if (error) return json({ error: error.message }, 500);
 
-  return json({ submission: data });
+  return json({ submission: data, certification: report });
 }
 
 function isHttpsUrl(s: string): boolean {
   try {
     const u = new URL(s);
-    return u.protocol === "https:" || u.protocol === "http:"; // http only for local dev
+    if (u.protocol === "https:") return true;
+    if (u.protocol !== "http:") return false;
+    return ["localhost", "127.0.0.1", "::1"].includes(u.hostname);
   } catch {
     return false;
-  }
-}
-
-async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), ms);
-  try {
-    return await fetch(url, { signal: ctl.signal });
-  } finally {
-    clearTimeout(t);
   }
 }
 

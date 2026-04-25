@@ -10,10 +10,10 @@
  *      Without this, a user whose access token lapsed between clicks
  *      would hit a 401 on the next server-side read.
  *
- *   2. Gate the appstore routes and chat endpoint behind an authenticated
- *      user. Logged-out visitors to /marketplace, /connections, or
- *      /api/connections/* get redirected to /login?next=... . Unauth'd
- *      requests to /api/chat get a 401.
+ *   2. Gate app-store, publisher/admin, memory, ops, MCP, and user-data
+ *      routes behind an authenticated user. Logged-out visitors to pages
+ *      get redirected to /login?next=... . Unauth'd protected API
+ *      requests get a 401.
  *
  * Public routes (no gate):
  *
@@ -27,9 +27,9 @@
  *
  * Protected:
  *
- *   - /marketplace, /marketplace/*
- *   - /connections, /connections/*
- *   - /api/connections/*
+ *   - /marketplace, /connections, /memory, /intents, /autonomy, /ops,
+ *     /history, /onboarding, /publisher, /admin
+ *   - protected /api/* surfaces for user data, publisher/admin, MCP, and ops
  *
  * The matcher at the bottom excludes static assets, images, and Next
  * internal routes so we don't burn a DB round-trip per favicon.
@@ -76,21 +76,14 @@ const PROTECTED_API_PREFIXES = [
   // against LUMO_PUBLISHER_EMAILS / LUMO_ADMIN_EMAILS.
   "/api/publisher",
   "/api/admin",
+  // App install/remove state. OAuth connection routes are separate.
+  "/api/apps",
 ];
 
 export async function middleware(req: NextRequest) {
   // Start with a pass-through response. Supabase SSR will attach updated
   // auth cookies to this object as a side effect of getUser().
   const res = NextResponse.next({ request: { headers: req.headers } });
-
-  // Supabase Auth is optional in dev. When not configured, skip all
-  // gating and let every request through. See lib/auth.ts isAuthConfigured.
-  const supabase = getSupabaseMiddlewareClient(req, res);
-  if (!supabase) return res;
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   const { pathname, search } = req.nextUrl;
 
@@ -100,6 +93,30 @@ export async function middleware(req: NextRequest) {
   const isProtectedApi = PROTECTED_API_PREFIXES.some((p) =>
     pathname === p || pathname.startsWith(`${p}/`),
   );
+
+  const supabase = getSupabaseMiddlewareClient(req, res);
+  if (!supabase) {
+    if (isProtectedApi) {
+      return new NextResponse(
+        JSON.stringify({ error: "auth_not_configured" }),
+        {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }
+    if (isProtectedPage) {
+      return new NextResponse("Authentication is not configured.", {
+        status: 503,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+    return res;
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (isProtectedPage && !user) {
     const loginUrl = req.nextUrl.clone();

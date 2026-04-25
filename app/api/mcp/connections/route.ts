@@ -18,10 +18,8 @@
  * Security:
  *   - All routes require an authenticated user. Middleware
  *     (PROTECTED_API_PREFIXES) enforces that.
- *   - Token body is written to user_mcp_connections as plaintext
- *     today. pgcrypto encryption lands when the table has real
- *     tenant data; adding it on an empty table just complicates
- *     the service-role insert path below for no benefit.
+ *   - Token body is sealed via lib/crypto.ts before it is written to
+ *     user_mcp_connections. The table stores ciphertext, IV, and tag only.
  *   - server_id is validated against the static catalog so a
  *     malicious client can't register a token against a server
  *     slug we don't know.
@@ -31,6 +29,7 @@ import type { NextRequest } from "next/server";
 import { requireServerUser } from "@/lib/auth";
 import { getSupabase } from "@/lib/db";
 import { getMcpServer } from "@/lib/mcp/registry";
+import { sealToPgColumns } from "@/lib/sealed-token-columns";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,7 +103,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       {
         user_id: user.id,
         server_id,
-        access_token,
+        ...sealToPgColumns(access_token, "access_token"),
         status: "active",
         connected_at: new Date().toISOString(),
       },

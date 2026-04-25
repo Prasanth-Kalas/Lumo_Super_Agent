@@ -25,6 +25,7 @@ import {
   saveConnection,
 } from "@/lib/connections";
 import { constantTimeEqual } from "@/lib/crypto";
+import { permissionSnapshotForManifest } from "@/lib/app-installs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +105,10 @@ export async function GET(req: NextRequest): Promise<Response> {
       agent_id: stateRow.agent_id,
       tokens,
       scopes_granted,
+      permissions: {
+        ...permissionSnapshotForManifest(entry.manifest),
+        granted_scopes: scopes_granted,
+      },
     });
 
     const dest = stateRow.redirect_after ?? "/connections?connected=1";

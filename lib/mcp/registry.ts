@@ -32,6 +32,7 @@
 
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { openFromPgColumns } from "../sealed-token-columns.js";
 import { createMcpClient, type McpClient, type McpTool } from "./client.js";
 
 // ───────────────────────── Types ─────────────────────────
@@ -223,6 +224,18 @@ export interface McpConnectionRow {
   last_used_at: string | null;
 }
 
+interface McpConnectionDbRow {
+  id: string;
+  user_id: string;
+  server_id: string;
+  status: "active" | "revoked";
+  access_token_ciphertext?: Buffer | Uint8Array | string;
+  access_token_iv?: Buffer | Uint8Array | string;
+  access_token_tag?: Buffer | Uint8Array | string;
+  connected_at: string;
+  last_used_at: string | null;
+}
+
 export async function listMcpConnectionsForUser(
   user_id: string,
 ): Promise<McpConnectionRow[]> {
@@ -233,14 +246,49 @@ export async function listMcpConnectionsForUser(
   if (!sb) return [];
   const { data, error } = await sb
     .from("user_mcp_connections")
-    .select("id, user_id, server_id, status, access_token, connected_at, last_used_at")
+    .select(
+      [
+        "id",
+        "user_id",
+        "server_id",
+        "status",
+        "access_token_ciphertext",
+        "access_token_iv",
+        "access_token_tag",
+        "connected_at",
+        "last_used_at",
+      ].join(", "),
+    )
     .eq("user_id", user_id)
     .eq("status", "active");
   if (error) {
     console.warn("[mcp] listMcpConnectionsForUser failed:", error.message);
     return [];
   }
-  return (data ?? []) as McpConnectionRow[];
+  const rows = (data ?? []) as unknown as McpConnectionDbRow[];
+  const out: McpConnectionRow[] = [];
+  for (const row of rows) {
+    try {
+      out.push({
+        id: row.id,
+        user_id: row.user_id,
+        server_id: row.server_id,
+        status: row.status,
+        access_token: openFromPgColumns(
+          row as unknown as Record<string, unknown>,
+          "access_token",
+        ),
+        connected_at: row.connected_at,
+        last_used_at: row.last_used_at,
+      });
+    } catch (err) {
+      console.warn(
+        `[mcp] failed to decrypt connection ${row.id} (${row.server_id}); skipping:`,
+        err,
+      );
+    }
+  }
+  return out;
 }
 
 // ───────────────────────── Sanitization ─────────────────────────

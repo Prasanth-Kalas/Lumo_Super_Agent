@@ -33,20 +33,18 @@ function getPublicEnv(): { url: string; anonKey: string } | null {
   const anonKey =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
-    // Graceful fallback: Supabase Auth is optional. When env isn't set,
-    // auth-dependent paths treat the user as logged-out and the
-    // middleware no-ops (see isAuthConfigured usage below). This keeps
-    // local dev, CI, and early-stage prod running without anon keys
-    // configured.
+    // Graceful fallback for public paths. Protected pages/APIs fail
+    // closed in middleware when auth env is absent, so a misconfigured
+    // production deploy cannot render private surfaces anonymously.
     return null;
   }
   return { url, anonKey };
 }
 
 /**
- * Whether Supabase Auth is configured in this environment. Middleware
- * skips auth gating when false; server components fall through to null
- * user. No throws.
+ * Whether Supabase Auth is configured in this environment. Public server
+ * components fall through to a null user when false; protected middleware
+ * paths return 503 so auth config mistakes are visible and fail closed.
  */
 export function isAuthConfigured(): boolean {
   return getPublicEnv() !== null;

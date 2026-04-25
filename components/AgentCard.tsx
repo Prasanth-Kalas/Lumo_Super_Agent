@@ -20,6 +20,8 @@ export interface AgentCardProps {
   logo_url?: string | null;
   connected: boolean;
   connecting?: boolean;
+  status_label?: string;
+  action_label?: string;
   pricing_note?: string | null;
   onConnect?: () => void;
   /** When true, renders as a Link to the detail page. Otherwise just a card. */
@@ -46,7 +48,7 @@ export function AgentCard(props: AgentCardProps) {
             {props.connected ? (
               <span className="inline-flex items-center gap-1 text-[10.5px] uppercase tracking-wide text-lumo-ok border border-lumo-ok/30 bg-lumo-ok/10 rounded px-1.5 py-0.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-lumo-ok" />
-                Connected
+                {props.status_label ?? "Connected"}
               </span>
             ) : null}
             {props.source === "mcp" ? (
@@ -91,10 +93,9 @@ export function AgentCard(props: AgentCardProps) {
             }
           >
             {props.connecting
-              ? "Opening…"
-              : props.connected
-              ? "Manage"
-              : "Connect"}
+              ? "Saving…"
+              : props.action_label ??
+                (props.connected ? "Manage" : "Connect")}
           </button>
         ) : null}
       </div>

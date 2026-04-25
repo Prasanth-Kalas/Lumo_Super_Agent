@@ -106,7 +106,7 @@ export default function LandingPage() {
           <p className="mt-6 text-[16px] md:text-[17px] text-lumo-fg-mid max-w-2xl leading-[1.6]">
             Lumo is a conversational layer over specialist agents — flights,
             hotels, food, more on the way. One confirmation books everything;
-            if a leg fails, Lumo rolls the rest back so you're never
+            if a leg fails, Lumo rolls the rest back so you&apos;re never
             half-paid.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -226,8 +226,8 @@ export default function LandingPage() {
             Start with a single sentence.
           </h2>
           <p className="mt-4 text-[15px] text-lumo-fg-mid leading-[1.6]">
-            No onboarding. No downloads. Just a chat — and it's free while
-            we're in preview.
+            No onboarding. No downloads. Just a chat — and it&apos;s free while
+            we&apos;re in preview.
           </p>
           <div className="mt-7 flex items-center gap-3">
             <Link

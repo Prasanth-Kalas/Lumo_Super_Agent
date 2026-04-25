@@ -83,6 +83,11 @@ interface RegistryConfigFile {
   }>;
 }
 
+interface AgentBridgeCandidate {
+  entry: RegistryEntry;
+  bridge: BridgeResult;
+}
+
 const HEALTH_POLL_MS = 10_000;
 
 let _registry: Registry | null = null;
@@ -130,12 +135,13 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
   // the cancellation protocol (money tool without cancel counterpart, cancel
   // that re-prompts, etc.). Isolate the failure the same way we isolate a
   // failed manifest fetch — log loudly, drop that agent, keep the shell up.
-  const healthyEntries: RegistryEntry[] = [];
-  const bridgeResults = [];
+  const bridgeCandidates: AgentBridgeCandidate[] = [];
   for (const e of entries) {
     try {
-      bridgeResults.push(openApiToClaudeTools(e.manifest.agent_id, e.openapi));
-      healthyEntries.push(e);
+      bridgeCandidates.push({
+        entry: e,
+        bridge: openApiToClaudeTools(e.manifest.agent_id, e.openapi),
+      });
     } catch (err) {
       console.error(
         `[registry] agent "${e.key}" (${e.manifest.agent_id}) failed bridge validation — dropping from this boot:`,
@@ -143,7 +149,8 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
       );
     }
   }
-  const bridge = mergeBridges(bridgeResults);
+  const { entries: healthyEntries, bridge } =
+    mergeAgentBridgeCandidates(bridgeCandidates);
   // Replace the accumulator we were about to use for the registry map.
   entries.length = 0;
   entries.push(...healthyEntries);
@@ -162,11 +169,13 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
   // shell: each loadPartnerAgent is try/caught.
   const partners = await loadApprovedPartnerAgents();
   if (partners.length > 0) {
-    const partnerBridges = [];
+    const partnerBridgeCandidates: AgentBridgeCandidate[] = [];
     for (const p of partners) {
       try {
-        partnerBridges.push(openApiToClaudeTools(p.manifest.agent_id, p.openapi));
-        entries.push(p);
+        partnerBridgeCandidates.push({
+          entry: p,
+          bridge: openApiToClaudeTools(p.manifest.agent_id, p.openapi),
+        });
       } catch (err) {
         console.error(
           `[registry] partner agent "${p.manifest.agent_id}" failed bridge validation — dropping:`,
@@ -174,9 +183,12 @@ export async function loadRegistry(configPath?: string): Promise<Registry> {
         );
       }
     }
-    if (partnerBridges.length > 0) {
-      withInternals = mergeBridges([withInternals, ...partnerBridges]);
-    }
+    const mergedPartners = mergeAgentBridgeCandidates(
+      partnerBridgeCandidates,
+      withInternals,
+    );
+    withInternals = mergedPartners.bridge;
+    entries.push(...mergedPartners.entries);
   }
 
   const registry: Registry = {
@@ -200,8 +212,8 @@ export async function ensureRegistry(): Promise<Registry> {
 }
 
 /**
- * Filter the bridge to agents the user has actually connected (or agents
- * that don't require a connection at all). Intersects with healthyBridge.
+ * Filter the bridge to agents the user has actually installed/connected.
+ * Intersects with healthyBridge.
  *
  * Called by the orchestrator per-turn so Claude never sees tools the
  * user can't execute. If we skip this filter, Claude will happily call
@@ -210,21 +222,26 @@ export async function ensureRegistry(): Promise<Registry> {
  * wasted on a tool round-trip that was always going to fail.
  *
  * `connectedAgentIds` is the set of agent_ids for which the user has an
- * active connection. Agents with connect.model === "none" bypass this
- * check (public tools).
+ * active OAuth connection. `installedAgentIds` is the explicit app install
+ * state for connectionless apps. Anonymous sessions can opt into public
+ * connect.model === "none" tools for local/demo use.
  */
 export function userScopedBridge(
   registry: Registry,
   connectedAgentIds: ReadonlySet<string>,
+  installedAgentIds: ReadonlySet<string> = new Set(),
   minScore = 0.6,
+  allowPublicWithoutInstall = false,
 ): BridgeResult {
   const base = healthyBridge(registry, minScore);
   const eligibleAgents = new Set<string>();
   for (const e of Object.values(registry.agents)) {
     if (e.health_score < minScore) continue;
-    if (e.manifest.connect.model === "none") {
+    if (connectedAgentIds.has(e.manifest.agent_id)) {
       eligibleAgents.add(e.manifest.agent_id);
-    } else if (connectedAgentIds.has(e.manifest.agent_id)) {
+    } else if (installedAgentIds.has(e.manifest.agent_id)) {
+      eligibleAgents.add(e.manifest.agent_id);
+    } else if (allowPublicWithoutInstall && e.manifest.connect.model === "none") {
       eligibleAgents.add(e.manifest.agent_id);
     }
   }
@@ -393,6 +410,28 @@ function expandEnvRefs(input: string): string {
     }
     return v;
   });
+}
+
+function mergeAgentBridgeCandidates(
+  candidates: AgentBridgeCandidate[],
+  initial: BridgeResult = { tools: [], routing: {} },
+): { entries: RegistryEntry[]; bridge: BridgeResult } {
+  const accepted: RegistryEntry[] = [];
+  let bridge = initial;
+
+  for (const candidate of candidates) {
+    try {
+      bridge = mergeBridges([bridge, candidate.bridge]);
+      accepted.push(candidate.entry);
+    } catch (err) {
+      console.error(
+        `[registry] agent "${candidate.entry.key}" (${candidate.entry.manifest.agent_id}) failed bridge merge — dropping from catalog:`,
+        err,
+      );
+    }
+  }
+
+  return { entries: accepted, bridge };
 }
 
 async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
