@@ -42,6 +42,14 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/calendar",
   "https://www.googleapis.com/auth/contacts.readonly",
+  // YouTube scopes for /workspace creator-tab features. Read-only on the
+  // Data API for channel/video/comment reads; force-ssl for comment
+  // replies (gated by the publish confirmation card). Analytics scopes
+  // unlock the per-video performance reports.
+  "https://www.googleapis.com/auth/youtube.readonly",
+  "https://www.googleapis.com/auth/youtube.force-ssl",
+  "https://www.googleapis.com/auth/yt-analytics.readonly",
+  "https://www.googleapis.com/auth/yt-analytics-monetary.readonly",
   "openid",
   "email",
   "profile",
@@ -55,6 +63,14 @@ export const GOOGLE_SCOPE_DESCRIPTIONS: Record<string, string> = {
     "View and create events on your Google Calendar",
   "https://www.googleapis.com/auth/contacts.readonly":
     "Look up your Google Contacts (Lumo never stores them)",
+  "https://www.googleapis.com/auth/youtube.readonly":
+    "View your YouTube channels, videos, and comments",
+  "https://www.googleapis.com/auth/youtube.force-ssl":
+    "Reply to comments on your YouTube videos (always gated by your confirmation)",
+  "https://www.googleapis.com/auth/yt-analytics.readonly":
+    "Read your YouTube analytics (views, watch time, audience insights)",
+  "https://www.googleapis.com/auth/yt-analytics-monetary.readonly":
+    "Read your YouTube monetization metrics (revenue, ad performance)",
   openid: "Confirm your Google identity",
   email: "See your email address",
   profile: "See your name and profile photo",

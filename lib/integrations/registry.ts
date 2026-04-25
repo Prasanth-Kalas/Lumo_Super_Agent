@@ -283,23 +283,31 @@ function buildGoogleEntry(): RegistryEntry {
     };
   } = {
     agent_id: GOOGLE_AGENT_ID,
-    version: "0.1.0",
+    version: "0.2.0",
     domain: "personal",
-    display_name: "Google (Gmail · Calendar · Contacts)",
+    display_name: "Google (Gmail · Calendar · Contacts · YouTube)",
     one_liner:
-      "Let Lumo read your email, see your calendar, and look up your contacts — data stays on Google, never saved in Lumo.",
+      "Email, calendar, contacts, and your YouTube channels — all under one Google connection. Reads on demand, never stored in Lumo.",
     intents: [
       "search_email",
       "read_email",
       "list_calendar",
       "create_calendar_event",
       "search_contacts",
+      // YouTube intents — surface in /workspace and via chat.
+      "youtube_channel_overview",
+      "youtube_video_analytics",
+      "youtube_comments_list",
+      "youtube_reply_draft",
     ],
     example_utterances: [
       "find the latest email from my bank",
       "what's on my calendar tomorrow afternoon",
       "send a calendar invite to alex@example.com for dinner Friday 7pm",
       "what's the phone number for Sam",
+      "show me my top YouTube videos this month",
+      "draft a reply to the latest comment on my last upload",
+      "what's my channel watch time looking like the last 30 days",
     ],
     // openapi_url is required by the SDK schema; we set a self-
     // referential sentinel since there's no real OpenAPI doc. The
@@ -338,13 +346,14 @@ function buildGoogleEntry(): RegistryEntry {
     },
     listing: {
       category: "Personal",
-      pricing_note: "Free · read-only by default",
+      pricing_note: "Free · read-only by default · YouTube replies always confirmed first",
       about_paragraphs: [
         "Lumo reads from your Google account at the moment you ask — and only what you ask for. Nothing is saved in Lumo's database.",
+        "YouTube channels and videos appear automatically in /workspace once you connect. Lumo can draft comment replies for you, but every reply requires your tap-to-confirm before it ships.",
         "You can disconnect at any time from /connections or revoke access at myaccount.google.com/permissions.",
       ],
       privacy_note:
-        "Your Gmail messages and Contacts are never stored in Lumo. They pass through a single request to Google on your behalf and are forgotten at turn end. Calendar events you ask Lumo to create are created directly on your calendar.",
+        "Your Gmail messages and Contacts are never stored in Lumo — they pass through a single request to Google on your behalf and are forgotten at turn end. Calendar events you ask Lumo to create are created directly on your calendar. YouTube analytics snapshots are cached briefly so the dashboard renders during quota / network hiccups, never longer than 90 days, and only ever for your own channels.",
     },
   };
 
