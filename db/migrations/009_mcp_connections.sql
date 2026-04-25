@@ -1,8 +1,8 @@
 -- Migration 009 — per-user MCP server connections.
 --
--- Phase 1 of external-agents stores bearer tokens directly. This is
--- deliberately simpler than the OAuth flow in user_agent_connections
--- (migration 004) because most useful MCP servers today are either
+-- Phase 1 of external-agents stores bearer tokens in the same sealed
+-- column shape as agent_connections (migration 004). Most useful MCP
+-- servers today are either
 -- public (no auth) or accept a long-lived bearer token the user
 -- generated themselves (Google Cloud API key, Slack xoxb, etc.).
 --
@@ -12,10 +12,8 @@
 -- user_agent_connections. For now, keep it small.
 --
 -- Security:
---   - access_token is stored in plaintext today. Apply pgcrypto
---     column encryption in a follow-up migration once the column is
---     in use by real users; bolting it on now while the table is
---     empty is simpler than migrating live secrets later.
+--   - access_token is sealed in Node with AES-256-GCM via lib/crypto.ts.
+--     The DB stores ciphertext, IV, and auth tag only.
 --   - RLS: users can only read their own rows. Same pattern the
 --     rest of the per-user tables use.
 
@@ -26,11 +24,38 @@ create table if not exists user_mcp_connections (
   -- because the catalog is file-based, not a DB table.
   server_id text not null,
   status text not null default 'active' check (status in ('active', 'revoked')),
-  access_token text,
+  access_token_ciphertext bytea not null,
+  access_token_iv bytea not null,
+  access_token_tag bytea not null,
   connected_at timestamptz not null default now(),
   last_used_at timestamptz,
   unique (user_id, server_id)
 );
+
+-- Retrofit early environments that created this table with a plaintext
+-- access_token column. Existing plaintext tokens cannot be safely sealed
+-- from SQL because AES-GCM sealing lives in Node, so revoke those rows
+-- and require users to reconnect.
+alter table user_mcp_connections
+  add column if not exists access_token_ciphertext bytea;
+
+alter table user_mcp_connections
+  add column if not exists access_token_iv bytea;
+
+alter table user_mcp_connections
+  add column if not exists access_token_tag bytea;
+
+update user_mcp_connections
+set status = 'revoked'
+where status = 'active'
+  and (
+    access_token_ciphertext is null
+    or access_token_iv is null
+    or access_token_tag is null
+  );
+
+alter table user_mcp_connections
+  drop column if exists access_token;
 
 create index if not exists user_mcp_connections_user_active_idx
   on user_mcp_connections (user_id)

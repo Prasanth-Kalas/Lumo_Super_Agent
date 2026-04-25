@@ -53,11 +53,12 @@ const MAX_PATTERNS_PER_USER = 8;
 
 export async function GET(req: NextRequest): Promise<Response> {
   const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const got = req.headers.get("authorization") ?? "";
-    if (got !== `Bearer ${expected}`) {
-      return json({ error: "unauthorized" }, 401);
-    }
+  if (!expected) {
+    return json({ error: "cron_secret_missing" }, 503);
+  }
+  const got = req.headers.get("authorization") ?? "";
+  if (got !== `Bearer ${expected}`) {
+    return json({ error: "unauthorized" }, 401);
   }
 
   const db = getSupabase();

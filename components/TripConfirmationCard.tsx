@@ -635,14 +635,14 @@ function DispatchFooter({
         className="text-[12px] font-medium text-lumo-warn"
         aria-live="polite"
       >
-        Rolled back — you haven't been charged
+        Rolled back — you haven&apos;t been charged
       </div>
     );
   }
   if (agg === "partial_failure") {
     return (
       <div className="text-[12px] font-medium text-lumo-err" aria-live="polite">
-        Something failed — checking what's recoverable
+        Something failed — checking what&apos;s recoverable
       </div>
     );
   }

@@ -26,8 +26,9 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { ensureRegistry, healthyBridge, userScopedBridge } from "./agent-registry.js";
+import { ensureRegistry, userScopedBridge } from "./agent-registry.js";
 import { listConnectionsForUser } from "./connections.js";
+import { listInstalledAgentsForUser } from "./app-installs.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
 import { dispatchMcpTool, isMcpToolName } from "./mcp/dispatch.js";
@@ -233,10 +234,23 @@ export async function runTurn(
     input.user_id && input.user_id !== "anon"
       ? await listConnectionsForUser(input.user_id)
       : [];
+  const installs =
+    input.user_id && input.user_id !== "anon"
+      ? await listInstalledAgentsForUser(input.user_id)
+      : [];
   const connectedAgentIds = new Set(
     connections.filter((c) => c.status === "active").map((c) => c.agent_id),
   );
-  const bridge = userScopedBridge(registry, connectedAgentIds);
+  const installedAgentIds = new Set(
+    installs.filter((i) => i.status === "installed").map((i) => i.agent_id),
+  );
+  const bridge = userScopedBridge(
+    registry,
+    connectedAgentIds,
+    installedAgentIds,
+    0.6,
+    input.user_id === "anon",
+  );
 
   // ── JARVIS memory + ambient (J1/J4) ─────────────────────────────────
   // Retrieve the user's profile, top-relevant facts, and high-confidence

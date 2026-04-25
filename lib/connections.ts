@@ -19,6 +19,7 @@
 import type { AgentConnectOAuth2 } from "@lumo/agent-sdk";
 import { getSupabase } from "./db.js";
 import { open, seal, mintConnectionId, type SealedSecret } from "./crypto.js";
+import { upsertAgentInstall } from "./app-installs.js";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Types
@@ -93,6 +94,7 @@ export async function saveConnection(args: {
   agent_id: string;
   tokens: TokenMaterial;
   scopes_granted: string[];
+  permissions?: Record<string, unknown>;
 }): Promise<ConnectionMeta> {
   const db = getSupabase();
   if (!db) {
@@ -167,7 +169,19 @@ export async function saveConnection(args: {
     );
   }
 
-  return toConnectionMeta(data);
+  const meta = toConnectionMeta(data);
+  void upsertAgentInstall({
+    user_id: args.user_id,
+    agent_id: args.agent_id,
+    permissions: args.permissions ?? {
+      connect_model: "oauth2",
+      granted_scopes: args.scopes_granted,
+      captured_at: new Date().toISOString(),
+    },
+    install_source: "oauth",
+  });
+
+  return meta;
 }
 
 /**

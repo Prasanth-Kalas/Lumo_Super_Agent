@@ -30,6 +30,10 @@ import {
   ConnectionError,
 } from "./connections.js";
 import { dispatchInternalTool, isInternalAgent } from "./integrations/registry.js";
+import {
+  evaluateRuntimePolicy,
+  recordRuntimeUsage,
+} from "./runtime-policy.js";
 
 export interface DispatchContext {
   user_id: string;
@@ -150,6 +154,37 @@ export async function dispatchToolCall(
     }
   }
 
+  const runtimePolicy = await evaluateRuntimePolicy({
+    user_id: ctx.user_id,
+    agent_id: agent.manifest.agent_id,
+    display_name: agent.manifest.display_name,
+    connect_model: agent.manifest.connect.model,
+    tool_name: toolName,
+    cost_tier: routing.cost_tier,
+    has_active_connection: connectionId !== null,
+  });
+  if (!runtimePolicy.ok) {
+    return failure(
+      mapPolicyToAgentError(runtimePolicy.code),
+      runtimePolicy.message ?? "This app cannot be used right now.",
+      started,
+      runtimePolicy.detail,
+    );
+  }
+
+  const finish = (outcome: DispatchOutcome): DispatchOutcome => {
+    void recordRuntimeUsage({
+      user_id: ctx.user_id,
+      agent_id: agent.manifest.agent_id,
+      tool_name: toolName,
+      cost_tier: routing.cost_tier,
+      ok: outcome.ok,
+      error_code: outcome.ok ? undefined : outcome.error.code,
+      latency_ms: outcome.latency_ms,
+    });
+    return outcome;
+  };
+
   // ── Internal integration dispatch ──────────────────────────────
   // Gmail/Calendar/Contacts run in-process. No HTTP round-trip, no
   // PII body injection (the upstream API already has the user's
@@ -157,10 +192,12 @@ export async function dispatchToolCall(
   // gate, circuit-breaker accounting, latency tracking — still runs.
   if (isInternalAgent(agent.manifest.agent_id)) {
     if (!authHeader) {
-      return failure(
-        "connection_required",
-        `Connect ${agent.manifest.display_name} before using this.`,
-        started,
+      return finish(
+        failure(
+          "connection_required",
+          `Connect ${agent.manifest.display_name} before using this.`,
+          started,
+        ),
       );
     }
     try {
@@ -173,7 +210,7 @@ export async function dispatchToolCall(
       });
       recordSuccess(routing.agent_id);
       if (connectionId) void touchLastUsed(connectionId);
-      return { ok: true, result, latency_ms: Date.now() - started };
+      return finish({ ok: true, result, latency_ms: Date.now() - started });
     } catch (err) {
       recordFailure(routing.agent_id);
       const status =
@@ -181,12 +218,14 @@ export async function dispatchToolCall(
           ? (err as { http_status: number }).http_status
           : 500;
       const message = err instanceof Error ? err.message : String(err);
-      return failure(
-        status === 401 || status === 403
-          ? "connection_refresh_failed"
-          : mapHttpToCode(status),
-        message,
-        started,
+      return finish(
+        failure(
+          status === 401 || status === 403
+            ? "connection_refresh_failed"
+            : mapHttpToCode(status),
+          message,
+          started,
+        ),
       );
     }
   }
@@ -216,16 +255,18 @@ export async function dispatchToolCall(
     if (!res.ok) {
       recordFailure(routing.agent_id);
       const detail = await safeJson(res);
-      return {
-        ok: false,
-        error: {
-          code: mapHttpToCode(res.status),
-          message: `Agent returned ${res.status}`,
-          detail: isRecord(detail) ? detail : undefined,
-          at: new Date().toISOString(),
+      return finish(
+        {
+          ok: false,
+          error: {
+            code: mapHttpToCode(res.status),
+            message: `Agent returned ${res.status}`,
+            detail: isRecord(detail) ? detail : undefined,
+            at: new Date().toISOString(),
+          },
+          latency_ms,
         },
-        latency_ms,
-      };
+      );
     }
 
     const result = await res.json();
@@ -234,14 +275,16 @@ export async function dispatchToolCall(
     // /connections UI can render "Last used Xm ago" without the router
     // paying the DB round-trip synchronously.
     if (connectionId) void touchLastUsed(connectionId);
-    return { ok: true, result, latency_ms };
+    return finish({ ok: true, result, latency_ms });
   } catch (err) {
     recordFailure(routing.agent_id);
     const isAbort = err instanceof Error && err.name === "AbortError";
-    return failure(
-      isAbort ? "upstream_timeout" : "upstream_error",
-      err instanceof Error ? err.message : String(err),
-      started,
+    return finish(
+      failure(
+        isAbort ? "upstream_timeout" : "upstream_error",
+        err instanceof Error ? err.message : String(err),
+        started,
+      ),
     );
   }
 }
@@ -276,6 +319,14 @@ function mapHttpToCode(status: number): LumoAgentError["code"] {
   if (status === 422) return "invalid_input";
   if (status >= 500) return "upstream_error";
   return "upstream_error";
+}
+
+function mapPolicyToAgentError(
+  code: Awaited<ReturnType<typeof evaluateRuntimePolicy>>["code"],
+): LumoAgentError["code"] {
+  if (code === "rate_limited") return "rate_limited";
+  if (code === "app_not_installed") return "connection_required";
+  return "not_available";
 }
 
 function filterPii(

@@ -30,6 +30,20 @@
       "base_url": "http://localhost:3004",
       "version": "^0.1.0",
       "_notes": "Lumo-Hotel-Agent (new repo). Amadeus Self-Service mock-first — test.api.amadeus.com is self-serve so no partner gating, but we scaffold against the in-memory catalog first to keep orchestrator work unblocked. Flip to real once AMADEUS_CLIENT_ID+AMADEUS_CLIENT_SECRET are wired. Local dev port 3004."
+    },
+    {
+      "key": "open-weather",
+      "enabled": true,
+      "base_url": "http://localhost:3005",
+      "version": "^0.1.0",
+      "_notes": "Lumo Open Weather Agent. Open-Meteo forecasts globally and NWS alerts for US coordinates. Local dev port 3005."
+    },
+    {
+      "key": "open-maps",
+      "enabled": true,
+      "base_url": "http://localhost:3006",
+      "version": "^0.1.0",
+      "_notes": "Lumo Open Maps Agent. Nominatim geocoding and OSRM driving route/matrix estimates. Local dev port 3006."
     }
   ]
 }

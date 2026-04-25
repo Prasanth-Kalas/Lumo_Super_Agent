@@ -42,11 +42,12 @@ export async function GET(req: NextRequest): Promise<Response> {
   // Vercel's cron scheduler attaches `Authorization: Bearer <CRON_SECRET>`.
   // A curl from the internet has neither — 401 out.
   const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const got = req.headers.get("authorization") ?? "";
-    if (got !== `Bearer ${expected}`) {
-      return json({ error: "unauthorized" }, 401);
-    }
+  if (!expected) {
+    return json({ error: "cron_secret_missing" }, 503);
+  }
+  const got = req.headers.get("authorization") ?? "";
+  if (got !== `Bearer ${expected}`) {
+    return json({ error: "unauthorized" }, 401);
   }
 
   const db = getSupabase();

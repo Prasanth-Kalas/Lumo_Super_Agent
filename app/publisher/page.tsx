@@ -29,11 +29,27 @@ interface Submission {
   id: string;
   publisher_email: string;
   manifest_url: string;
-  status: "pending" | "approved" | "rejected" | "revoked";
+  status: "pending" | "certification_failed" | "approved" | "rejected" | "revoked";
+  certification_status: "passed" | "needs_review" | "failed" | null;
+  certification_report: CertificationReport | null;
+  certified_at: string | null;
   submitted_at: string;
   reviewed_at: string | null;
   reviewer_note: string | null;
   publisher_key: string | null;
+}
+
+interface CertificationReport {
+  checked_at: string;
+  status: "passed" | "needs_review" | "failed";
+  summary: Record<"blocker" | "high" | "medium" | "low" | "info", number>;
+  findings: Array<{
+    severity: "blocker" | "high" | "medium" | "low" | "info";
+    code: string;
+    message: string;
+    evidence?: string;
+  }>;
+  tools: Array<{ name: string; cost_tier: string }>;
 }
 
 interface Me {
@@ -47,6 +63,8 @@ export default function PublisherPage() {
   const [submissions, setSubmissions] = useState<Submission[] | null>(null);
   const [manifestUrl, setManifestUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [certifying, setCertifying] = useState(false);
+  const [preflight, setPreflight] = useState<CertificationReport | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -103,11 +121,38 @@ export default function PublisherPage() {
         );
       }
       setManifestUrl("");
+      setPreflight(null);
       await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function certify() {
+    const url = manifestUrl.trim();
+    if (!url || certifying) return;
+    setCertifying(true);
+    setErr(null);
+    setPreflight(null);
+    try {
+      const res = await fetch("/api/publisher/certify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ manifest_url: url }),
+      });
+      const j = (await res.json().catch(() => null)) as
+        | { certification?: CertificationReport; error?: string; detail?: string }
+        | null;
+      if (!res.ok) {
+        throw new Error(j?.detail ?? j?.error ?? `HTTP ${res.status}`);
+      }
+      setPreflight(j?.certification ?? null);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCertifying(false);
     }
   }
 
@@ -171,6 +216,8 @@ export default function PublisherPage() {
             </div>
           ) : null}
 
+          <CertificationPanel report={preflight} />
+
           <div className="flex items-center justify-between pt-1">
             <Link
               href="https://github.com/Prasanth-Kalas/Lumo_Agent_Starter"
@@ -179,13 +226,23 @@ export default function PublisherPage() {
             >
               Starter template →
             </Link>
-            <button
-              type="submit"
-              disabled={busy || !manifestUrl.trim() || !me?.email}
-              className="h-8 px-3 rounded-md bg-lumo-fg text-lumo-bg text-[12.5px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low transition-colors"
-            >
-              {busy ? "Submitting…" : "Submit for review"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void certify()}
+                disabled={certifying || busy || !manifestUrl.trim() || !me?.email}
+                className="h-8 px-3 rounded-md border border-lumo-hair text-lumo-fg-mid text-[12.5px] hover:bg-lumo-elevated hover:text-lumo-fg disabled:opacity-50 transition-colors"
+              >
+                {certifying ? "Checking…" : "Run checks"}
+              </button>
+              <button
+                type="submit"
+                disabled={busy || !manifestUrl.trim() || !me?.email}
+                className="h-8 px-3 rounded-md bg-lumo-fg text-lumo-bg text-[12.5px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low transition-colors"
+              >
+                {busy ? "Submitting…" : "Submit for review"}
+              </button>
+            </div>
           </div>
         </form>
 
@@ -232,6 +289,7 @@ export default function PublisherPage() {
                           {s.reviewer_note}
                         </div>
                       ) : null}
+                      <CertificationPanel report={s.certification_report} />
                       {s.status === "approved" && s.publisher_key ? (
                         <div className="mt-1 text-[11.5px] text-lumo-fg-low num">
                           publisher key:{" "}
@@ -265,6 +323,8 @@ function StatusPill({ status }: { status: Submission["status"] }) {
   const label =
     status === "pending"
       ? "in review"
+      : status === "certification_failed"
+        ? "cert failed"
       : status === "approved"
         ? "approved"
         : status === "rejected"
@@ -275,6 +335,8 @@ function StatusPill({ status }: { status: Submission["status"] }) {
       ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
       : status === "pending"
         ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+        : status === "certification_failed"
+          ? "bg-red-500/10 text-red-400 border-red-500/20"
         : "bg-red-500/10 text-red-400 border-red-500/20";
   return (
     <span
@@ -285,6 +347,43 @@ function StatusPill({ status }: { status: Submission["status"] }) {
     >
       {label}
     </span>
+  );
+}
+
+function CertificationPanel({ report }: { report: CertificationReport | null }) {
+  if (!report) return null;
+  const blocking = report.findings.filter(
+    (f) => f.severity === "blocker" || f.severity === "high",
+  );
+  const visible = blocking.length > 0 ? blocking : report.findings.slice(0, 3);
+  const tone =
+    report.status === "passed"
+      ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-300"
+      : report.status === "needs_review"
+        ? "border-amber-500/20 bg-amber-500/5 text-amber-300"
+        : "border-red-500/20 bg-red-500/5 text-red-300";
+  return (
+    <div className={`mt-3 rounded-md border px-3 py-2 ${tone}`}>
+      <div className="flex items-center justify-between gap-2 text-[11.5px]">
+        <span className="uppercase tracking-[0.12em]">
+          certification {report.status.replace("_", " ")}
+        </span>
+        <span className="text-lumo-fg-low">
+          {report.tools.length} tool{report.tools.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      {visible.length > 0 ? (
+        <ul className="mt-2 space-y-1">
+          {visible.map((f) => (
+            <li key={`${f.code}:${f.evidence ?? ""}`} className="text-[12px]">
+              <span className="font-medium">{f.code}</span>: {f.message}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="mt-2 text-[12px]">No blocking findings.</div>
+      )}
+    </div>
   );
 }
 

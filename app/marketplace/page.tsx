@@ -41,6 +41,11 @@ interface MarketplaceAgent {
     connected_at: string;
     last_used_at: string | null;
   } | null;
+  install: {
+    status: "installed" | "suspended" | "revoked";
+    installed_at: string;
+    last_used_at: string | null;
+  } | null;
 }
 
 export default function MarketplacePage() {
@@ -141,6 +146,32 @@ export default function MarketplacePage() {
     [connecting, pathname],
   );
 
+  const toggleInstall = useCallback(
+    async (agent: MarketplaceAgent) => {
+      if (connecting) return;
+      setConnecting(agent.agent_id);
+      setError(null);
+      const installed = agent.install?.status === "installed";
+      try {
+        const res = await fetch("/api/apps/install", {
+          method: installed ? "DELETE" : "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ agent_id: agent.agent_id }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => null);
+          throw new Error(j?.detail ?? j?.error ?? `HTTP ${res.status}`);
+        }
+        await refreshCatalog();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setConnecting(null);
+      }
+    },
+    [connecting, refreshCatalog],
+  );
+
   return (
     <main className="min-h-dvh bg-lumo-bg text-lumo-fg-high">
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/80 backdrop-blur-md">
@@ -227,14 +258,29 @@ export default function MarketplacePage() {
                 category={a.listing?.category ?? null}
                 logo_url={a.listing?.logo_url ?? null}
                 pricing_note={a.listing?.pricing_note ?? null}
-                connected={a.connection?.status === "active"}
+                connected={
+                  a.connection?.status === "active" ||
+                  a.install?.status === "installed"
+                }
+                status_label={
+                  a.connection?.status === "active" ? "Connected" : "Installed"
+                }
                 connecting={connecting === a.agent_id}
+                action_label={
+                  a.connect_model === "none"
+                    ? a.install?.status === "installed"
+                      ? "Remove"
+                      : "Install"
+                    : undefined
+                }
                 source={a.source}
                 onConnect={
-                  a.connect_model === "oauth2" ||
-                  a.connect_model === "mcp_bearer"
-                    ? () => void startConnect(a)
-                    : undefined
+                  a.connect_model === "none" && a.source !== "mcp"
+                    ? () => void toggleInstall(a)
+                    : a.connect_model === "oauth2" ||
+                        a.connect_model === "mcp_bearer"
+                      ? () => void startConnect(a)
+                      : undefined
                 }
                 linkToDetail={a.source !== "mcp"}
               />

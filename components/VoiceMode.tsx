@@ -963,7 +963,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         // ignore
       }
     };
-  }, [enabled, state, startListening]);
+  }, [enabled, state, startListening, stopPremiumAudio]);
 
   // ─── J5 — wake word lifecycle ───────────────────────────────
   // When voice is enabled AND we're idle, listen for "Hey Lumo" (or
@@ -1038,7 +1038,7 @@ export default function VoiceMode(props: VoiceModeProps) {
   if (state === "unsupported" && enabled) {
     return (
       <div className="rounded-xl border border-lumo-border bg-lumo-bg-subtle px-3 py-2 text-[12px] text-lumo-fg-low">
-        Voice isn't supported in this browser. Try Chrome or Safari on
+        Voice isn&apos;t supported in this browser. Try Chrome or Safari on
         a device with a microphone, or keep going in text mode.
         <button
           className="ml-2 underline"

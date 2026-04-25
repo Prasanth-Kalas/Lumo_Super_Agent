@@ -10,6 +10,7 @@ This section is for engineers building specialist agents that Lumo can orchestra
 - **[OAuth integration](oauth-integration.md)** — How to wire an agent whose `connect_model` is `oauth2` (scopes, redirect URIs, PKCE).
 - **[Lumo-ID integration](lumo-id-integration.md)** — First-party / internal-dispatch agents (no OAuth, baked into the registry).
 - **[Testing your agent](testing-your-agent.md)** — Local dev setup, fixture patterns, registry health probes.
+- **[App Store platform](appstore-platform.md)** — Deployment models, lifecycle states, certification gates, and runtime trust boundaries.
 - **[Publishing](publishing.md)** — Getting your agent into a Lumo deployment's registry.
 - **[Example agents](example-agents.md)** — Tour of the four reference agents that ship with Lumo.
 - **[FAQ](faq.md)** — Common gotchas.

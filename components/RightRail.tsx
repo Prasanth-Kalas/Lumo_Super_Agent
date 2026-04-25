@@ -263,7 +263,7 @@ function MemoryPanel({ refreshKey }: { refreshKey?: number | string }) {
           <div className="text-[13px] text-lumo-fg">Nothing saved yet.</div>
           <div className="mt-1 text-[12px] text-lumo-fg-low leading-relaxed">
             Tell me about yourself — preferences, allergies, where you
-            live — and I'll remember. Try: <em className="text-lumo-fg">&ldquo;I'm vegetarian and I prefer aisle seats.&rdquo;</em>
+            live — and I&apos;ll remember. Try: <em className="text-lumo-fg">&ldquo;I&apos;m vegetarian and I prefer aisle seats.&rdquo;</em>
           </div>
         </div>
       ) : (

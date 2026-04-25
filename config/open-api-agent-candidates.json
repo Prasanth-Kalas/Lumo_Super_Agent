@@ -1,0 +1,215 @@
+{
+  "$schema_hint": "Candidate first-party agents backed by public/self-service APIs. These are not auto-loaded by lib/agent-registry.ts until a matching agent service is implemented and added to agents.registry*.json.",
+  "last_reviewed": "2026-04-24",
+  "candidates": [
+    {
+      "agent_id": "open-weather",
+      "display_name": "Open Weather",
+      "category": "Travel",
+      "connect_model": "none",
+      "status": "built_first_party",
+      "primary_apis": [
+        {
+          "name": "Open-Meteo Forecast API",
+          "docs_url": "https://open-meteo.com/",
+          "auth": "none for non-commercial/fair use",
+          "env": []
+        },
+        {
+          "name": "National Weather Service API",
+          "docs_url": "https://www.weather.gov/documentation/services-web-api",
+          "auth": "none, but a descriptive User-Agent is required",
+          "env": ["NWS_USER_AGENT"]
+        }
+      ],
+      "tools": [
+        "weather_geocode",
+        "weather_forecast",
+        "weather_alerts"
+      ],
+      "notes": "Implemented in Lumo_Open_Weather_Agent_Web. Good default utility agent for trip planning. Use Open-Meteo globally and NWS alerts for US trips."
+    },
+    {
+      "agent_id": "open-maps",
+      "display_name": "Open Maps",
+      "category": "Travel",
+      "connect_model": "none",
+      "status": "built_first_party",
+      "primary_apis": [
+        {
+          "name": "OpenStreetMap Nominatim",
+          "docs_url": "https://operations.osmfoundation.org/policies/nominatim/",
+          "auth": "none on public instance; strict usage policy",
+          "env": ["NOMINATIM_USER_AGENT"]
+        },
+        {
+          "name": "OSRM",
+          "docs_url": "https://project-osrm.org/docs/v26.4.0/",
+          "auth": "none when self-hosted or using an approved hosted endpoint",
+          "env": ["OSRM_BASE_URL"]
+        }
+      ],
+      "tools": [
+        "maps_geocode",
+        "maps_reverse_geocode",
+        "maps_route",
+        "maps_distance_matrix"
+      ],
+      "notes": "Implemented in Lumo_Open_Maps_Agent_Web. Use for cabs/ground-transport estimates before ride partners deploy. Public Nominatim must be throttled; self-host for production."
+    },
+    {
+      "agent_id": "open-attractions",
+      "display_name": "Open Attractions",
+      "category": "Travel",
+      "connect_model": "none",
+      "status": "ready_to_build_with_server_key",
+      "primary_apis": [
+        {
+          "name": "OpenTripMap",
+          "docs_url": "https://dev.opentripmap.org/",
+          "auth": "server API key",
+          "env": ["OPENTRIPMAP_API_KEY"]
+        }
+      ],
+      "tools": [
+        "attractions_search",
+        "attractions_details",
+        "attractions_autosuggest"
+      ],
+      "notes": "Use for destination discovery, Vegas itinerary suggestions, and neighborhood context. Read-only."
+    },
+    {
+      "agent_id": "open-events",
+      "display_name": "Open Events",
+      "category": "Events",
+      "connect_model": "none",
+      "status": "ready_to_build_with_server_key",
+      "primary_apis": [
+        {
+          "name": "Ticketmaster Discovery API",
+          "docs_url": "https://developer.ticketmaster.com/products-and-docs/apis/discovery-api/v2/",
+          "auth": "server API key",
+          "env": ["TICKETMASTER_API_KEY"]
+        }
+      ],
+      "tools": [
+        "events_search",
+        "events_get",
+        "venues_search"
+      ],
+      "notes": "Discovery and deep links only. Ticket purchase should remain a handoff until commerce/partner access is approved."
+    },
+    {
+      "agent_id": "open-air-quality",
+      "display_name": "Open Air Quality",
+      "category": "Travel",
+      "connect_model": "none",
+      "status": "ready_to_build_with_server_key",
+      "primary_apis": [
+        {
+          "name": "OpenAQ API v3",
+          "docs_url": "https://docs.openaq.org/about/about",
+          "auth": "server API key in X-API-Key",
+          "env": ["OPENAQ_API_KEY"]
+        }
+      ],
+      "tools": [
+        "air_quality_nearby",
+        "air_quality_latest",
+        "air_quality_history"
+      ],
+      "notes": "Useful travel-health context. Read-only and not a medical authority."
+    },
+    {
+      "agent_id": "open-ev-charging",
+      "display_name": "Open EV Charging",
+      "category": "Ground Transport",
+      "connect_model": "none",
+      "status": "ready_to_build",
+      "primary_apis": [
+        {
+          "name": "Open Charge Map",
+          "docs_url": "https://www.openchargemap.org/develop/api",
+          "auth": "public/community API; use a server key if issued",
+          "env": ["OPENCHARGEMAP_API_KEY"]
+        }
+      ],
+      "tools": [
+        "ev_chargers_nearby",
+        "ev_charger_details"
+      ],
+      "notes": "Useful for road trips and rental-car planning. Not a booking/payment agent."
+    },
+    {
+      "agent_id": "open-transit",
+      "display_name": "Open Transit",
+      "category": "Ground Transport",
+      "connect_model": "none",
+      "status": "ready_to_build_with_server_key",
+      "primary_apis": [
+        {
+          "name": "Transitland v2 REST API",
+          "docs_url": "https://www.transit.land/documentation/rest-api",
+          "auth": "server API key",
+          "env": ["TRANSITLAND_API_KEY"]
+        }
+      ],
+      "tools": [
+        "transit_stops_nearby",
+        "transit_routes_nearby",
+        "transit_schedule_lookup"
+      ],
+      "notes": "Good public-transit fallback before ride/cab partners expose first-party booking agents."
+    },
+    {
+      "agent_id": "places-search",
+      "display_name": "Places Search",
+      "category": "Local",
+      "connect_model": "none",
+      "status": "partner_or_paid_key_required",
+      "primary_apis": [
+        {
+          "name": "Foursquare Places API",
+          "docs_url": "https://docs.foursquare.com/developer/reference/places-api-overview",
+          "auth": "server API key / plan",
+          "env": ["FOURSQUARE_API_KEY"]
+        },
+        {
+          "name": "Yelp AI / Agentic API",
+          "docs_url": "https://docs.developer.yelp.com/docs/yelp-ai-api",
+          "auth": "server API key / Yelp developer access",
+          "env": ["YELP_API_KEY"]
+        }
+      ],
+      "tools": [
+        "places_search",
+        "places_details",
+        "places_recommend"
+      ],
+      "notes": "Good for restaurant/local discovery. Do not treat as reservation or ordering unless a partner commerce API is separately approved."
+    },
+    {
+      "agent_id": "amadeus-travel",
+      "display_name": "Amadeus Travel",
+      "category": "Travel",
+      "connect_model": "none",
+      "status": "already_partially_covered_by_flight_and_hotel_agents",
+      "primary_apis": [
+        {
+          "name": "Amadeus Self-Service APIs",
+          "docs_url": "https://developers.amadeus.com/self-service/apis-docs/guides/developer-guides/faq/",
+          "auth": "OAuth client credentials / server API key",
+          "env": ["AMADEUS_CLIENT_ID", "AMADEUS_CLIENT_SECRET"]
+        }
+      ],
+      "tools": [
+        "flight_search",
+        "flight_price",
+        "flight_book",
+        "hotel_search",
+        "hotel_book"
+      ],
+      "notes": "Keep as separate Flight and Hotel agents in Lumo. Production booking has market/legal/consolidator requirements."
+    }
+  ]
+}
