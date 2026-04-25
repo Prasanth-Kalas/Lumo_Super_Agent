@@ -111,7 +111,18 @@ export async function POST(req: NextRequest): Promise<Response> {
   authorizeUrl.searchParams.set("response_type", "code");
   authorizeUrl.searchParams.set("client_id", clientId);
   authorizeUrl.searchParams.set("redirect_uri", redirect_uri);
-  authorizeUrl.searchParams.set("scope", scopeString);
+
+  // Meta (Facebook Login for Business) requires `config_id` instead of
+  // raw `scope=` query params — scopes are bundled inside a Configuration
+  // owned by the same app. Other OAuth2 providers (Google, Microsoft,
+  // Spotify) all use the standard `scope` param.
+  if (body.agent_id === "meta") {
+    const configId = (process.env.LUMO_META_CONFIG_ID ?? "3084025388467252").trim();
+    authorizeUrl.searchParams.set("config_id", configId);
+    // PKCE works fine alongside config_id on FB Login for Business.
+  } else {
+    authorizeUrl.searchParams.set("scope", scopeString);
+  }
   authorizeUrl.searchParams.set("state", state);
   authorizeUrl.searchParams.set("code_challenge", code_challenge);
   authorizeUrl.searchParams.set("code_challenge_method", "S256");

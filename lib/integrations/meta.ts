@@ -45,74 +45,76 @@ export function getMetaApiVersion(): string {
 }
 
 /**
- * Scopes we request on the authorize trip. Bundles V1.2 IG + V1.3 FB
- * Pages + V1.3 Messenger so a single consent screen unlocks
- * everything we'll wire over the next two sub-versions.
+ * Scopes the user grants when they Connect.
  *
- * Notes per scope:
- *   - business_management — required to enumerate the user's Business
- *     Portfolio assets (Pages + IG accounts under one umbrella).
- *   - pages_show_list — list every Page the user admins.
- *   - pages_read_engagement — read Page posts + insights.
- *   - pages_manage_posts — publish / edit / delete Page posts.
- *   - pages_manage_engagement — reply / hide / delete Page comments.
- *   - pages_manage_metadata — webhook subscriptions + Page settings.
- *   - pages_messaging — send + receive DMs through Messenger.
- *   - instagram_business_basic — read IG profile + media.
- *   - instagram_business_content_publish — publish posts/reels/stories.
- *   - instagram_business_manage_comments — read + reply to comments.
- *   - instagram_business_manage_insights — audience + engagement metrics.
- *   - instagram_business_manage_messages — IG DM inbox.
+ * IMPORTANT: with Facebook Login for Business, scopes are NOT passed
+ * as `scope=` query params on the authorize URL. They live inside a
+ * **Configuration** that the OAuth dialog references via `config_id`.
+ * The list below is the V1.2-launch set bundled inside our Lumo OAuth
+ * configuration in the Meta dashboard (config_id 3084025388467252).
  *
- * `email` + `public_profile` are auto-granted by Facebook Login and
- * we ask for them so the user's identity round-trip works without
- * extra calls.
+ * The marketplace tile + consent disclosure read this list so users
+ * see what they're granting before they click Connect. If you change
+ * the Configuration in Meta's dashboard, update this list too — the
+ * dashboard's binding is source-of-truth at runtime; this list is
+ * source-of-truth for our UI copy.
+ *
+ * Why this V1.2 subset (not the full V1.3+ scope wishlist):
+ *   - `pages_manage_posts`, `pages_manage_engagement`, `pages_manage_
+ *     metadata` require Advanced Access (App Review). Configurations
+ *     in Standard Access can't include them.
+ *   - `instagram_business_*` scopes belong to the new Instagram API
+ *     with Instagram Login flow (api.instagram.com), not Facebook
+ *     Login for Business. We'll add a separate IG Login flow in V1.3
+ *     to capture those.
+ *   - For V1.2 we ship the legacy `instagram_manage_comments` scope
+ *     which works for IG Business accounts linked to a FB Page (the
+ *     standard creator setup) under FB Login for Business.
+ *
+ * Identity scopes (`email`, `public_profile`) are auto-granted by FB
+ * Login and don't need to be in the Configuration. We don't list them
+ * to avoid the marketplace tile cluttering with redundant rows.
  */
 export const META_SCOPES = [
-  "email",
-  "public_profile",
   "business_management",
   "pages_show_list",
   "pages_read_engagement",
-  "pages_manage_posts",
-  "pages_manage_engagement",
-  "pages_manage_metadata",
   "pages_messaging",
-  "instagram_business_basic",
-  "instagram_business_content_publish",
-  "instagram_business_manage_comments",
-  "instagram_business_manage_insights",
-  "instagram_business_manage_messages",
+  "instagram_manage_comments",
 ] as const;
 
 export const META_SCOPE_DESCRIPTIONS: Record<string, string> = {
-  email: "See your email address",
-  public_profile: "See your Facebook name + profile photo",
   business_management:
     "Read your Business Portfolio so Lumo can list your Pages and Instagram accounts",
-  pages_show_list:
-    "List the Facebook Pages you manage",
+  pages_show_list: "List the Facebook Pages you manage",
   pages_read_engagement:
     "Read posts, comments, and engagement insights on your Pages",
-  pages_manage_posts:
-    "Publish, edit, and delete posts on your Pages (always gated by your confirmation)",
-  pages_manage_engagement:
-    "Reply to or hide comments on your Pages (gated by confirmation)",
-  pages_manage_metadata:
-    "Subscribe to webhooks so Lumo's Inbox tab refreshes in real time",
   pages_messaging:
-    "Read and reply to Messenger conversations on your Pages (gated by confirmation)",
-  instagram_business_basic:
-    "Read your Instagram Business account profile + media",
-  instagram_business_content_publish:
-    "Publish Instagram posts / reels / stories (gated by confirmation)",
-  instagram_business_manage_comments:
-    "Read and reply to comments on your Instagram media (gated by confirmation)",
-  instagram_business_manage_insights:
-    "Read Instagram audience + engagement insights",
-  instagram_business_manage_messages:
-    "Read and reply to Instagram direct messages (gated by confirmation)",
+    "Read and reply to Messenger conversations on your Pages (always gated by your confirmation)",
+  instagram_manage_comments:
+    "Read and reply to comments on your Instagram Business account (gated by your confirmation; requires your IG Business account to be linked to a Facebook Page)",
 };
+
+/**
+ * Facebook Login for Business Configuration ID. Created via Meta
+ * dashboard → App → Facebook Login for Business → Configurations.
+ *
+ * The OAuth authorize URL must include `config_id=<this>` instead of
+ * `scope=...`. Meta validates the config_id is owned by the same app
+ * issuing the request, so there's no risk of leak — but if the
+ * config is deleted in the dashboard, OAuth breaks. Treat the dashboard
+ * config as a co-versioned dependency of this code.
+ *
+ * Override path: set LUMO_META_CONFIG_ID in env to point at a different
+ * configuration (useful when testing scope-set changes via a fresh
+ * config without committing).
+ */
+const DEFAULT_META_CONFIG_ID = "3084025388467252";
+
+export function getMetaConfigId(): string {
+  const v = (process.env.LUMO_META_CONFIG_ID ?? "").trim();
+  return v || DEFAULT_META_CONFIG_ID;
+}
 
 // Facebook Login dialog — version-pinned at the URL level. The token
 // exchange uses the same /oauth/access_token endpoint regardless of
