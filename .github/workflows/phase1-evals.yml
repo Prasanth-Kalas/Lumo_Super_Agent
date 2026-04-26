@@ -1,0 +1,29 @@
+name: Phase 1 Intelligence Evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Configure GitHub git dependency access
+        env:
+          GH_PACKAGE_TOKEN: ${{ secrets.LUMO_BOT_PAT || github.token }}
+        run: |
+          git config --global url."https://x-access-token:${GH_PACKAGE_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://x-access-token:${GH_PACKAGE_TOKEN}@github.com/".insteadOf "git@github.com:"
+
+      - run: npm ci
+      - run: npm run eval:phase1

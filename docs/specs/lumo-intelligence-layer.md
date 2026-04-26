@@ -365,7 +365,9 @@ Hot-path budget:
 - `rank_agents`: p95 under 300ms
 - `evaluate_agent_risk`: p95 under 300ms
 - `classify`: p95 under 300ms
-- `recall`: p95 under 500ms
+- `recall`: p95 under 1000ms end-to-end. The two-stage flow budgets up to
+  400ms for query embedding and 500ms for brain rerank, with pgvector lookup
+  in between.
 - `plan_task`: p95 target under 800ms for simple plans; complex mission planning
   may stream or run as a background step
 
@@ -419,6 +421,33 @@ Phase 1 is accepted only when all of these pass:
    - `Lumo_ML_Service` has unit tests for tools and auth.
    - Lumo Core has registry/system-agent tests.
    - Contract tests validate manifest/OpenAPI/health.
+   - `npm run eval:phase1` gates Core ranking, risk coverage, recall MRR,
+     classifier fallback safety, and malformed-brain fallback.
+   - `python scripts/eval_phase1.py` gates ML-service classifier seed metrics,
+     ranking, risk coverage, and recall MRR.
+
+Current deterministic eval snapshot (local, April 26, 2026):
+
+| Metric | Repo | Value | Gate |
+|---|---|---:|---:|
+| Ranking nDCG@7 | Super Agent | 0.916 | >= 0.82 |
+| Risk badge coverage | Super Agent | 1.000 | 1.00 |
+| High/review risk badges on seeded over-permissioned apps | Super Agent | 2 | >= 2 |
+| Recall MRR@5 | Super Agent | 1.000 | >= 0.80 |
+| Classifier fallback F1 | Super Agent | 0.889 | >= 0.80 |
+| Malformed brain recall fallback | Super Agent | 1.000 | 1.00 |
+| Classifier seed precision / recall / F1 | Lumo ML Service | 1.000 / 1.000 / 1.000 | >= 0.85 |
+| Ranking nDCG@7 | Lumo ML Service | 0.905 | >= 0.82 |
+| Risk badge coverage | Lumo ML Service | 1.000 | 1.00 |
+| Recall MRR@5 | Lumo ML Service | 1.000 | >= 0.80 |
+
+Open acceptance items:
+
+- The Vegas demo recording still must run in an authenticated deployment with
+  the Cloud Run brain URL configured.
+- The classifier number above is still a seed/regression metric. It must be
+  replaced with a randomly sampled held-out production-like set before any
+  external or board-facing accuracy claim.
 
 ## 11. Seven-day prove-it cut
 

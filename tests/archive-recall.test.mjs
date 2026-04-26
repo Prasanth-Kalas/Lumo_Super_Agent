@@ -106,6 +106,22 @@ await t("ML recall response is normalized against candidate ids", async () => {
   assert.equal(result.summary, "Found one.");
 });
 
+await t("malformed brain recall response falls back without throwing", async () => {
+  const result = await recallArchiveCore({
+    query: "Where did Alex mention Vegas partnership?",
+    documents: docs,
+    baseUrl: "http://lumo-ml.test",
+    authorizationHeader: "Bearer test",
+    fetchImpl: async () => Response.json({ status: "ok", hits: "broken" }),
+    timeoutMs: 100,
+    topK: 2,
+    recordUsage: async () => {},
+  });
+  assert.equal(result.source, "fallback");
+  assert.equal(result.error, "malformed_response");
+  assert.equal(result.hits[0]?.id, "a");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
 

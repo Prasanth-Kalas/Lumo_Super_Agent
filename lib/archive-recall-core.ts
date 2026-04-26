@@ -110,11 +110,11 @@ export async function recallArchiveCore(args: {
       return fallback(error_code);
     }
     const body = (await res.json()) as RecallResponseBody;
-    const hits = normalizeRecallHits(body.hits, args.documents, args.topK);
     if (!Array.isArray(body.hits)) {
       await args.recordUsage(false, "malformed_response", latency_ms);
       return fallback("malformed_response");
     }
+    const hits = normalizeRecallHits(body.hits, args.documents, args.topK);
     await args.recordUsage(true, undefined, latency_ms);
     return {
       hits,

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { getSupabase } from "./db.js";
 import { redactForEmbedding } from "./content-indexing.js";
 import { recordRuntimeUsage } from "./runtime-policy.js";
@@ -14,6 +14,8 @@ import type { ToolRoutingEntry } from "@lumo/agent-sdk";
 const LUMO_ML_AGENT_ID = "lumo-ml";
 const LUMO_RECALL_TOOL = "lumo_recall";
 const LUMO_EMBED_TOOL = "lumo_embed";
+// Two-stage recall is embed (400ms) + pgvector + rerank (500ms), so the
+// end-to-end product SLO is 1000ms even though each brain call is tighter.
 const RECALL_TIMEOUT_MS = 500;
 const EMBED_TIMEOUT_MS = 400;
 const DEFAULT_CANDIDATE_LIMIT = 24;
@@ -238,7 +240,10 @@ async function vectorCandidates(
     match_count: limit,
   });
   if (error) {
-    console.warn("[archive-recall] vector match failed:", error.message);
+    console.warn("[archive-recall] vector match failed:", {
+      user_hash: userHash(user_id),
+      message: error.message,
+    });
     return recentCandidates(user_id, limit);
   }
   return ((data ?? []) as MatchContentEmbeddingRow[]).map(rowToDocument);
@@ -329,6 +334,10 @@ async function recordIntelligenceUsage(args: {
 
 function toPgVector(v: number[]): string {
   return `[${v.join(",")}]`;
+}
+
+function userHash(user_id: string): string {
+  return createHash("sha256").update(user_id).digest("hex").slice(0, 12);
 }
 
 function clampInt(
