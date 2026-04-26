@@ -23,6 +23,9 @@
     },
     "app/api/cron/index-archive/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/execute-mission-steps/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -49,6 +52,10 @@
     {
       "path": "/api/cron/index-archive",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/execute-mission-steps",
+      "schedule": "* * * * *"
     }
   ]
 }

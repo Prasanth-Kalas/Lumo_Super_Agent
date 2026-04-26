@@ -638,6 +638,16 @@ can be built against a real schema.
   every step in an `awaiting_confirmation` mission is `ready`, `succeeded`, or
   `skipped`, the mission transitions to `ready`. D4 owns the execution worker
   that will claim and run `ready` steps.
+- D4 ships the mission step executor as a Vercel cron at
+  `/api/cron/execute-mission-steps`, gated by `CRON_SECRET` and default-off via
+  `LUMO_MISSION_EXECUTOR_ENABLED`. The worker repeatedly claims one `ready`
+  step through `next_mission_step_for_execution`, records `step_started`, runs a
+  session-less dispatch helper, records `step_succeeded` or `step_failed`, and
+  rolls the mission to `completed` or `failed` only when the step set reaches a
+  terminal state. Abstract planner steps (`mission.*`) are acknowledged without
+  external side effects until D5/D6 replace them with concrete dispatch plans.
+  The executor must stay disabled in production until a preview smoke test
+  proves the event ledger and admin mission surface.
 - Rollback is explicit per agent. Agents must declare whether a side effect is
   reversible, compensating-only, or irreversible before Lumo lets the mission
   planner batch it with other steps.
@@ -702,3 +712,4 @@ can be built against a real schema.
 | 2026-04-26 | Start Sprint 3 with durable mission tables and executor RPC before orchestration wiring |
 | 2026-04-27 | Persist mission plans durably as best-effort planning side effects before step execution wiring |
 | 2026-04-27 | Link confirmation-card outcomes to durable mission steps before the execution worker |
+| 2026-04-27 | Ship the mission step executor cron default-off until preview smoke verifies end-to-end execution |
