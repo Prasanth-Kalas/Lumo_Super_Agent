@@ -67,12 +67,14 @@ export async function runMissionExecutorTick(options: {
 
   const dispatchStep = options.dispatchStep ?? dispatchMissionStep;
   const limit = Math.max(1, Math.min(10, Math.trunc(options.limit ?? 10)));
+  const attemptedStepIds = new Set<string>();
 
   while (counts.claimed < limit) {
-    const steps = await claimReadySteps(db, 1);
+    const steps = await claimReadySteps(db, 1, attemptedStepIds);
     if (steps.length === 0) break;
     const step = steps[0];
     if (!step) break;
+    attemptedStepIds.add(step.id);
     counts.claimed += 1;
     try {
       await recordExecutionEvent(
@@ -158,6 +160,7 @@ export async function dispatchMissionStep(
 async function claimReadySteps(
   db: SupabaseLike,
   limit: number,
+  excludedStepIds = new Set<string>(),
 ): Promise<ClaimedMissionStep[]> {
   const requestedLimit = Math.max(1, Math.min(10, Math.trunc(limit)));
   if (typeof db.rpc === "function") {
@@ -168,14 +171,16 @@ async function claimReadySteps(
     const claimed = Array.isArray(data)
       ? data.map(normalizeClaimedStep).filter(isClaimedStep)
       : [];
-    if (claimed.length > 0) return claimed;
+    const freshClaims = claimed.filter((step) => !excludedStepIds.has(step.id));
+    if (freshClaims.length > 0) return freshClaims;
   }
-  return claimReadyStepsDirectly(db, requestedLimit);
+  return claimReadyStepsDirectly(db, requestedLimit, excludedStepIds);
 }
 
 async function claimReadyStepsDirectly(
   db: SupabaseLike,
   limit: number,
+  excludedStepIds: Set<string>,
 ): Promise<ClaimedMissionStep[]> {
   const { data: readyRows, error: readyError } = await db
     .from("mission_steps")
@@ -215,6 +220,8 @@ async function claimReadyStepsDirectly(
   const runnable = readyRows
     .filter((row) => {
       const missionId = stringOrNull(row?.mission_id);
+      const stepId = stringOrNull(row?.id);
+      if (stepId && excludedStepIds.has(stepId)) return false;
       if (!missionId || !missions.has(missionId)) return false;
       const stepOrder = numberOrZero(row?.step_order);
       return allSteps
@@ -236,7 +243,7 @@ async function claimReadyStepsDirectly(
     const id = stringOrNull(row?.id);
     const missionId = stringOrNull(row?.mission_id);
     if (!id || !missionId) continue;
-    const { data: claimRows, error: claimError } = await db
+    const { error: claimError } = await db
       .from("mission_steps")
       .update({
         status: "running",
@@ -244,10 +251,8 @@ async function claimReadyStepsDirectly(
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
-      .eq("status", "ready")
-      .select("id");
+      .eq("status", "ready");
     if (claimError) throw new Error(`mission_step_fallback_claim_failed:${claimError.message ?? "unknown"}`);
-    if (!Array.isArray(claimRows) || claimRows.length === 0) continue;
 
     const mission = missions.get(missionId);
     if (String(mission?.state ?? "") === "ready") {
