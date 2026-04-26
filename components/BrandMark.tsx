@@ -111,17 +111,19 @@ export function BrandMark({
 // ─── Full LUMO wordmark ───────────────────────────────────────
 
 /**
- * "LUMO" wordmark — chunky geometric letters with a prominent
- * diagonal fold that crosses U, M, and O (the L stays clean
- * because its silhouette already provides the visual weight).
+ * "LUMO" wordmark — chunky geometric letters in bright cyan with
+ * crisp polygon fold-bands that cross U, M, and the right side
+ * of O. L stays clean (its silhouette already carries the weight).
  *
- * The fold is a single rotated band — base blue underneath, a
- * darker overlay on top — clipped to each glyph so the band
- * "flows" continuously across letters instead of being a
- * separate stripe per letter. That's the origami / folded-paper
- * feel from the artwork.
+ * Each fold is a hard-edged parallelogram filled with a darker
+ * shade of the same hue — no soft gradient, because the source
+ * artwork uses crisp paper-fold creases, not glow halos.
  *
- * Drawn at viewBox 100×24; width auto-scales to keep aspect.
+ * Colors are hardcoded (NOT CSS variables). The wordmark is a
+ * brand asset and shouldn't follow theme drift if the rest of
+ * the UI's accent token changes.
+ *
+ * Drawn at viewBox 100×24; width auto-scales to preserve aspect.
  */
 export function LumoWordmark({
   height = 22,
@@ -131,6 +133,11 @@ export function LumoWordmark({
   className?: string;
 }) {
   const w = (height * 100) / 24;
+  // Sampled directly from the source artwork — bright cyan body
+  // with a darker same-hue fold/crease. Not the navy --g-blue
+  // accent the rest of the UI uses.
+  const BASE = "#1FB8E8";
+  const FOLD = "#0F7FAE";
   return (
     <svg
       width={w}
@@ -143,78 +150,50 @@ export function LumoWordmark({
       role="img"
     >
       <defs>
-        {/* Per-letter clip paths. Each defines the silhouette of
-            one glyph; the base blue rect and the dark fold band
-            both render inside this clip, so neither bleeds. */}
-        <clipPath id="lw2-clip-l">
+        {/* Per-letter clip paths so each glyph's base rect and
+            fold polygons stay inside the silhouette. */}
+        <clipPath id="lw3-clip-l">
           <path d="M0 1 H6 V18 H17 V23 H0 Z" />
         </clipPath>
-        <clipPath id="lw2-clip-u">
+        <clipPath id="lw3-clip-u">
           <path d="M22 1 H28 V15.5 a4 4 0 0 0 8 0 V1 H42 V16 a10 10 0 0 1 -20 0 Z" />
         </clipPath>
-        <clipPath id="lw2-clip-m">
+        <clipPath id="lw3-clip-m">
           <path d="M48 23 V1 H54 L60 11 L66 1 H72 V23 H66 V11 L62 17 H58 L54 11 V23 Z" />
         </clipPath>
-        <clipPath id="lw2-clip-o">
+        <clipPath id="lw3-clip-o">
           <path d="M88 12 a10 10 0 1 1 -20 0 a10 10 0 0 1 20 0 Z M82 12 a4 4 0 1 0 -8 0 a4 4 0 0 0 8 0 Z" />
         </clipPath>
-
-        {/* The fold gradient. Crisp dark blue at center, fading
-            quickly on each side — reads as a definite band, not
-            a soft halo. Same hex on both edges so the glyph
-            silhouette stays the dominant shape. */}
-        <linearGradient
-          id="lw2-fold"
-          gradientUnits="userSpaceOnUse"
-          x1="0"
-          y1="0"
-          x2="0"
-          y2="6"
-        >
-          <stop offset="0%" stopColor="#1557B0" stopOpacity="0" />
-          <stop offset="35%" stopColor="#1557B0" stopOpacity="0.95" />
-          <stop offset="65%" stopColor="#1557B0" stopOpacity="0.95" />
-          <stop offset="100%" stopColor="#1557B0" stopOpacity="0" />
-        </linearGradient>
       </defs>
 
-      {/* L — solid, no fold (the negative space carries the weight) */}
-      <g clipPath="url(#lw2-clip-l)">
-        <rect x="0" y="0" width="22" height="24" fill="var(--g-blue)" />
+      {/* L — solid, no fold */}
+      <g clipPath="url(#lw3-clip-l)">
+        <rect x="0" y="0" width="22" height="24" fill={BASE} />
       </g>
 
-      {/* U */}
-      <g clipPath="url(#lw2-clip-u)">
-        <rect x="22" y="0" width="22" height="24" fill="var(--g-blue)" />
-        <rect
-          x="14"
-          y="2"
-          width="38"
-          height="6"
-          fill="url(#lw2-fold)"
-          transform="rotate(28 33 12)"
-        />
+      {/* U — single diagonal fold parallelogram sweeping from
+          the upper-left corner of the bowl down to the lower-
+          right exit. Hard edges (no gradient). */}
+      <g clipPath="url(#lw3-clip-u)">
+        <rect x="22" y="0" width="22" height="24" fill={BASE} />
+        <polygon points="24,1 31,1 42,23 35,23" fill={FOLD} />
       </g>
 
-      {/* M */}
-      <g clipPath="url(#lw2-clip-m)">
-        <rect x="48" y="0" width="24" height="24" fill="var(--g-blue)" />
-        <rect
-          x="40"
-          y="2"
-          width="40"
-          height="6"
-          fill="url(#lw2-fold)"
-          transform="rotate(28 60 12)"
-        />
+      {/* M — single diagonal fold across the whole letter. The
+          M's V notch naturally splits the band into two visible
+          pieces (left arm, right arm + foot), which mimics how
+          a real fold disappears into a crease. */}
+      <g clipPath="url(#lw3-clip-m)">
+        <rect x="48" y="0" width="24" height="24" fill={BASE} />
+        <polygon points="52,1 59,1 70,23 63,23" fill={FOLD} />
       </g>
 
-      {/* O — fold becomes a vertical slice on the right side,
-          mirroring the artwork (the O reads as a sliced disc
-          rather than an angled fold). */}
-      <g clipPath="url(#lw2-clip-o)">
-        <rect x="68" y="2" width="20" height="20" fill="var(--g-blue)" />
-        <rect x="83" y="2" width="5" height="20" fill="#1557B0" opacity="0.95" />
+      {/* O — fold is a vertical slice on the right side, inset
+          slightly from the edge so it reads as a paper fold,
+          not a hard right-edge stroke. */}
+      <g clipPath="url(#lw3-clip-o)">
+        <rect x="68" y="2" width="20" height="20" fill={BASE} />
+        <rect x="83" y="2" width="5" height="20" fill={FOLD} />
       </g>
     </svg>
   );
