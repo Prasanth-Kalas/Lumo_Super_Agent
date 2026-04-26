@@ -26,6 +26,28 @@ export interface LumoMissionProposal {
   profile_fields_requested: string[];
   required_scopes: LumoMissionScope[];
   requires_payment: boolean;
+  rank_score: number | null;
+  rank_reasons: string[];
+  risk_badge: LumoRiskBadge | null;
+}
+
+export interface LumoRankedRecommendation {
+  agent_id: string;
+  display_name: string;
+  score: number;
+  installed: boolean;
+  reasons: string[];
+  missing_scopes: string[];
+}
+
+export interface LumoRiskBadge {
+  level: "low" | "medium" | "high" | "review_required";
+  score: number;
+  reasons: string[];
+  mitigations: string[];
+  source: "ml" | "fallback";
+  latency_ms: number;
+  error?: string;
 }
 
 export interface LumoUnavailableCapability {
@@ -41,6 +63,9 @@ export interface LumoMissionPlan {
   mission_title: string;
   message: string;
   install_proposals: LumoMissionProposal[];
+  ranked_recommendations?: LumoRankedRecommendation[];
+  user_questions?: string[];
+  confirmation_points?: string[];
   unavailable_capabilities: LumoUnavailableCapability[];
 }
 
@@ -186,6 +211,9 @@ export function LumoMissionCard({
                         confirmation required
                       </span>
                     ) : null}
+                    {proposal.risk_badge ? (
+                      <RiskBadge badge={proposal.risk_badge} />
+                    ) : null}
                   </div>
                   <p className="mt-1 text-[12px] leading-relaxed text-lumo-fg-mid">
                     {proposal.one_liner}
@@ -193,6 +221,14 @@ export function LumoMissionCard({
                   <p className="mt-2 text-[11.5px] leading-relaxed text-lumo-fg-low">
                     {proposal.permission_copy}
                   </p>
+                  {proposal.rank_score !== null ? (
+                    <p className="mt-1 text-[11.5px] leading-relaxed text-lumo-fg-low">
+                      Rank {Math.round(proposal.rank_score * 100)}%
+                      {proposal.rank_reasons.length > 0
+                        ? ` · ${proposal.rank_reasons.slice(0, 2).join(" · ")}`
+                        : ""}
+                    </p>
+                  ) : null}
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {proposal.profile_fields_requested.length > 0 ? (
                       proposal.profile_fields_requested.map((field) => (
@@ -243,6 +279,51 @@ export function LumoMissionCard({
             {gap.reason}
           </div>
         ))}
+
+        {plan.ranked_recommendations?.length ? (
+          <div className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3">
+            <div className="text-[12px] font-medium text-lumo-fg">
+              Ranked app matches
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {plan.ranked_recommendations.slice(0, 6).map((agent) => (
+                <span
+                  key={agent.agent_id}
+                  className="rounded-full bg-lumo-bg px-2 py-0.5 text-[10.5px] text-lumo-fg-low"
+                  title={agent.reasons.join("; ")}
+                >
+                  {agent.display_name} · {Math.round(agent.score * 100)}%
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {plan.user_questions?.length ? (
+          <div className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3">
+            <div className="text-[12px] font-medium text-lumo-fg">
+              Questions before execution
+            </div>
+            <ul className="mt-2 space-y-1 text-[11.5px] leading-relaxed text-lumo-fg-mid">
+              {plan.user_questions.slice(0, 4).map((question) => (
+                <li key={question}>{question}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {plan.confirmation_points?.length ? (
+          <div className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3">
+            <div className="text-[12px] font-medium text-lumo-fg">
+              Confirmation points
+            </div>
+            <ul className="mt-2 space-y-1 text-[11.5px] leading-relaxed text-lumo-fg-mid">
+              {plan.confirmation_points.slice(0, 4).map((point) => (
+                <li key={point}>{point}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </div>
 
       {error ? (
@@ -291,4 +372,23 @@ function buttonLabel(
   if (proposal.action === "connect_oauth") return "Connect";
   if (proposal.action === "grant_lumo_id") return "Allow";
   return proposal.profile_fields_requested.length > 0 ? "Allow and install" : "Install";
+}
+
+function RiskBadge({ badge }: { badge: LumoRiskBadge }) {
+  const classes =
+    badge.level === "low"
+      ? "border-lumo-ok/30 bg-lumo-ok/10 text-lumo-ok"
+      : badge.level === "medium"
+        ? "border-lumo-warn/35 bg-lumo-warn/10 text-lumo-warn"
+        : badge.level === "high"
+          ? "border-lumo-err/35 bg-lumo-err/10 text-lumo-err"
+          : "border-lumo-hair bg-lumo-bg text-lumo-fg-low";
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[10.5px] ${classes}`}
+      title={badge.reasons.join("; ")}
+    >
+      {badge.level === "review_required" ? "review risk" : `${badge.level} risk`}
+    </span>
+  );
 }

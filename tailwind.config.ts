@@ -49,6 +49,13 @@ const config: Config = {
           hairline:   "var(--lumo-hair)",
           accentDeep: "var(--lumo-accent-dim)",
         },
+        // Google-inspired palette. Used sparingly and intentionally —
+        // the BrandMark, voice-state dots, source chips, success /
+        // error pills. Lookups: text-g-blue, bg-g-green/15, border-g-red/30.
+        "g-blue":   "var(--g-blue)",
+        "g-red":    "var(--g-red)",
+        "g-yellow": "var(--g-yellow)",
+        "g-green":  "var(--g-green)",
       },
       fontFamily: {
         sans:    ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],

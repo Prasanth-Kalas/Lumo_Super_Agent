@@ -1,30 +1,29 @@
 "use client";
 
 /**
- * LeftRail — persistent navigation column for the Lumo dashboard.
+ * LeftRail — Claude-Desktop-style sidebar.
  *
- * What the user sees at a glance:
- *   - Brand mark + "one app, any task" tag
- *   - New chat button (primary action — always reachable)
- *   - RECENT CONVERSATIONS — last N sessions, click to resume (fetches
- *     /api/history lazily on mount; empty state when persistence is off)
- *   - AGENTS — a live health panel listing every connected specialist
- *     (flight, hotel, food, restaurant) with a pulsing dot. Green =
- *     healthy, amber = degraded, gray = not configured.
- *   - Footer nav: History, Marketplace, Connections, Settings
+ * Just three things, stacked:
  *
- * Purpose: turn "Lumo is a chat box" into "Lumo is a multi-agent
- * operator console" by making the agent ecosystem visible at all
- * times. The rail also gives the user one-click access to past
- * trips without leaving the chat.
+ *   1. "+ New chat" button at the top.
+ *   2. Search input + flat list of recent conversations.
+ *   3. Profile chip at the bottom (avatar + email) that opens a small
+ *      menu: Account, History, Marketplace, Admin (if admin), Sign out.
  *
- * Self-contained — doesn't know about the chat thread, summaries, or
- * voice. The shell wires it alongside the center column via CSS grid.
+ * Removed from the previous LeftRail:
+ *   - Brand mark + tagline (the header already has it).
+ *   - Agents health panel (moved to /admin/apps).
+ *   - Footer nav links (folded into the profile menu).
+ *   - Auth CTAs (the header's auth chip handles signed-out state).
+ *
+ * The goal is to put conversations front and center, like Claude
+ * Desktop, ChatGPT, and every other chat app users now have muscle
+ * memory for. Everything else lives behind the profile menu or under
+ * /admin / /marketplace.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { BrandMark } from "@/components/BrandMark";
 
 interface RecentSession {
   session_id: string;
@@ -33,471 +32,382 @@ interface RecentSession {
   trip_count: number;
 }
 
-interface AgentHealth {
-  agent_id: string;
-  display_name: string;
-  icon: string;
-  /**
-   * "ok" = registry healthy AND user has an active connection.
-   * "degraded" = registry healthy but connection is expired/errored.
-   * "offline" = registry says unhealthy OR user has no connection.
-   */
-  health: "ok" | "degraded" | "offline";
-  /** Real OAuth status from /api/connections, or null if never connected. */
-  connection_status: "active" | "expired" | "revoked" | "error" | null;
+interface Me {
+  email: string | null;
+  full_name: string | null;
+  first_name: string | null;
 }
 
 export interface LeftRailProps {
   /** Emitted when the user hits "New chat". Shell resets thread state. */
   onNewChat: () => void;
-  /** Active session id so the current session gets highlighted in recents. */
+  /** Active session id so the current row gets highlighted. */
   currentSessionId?: string | null;
+  /** Bumped after each turn so we can refetch recents lazily. */
+  recentsRefreshKey?: number | string;
 }
 
-// Static baseline — we render these even if /api/registry is empty
-// so the user always knows what Lumo can do. Health gets overlaid
-// from the registry when available.
-const BASELINE_AGENTS: Omit<AgentHealth, "health" | "connection_status">[] = [
-  { agent_id: "lumo.flight", display_name: "Flight", icon: "✈" },
-  { agent_id: "lumo.hotel", display_name: "Hotel", icon: "⌂" },
-  { agent_id: "lumo.food", display_name: "Food", icon: "◉" },
-  { agent_id: "lumo.restaurant", display_name: "Reservation", icon: "◆" },
-];
+export default function LeftRail({
+  onNewChat,
+  currentSessionId,
+  recentsRefreshKey,
+}: LeftRailProps) {
+  const [recents, setRecents] = useState<RecentSession[] | null>(null);
+  const [me, setMe] = useState<Me | null>(null);
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [query, setQuery] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-export default function LeftRail({ onNewChat, currentSessionId }: LeftRailProps) {
-  const [recents, setRecents] = useState<RecentSession[]>([]);
-  const [agents, setAgents] = useState<AgentHealth[]>(
-    BASELINE_AGENTS.map((a) => ({
-      ...a,
-      health: "offline" as const,
-      connection_status: null,
-    })),
-  );
-  // Auth state — driven by /api/connections responding 200 vs 401.
-  // 200 = signed in (user has a Lumo account). 401 = logged out.
-  // null = still loading / server unreachable. We show auth CTAs
-  // when the value is false, and an account link when it's true.
-  const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
-
-  // Lazy-load recents. We don't block the first paint waiting for
-  // them — the rail renders immediately with an empty state.
+  // Recents — pulled lazily so a signed-out user gets an empty
+  // sidebar without a 401 spinner.
   useEffect(() => {
-    let cancelled = false;
+    let alive = true;
     void (async () => {
       try {
-        const res = await fetch("/api/history", { cache: "no-store" });
-        if (!res.ok) return;
-        const j = (await res.json()) as {
-          sessions: Array<{
-            session_id: string;
-            preview: string | null;
-            last_activity_at: string;
-            trip_ids: string[];
-          }>;
-        };
-        if (cancelled) return;
-        setRecents(
-          j.sessions.slice(0, 8).map((s) => ({
-            session_id: s.session_id,
-            preview: s.preview,
-            last_activity_at: s.last_activity_at,
-            trip_count: s.trip_ids.length,
-          })),
-        );
+        const res = await fetch("/api/history?limit_sessions=30", {
+          cache: "no-store",
+        });
+        if (!alive) return;
+        if (!res.ok) {
+          setRecents([]);
+          return;
+        }
+        const j = (await res.json()) as { sessions?: RecentSession[] };
+        const sessions = (j.sessions ?? []).map((s) => ({
+          ...s,
+          trip_count: (s as { trip_ids?: string[] }).trip_ids?.length ?? 0,
+        }));
+        setRecents(sessions);
       } catch {
-        // persistence disabled, no recents — fine.
+        if (alive) setRecents([]);
       }
     })();
     return () => {
-      cancelled = true;
+      alive = false;
     };
-  }, []);
+  }, [recentsRefreshKey]);
 
-  // Registry + connection health — both lazy, fused into one effect
-  // so we compute final health with both signals. Registry tells us
-  // "is the agent up"; connections tells us "is the user linked".
-  // A green dot means BOTH. An amber dot means the agent is up but
-  // the user's token is expired/errored. Gray means not connected
-  // at all (with a Connect CTA), or the agent itself is offline.
+  // Identity — fetched once. Drives the profile chip and admin link.
   useEffect(() => {
-    let cancelled = false;
+    let alive = true;
     void (async () => {
-      const [regRes, connRes] = await Promise.allSettled([
-        fetch("/api/registry", { cache: "no-store" }),
-        fetch("/api/connections", { cache: "no-store" }),
-      ]);
-
-      const scoreById = new Map<string, number>();
-      if (regRes.status === "fulfilled" && regRes.value.ok) {
-        try {
-          const j = (await regRes.value.json()) as {
-            agents?: Array<{
-              agent_id?: string;
-              health_score?: number;
-            }>;
-          };
-          for (const a of j.agents ?? []) {
-            if (a.agent_id && typeof a.health_score === "number") {
-              scoreById.set(a.agent_id, a.health_score);
-            }
-          }
-        } catch {
-          /* ignore parse error — leave registry empty */
+      try {
+        const res = await fetch("/api/me", { cache: "no-store" });
+        if (!alive) return;
+        if (!res.ok) {
+          setAuthed(false);
+          return;
         }
-      }
-
-      const connById = new Map<string, AgentHealth["connection_status"]>();
-      if (connRes.status === "fulfilled" && connRes.value.ok) {
-        try {
-          const j = (await connRes.value.json()) as {
-            connections?: Array<{ agent_id: string; status: string }>;
-          };
-          for (const c of j.connections ?? []) {
-            connById.set(
-              c.agent_id,
-              c.status as AgentHealth["connection_status"],
-            );
-          }
-        } catch {
-          /* ignore */
+        const j = (await res.json()) as { user?: Me };
+        if (j.user) {
+          setMe(j.user);
+          setAuthed(true);
+        } else {
+          setAuthed(false);
         }
+      } catch {
+        if (alive) setAuthed(false);
       }
-      // /api/connections 401s when auth isn't configured — treat as
-      // "we can't know", don't overlay connection state. Registry
-      // health alone drives the dot in that mode.
-      const haveConnections = connRes.status === "fulfilled" && connRes.value.ok;
-
-      // Auth inference: 200 → signed in. 401 → logged out. Other
-      // errors or network failure → leave null so we don't flash
-      // the wrong CTA.
-      if (!cancelled) {
-        if (connRes.status === "fulfilled") {
-          if (connRes.value.ok) setIsAuthed(true);
-          else if (connRes.value.status === 401) setIsAuthed(false);
-        }
-      }
-
-      if (cancelled) return;
-      setAgents(
-        BASELINE_AGENTS.map((a) => {
-          const score = scoreById.get(a.agent_id) ?? 0;
-          const registryUp = score > 0.4;
-          const conn = connById.get(a.agent_id) ?? null;
-
-          let health: AgentHealth["health"];
-          if (!haveConnections) {
-            // No auth / no connections endpoint — fall back to
-            // registry-only, same as the pre-J5 behavior.
-            health = score > 0.8 ? "ok" : score > 0.4 ? "degraded" : "offline";
-          } else if (conn === "active" && registryUp) {
-            health = "ok";
-          } else if (conn === "active" && !registryUp) {
-            health = "degraded"; // agent itself is down
-          } else if (conn === "expired" || conn === "error") {
-            health = "degraded"; // reconnect required
-          } else {
-            health = "offline"; // not connected
-          }
-
-          return { ...a, health, connection_status: conn };
-        }),
-      );
     })();
     return () => {
-      cancelled = true;
+      alive = false;
     };
   }, []);
+
+  // Click-outside closes the profile menu.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [menuOpen]);
+
+  const filtered = useMemo(() => {
+    if (!recents) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return recents;
+    return recents.filter((s) => (s.preview ?? "").toLowerCase().includes(q));
+  }, [recents, query]);
+
+  const grouped = useMemo(() => groupByDay(filtered), [filtered]);
 
   return (
-    <aside className="hidden lg:flex h-full w-[260px] shrink-0 flex-col border-r border-lumo-hair bg-lumo-bg relative overflow-hidden">
-      {/* Ambient top glow — same warmth as the right rail */}
-      <div
-        className="pointer-events-none absolute -top-24 -left-12 h-56 w-72 rounded-full opacity-[0.16] blur-3xl"
-        style={{
-          background:
-            "radial-gradient(ellipse at center, var(--lumo-accent) 0%, transparent 65%)",
-        }}
-        aria-hidden
-      />
-
-      {/* Brand header */}
-      <div className="px-5 pt-5 pb-4 border-b border-lumo-hair relative z-10">
-        <Link href="/" className="flex items-center gap-3 group">
-          <span className="relative inline-flex items-center justify-center">
-            <BrandMark size={26} className="text-lumo-fg" />
-            <span className="absolute inset-0 rounded-full bg-lumo-accent/25 blur-md opacity-70 group-hover:opacity-100 transition-opacity" />
-          </span>
-          <div className="flex flex-col leading-tight">
-            <span className="text-[16px] font-semibold tracking-tight text-lumo-fg">
-              Lumo
-            </span>
-            <span className="text-[11px] uppercase tracking-[0.16em] text-lumo-fg-low mt-0.5">
-              one app · any task
-            </span>
-          </div>
-        </Link>
-      </div>
-
-      {/* New chat */}
-      <div className="px-4 pt-4 pb-2 relative z-10">
+    <aside className="hidden lg:flex h-full w-[260px] shrink-0 flex-col border-r border-lumo-hair bg-lumo-surface">
+      {/* Top: New chat */}
+      <div className="p-3">
         <button
           type="button"
           onClick={onNewChat}
-          className="w-full h-11 rounded-xl bg-lumo-accent text-lumo-accent-ink text-[14px] font-medium hover:brightness-110 transition relative overflow-hidden group shadow-[0_0_24px_rgba(94,234,172,0.25)]"
+          className="w-full inline-flex items-center justify-between gap-2 rounded-lg border border-lumo-hair bg-lumo-bg px-3 py-2.5 text-[13px] text-lumo-fg hover:border-lumo-edge hover:bg-lumo-elevated transition-colors group"
         >
-          <span className="relative z-10 inline-flex items-center gap-2">
-            <svg width="14" height="14" viewBox="0 0 12 12" fill="none" aria-hidden>
-              <path d="M6 2.5v7M2.5 6h7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <span className="inline-flex items-center gap-2">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+              <path
+                d="M7 3v8M3 7h8"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
             </svg>
             New chat
           </span>
-          <span className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.3),transparent_60%)] opacity-0 group-hover:opacity-100 transition-opacity" />
+          <kbd className="text-[10px] text-lumo-fg-low border border-lumo-hair rounded px-1 py-0.5 font-mono">
+            ⌘K
+          </kbd>
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto relative z-10">
-        {/* Recents */}
-        <div className="px-4 pt-3 pb-3">
-          <SectionHeader>Recent</SectionHeader>
-          <ul className="mt-2 space-y-0.5">
-            {recents.length === 0 ? (
-              <li className="px-2 py-2 text-[13px] text-lumo-fg-low leading-relaxed">
-                Your chats will show up here.
-              </li>
-            ) : (
-              recents.map((s) => {
-                const isActive = s.session_id === currentSessionId;
-                return (
-                  <li key={s.session_id}>
-                    <Link
-                      href={`/history?session=${encodeURIComponent(s.session_id)}`}
-                      className={
-                        "block rounded-lg px-2.5 py-2 text-[13.5px] truncate transition-colors " +
-                        (isActive
-                          ? "bg-lumo-elevated text-lumo-fg"
-                          : "text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60")
-                      }
-                      title={s.preview ?? "(empty session)"}
-                    >
-                      <span className="truncate">
-                        {s.preview ?? <em className="text-lumo-fg-low">(empty)</em>}
-                      </span>
-                      {s.trip_count > 0 ? (
-                        <span className="ml-1.5 inline-block text-[11px] text-lumo-accent align-middle">
-                          · {s.trip_count} trip{s.trip_count === 1 ? "" : "s"}
-                        </span>
-                      ) : null}
-                    </Link>
-                  </li>
-                );
-              })
-            )}
-          </ul>
-        </div>
-
-        {/* Agents */}
-        <div className="px-4 pt-2 pb-3 mt-1 border-t border-lumo-hair">
-          <SectionHeader>Agents</SectionHeader>
-          <ul className="mt-2 space-y-0.5">
-            {agents.map((a) => {
-              const needsConnect =
-                a.connection_status === null ||
-                a.connection_status === "revoked" ||
-                a.connection_status === "expired" ||
-                a.connection_status === "error";
-              const needsReconnect =
-                a.connection_status === "expired" ||
-                a.connection_status === "error";
-              return (
-                <li
-                  key={a.agent_id}
-                  className="flex items-center gap-3 px-2.5 py-2 rounded-lg text-[13.5px] text-lumo-fg-mid hover:bg-lumo-elevated/60 hover:text-lumo-fg transition-colors group"
-                  title={tooltipForAgent(a)}
-                >
-                  <span className="w-5 text-center text-[15px] text-lumo-accent opacity-90">
-                    {a.icon}
-                  </span>
-                  <span className="flex-1 truncate">{a.display_name}</span>
-                  {needsConnect ? (
-                    <Link
-                      href="/marketplace"
-                      className="text-[11px] text-lumo-fg-low group-hover:text-lumo-accent underline-offset-4 hover:underline"
-                    >
-                      {needsReconnect ? "Reconnect" : "Connect"}
-                    </Link>
-                  ) : (
-                    <HealthDot health={a.health} />
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+      {/* Search */}
+      <div className="px-3 pb-2">
+        <div className="relative">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 13 13"
+            fill="none"
+            aria-hidden
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-lumo-fg-low"
+          >
+            <circle
+              cx="5.5"
+              cy="5.5"
+              r="3.5"
+              stroke="currentColor"
+              strokeWidth="1.4"
+            />
+            <path
+              d="m11 11-2.5-2.5"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            />
+          </svg>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search chats"
+            className="w-full h-8 rounded-md border border-lumo-hair bg-lumo-bg pl-8 pr-2 text-[12.5px] text-lumo-fg placeholder:text-lumo-fg-low focus:border-lumo-edge outline-none"
+          />
         </div>
       </div>
 
-      {/* Footer — auth + nav */}
-      <div className="border-t border-lumo-hair relative z-10">
-        {/* Auth block only renders when the Supabase public env is
-            baked into this build AND we have a definite auth signal
-            from /api/connections. Otherwise we skip the block so
-            users don't see "Sign in" CTAs that lead to a dead-end
-            explainer. */}
-        {process.env.NEXT_PUBLIC_SUPABASE_URL && isAuthed === false ? (
-          <div className="px-4 pt-3 pb-2 space-y-2">
-            <Link
-              href="/signup"
-              className="block w-full text-center h-10 leading-[2.5rem] rounded-lg bg-lumo-fg text-lumo-bg text-[13.5px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors"
-            >
-              Create account
-            </Link>
+      {/* Recents */}
+      <div className="flex-1 overflow-y-auto px-1.5 pb-2">
+        {recents === null ? (
+          <div className="px-2 py-4 text-[12px] text-lumo-fg-low">Loading…</div>
+        ) : authed === false ? (
+          <div className="px-3 py-6 space-y-2">
+            <div className="text-[12.5px] text-lumo-fg-mid leading-relaxed">
+              Sign in to see your conversations across devices.
+            </div>
             <Link
               href="/login"
-              className="block w-full text-center h-9 leading-[2.25rem] rounded-lg border border-lumo-hair text-[13px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors"
+              className="inline-flex items-center text-[12.5px] text-g-blue hover:underline underline-offset-4"
             >
-              Sign in
+              Sign in →
             </Link>
           </div>
-        ) : process.env.NEXT_PUBLIC_SUPABASE_URL && isAuthed === true ? (
-          <div className="px-4 pt-3 pb-1 space-y-1.5">
-            <Link
-              href="/memory"
-              className="block w-full rounded-lg border border-lumo-hair px-3 py-2 text-[12.5px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors inline-flex items-center gap-2"
+        ) : grouped.length === 0 ? (
+          <div className="px-3 py-6 text-[12px] text-lumo-fg-low">
+            {query ? "No matches." : "No conversations yet."}
+          </div>
+        ) : (
+          grouped.map((g) => (
+            <div key={g.label} className="mb-3">
+              <div className="px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-lumo-fg-low">
+                {g.label}
+              </div>
+              <ul>
+                {g.items.map((s) => {
+                  const active = s.session_id === currentSessionId;
+                  return (
+                    <li key={s.session_id}>
+                      <a
+                        href={`/?session=${encodeURIComponent(s.session_id)}`}
+                        className={
+                          "block rounded-md px-2.5 py-2 text-[12.5px] leading-snug transition-colors " +
+                          (active
+                            ? "bg-lumo-elevated text-lumo-fg"
+                            : "text-lumo-fg-mid hover:bg-lumo-elevated/60 hover:text-lumo-fg")
+                        }
+                        aria-current={active ? "page" : undefined}
+                      >
+                        <div className="line-clamp-2">
+                          {s.preview ?? <em className="text-lumo-fg-low">(empty)</em>}
+                        </div>
+                        {s.trip_count > 0 ? (
+                          <div className="mt-0.5 inline-flex items-center text-[10px] text-g-blue">
+                            {s.trip_count} trip{s.trip_count === 1 ? "" : "s"}
+                          </div>
+                        ) : null}
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Profile chip + menu */}
+      <div ref={menuRef} className="relative border-t border-lumo-hair p-2">
+        {menuOpen ? (
+          <div className="absolute bottom-full left-2 right-2 mb-2 rounded-lg border border-lumo-hair bg-lumo-elevated shadow-xl py-1 z-30">
+            <MenuLink href="/memory" label="Account" hint="Profile, dietary, addresses" />
+            <MenuLink href="/history" label="History" hint="Past trips and chats" />
+            <MenuLink href="/marketplace" label="Marketplace" hint="Connect more apps" />
+            <MenuLink href="/admin" label="Admin" hint="Operator console" />
+            <div className="my-1 border-t border-lumo-hair" />
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await fetch("/api/auth/logout", { method: "POST" });
+                } catch {
+                  /* ignore */
+                }
+                window.location.href = "/login";
+              }}
+              className="w-full text-left px-3 py-2 text-[12.5px] text-lumo-fg-mid hover:bg-lumo-bg hover:text-lumo-fg"
             >
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-lumo-accent shadow-[0_0_6px_rgba(94,234,172,0.6)]" />
-              Signed in
-            </Link>
-            <SignOutButton />
+              Sign out
+            </button>
           </div>
         ) : null}
 
-        <div className="px-4 pt-2 pb-3 space-y-0.5">
-          <FooterLink href="/workspace" label="Workspace" highlight />
-          <FooterLink href="/history" label="History" />
-          <FooterLink href="/marketplace" label="Marketplace" />
-          <FooterLink href="/connections" label="Connections" />
-        </div>
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          className="w-full inline-flex items-center gap-2.5 rounded-md px-2 py-2 hover:bg-lumo-elevated transition-colors"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+        >
+          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-g-blue/30 to-g-green/30 border border-lumo-hair flex items-center justify-center text-[13px] font-semibold text-lumo-fg shrink-0">
+            {initialFor(me)}
+          </div>
+          <div className="flex-1 min-w-0 text-left">
+            <div className="text-[12.5px] text-lumo-fg truncate">
+              {me?.full_name ?? me?.email ?? "Guest"}
+            </div>
+            <div className="text-[11px] text-lumo-fg-low truncate">
+              {authed ? me?.email ?? "Signed in" : "Not signed in"}
+            </div>
+          </div>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            fill="none"
+            aria-hidden
+            className="text-lumo-fg-low shrink-0"
+          >
+            <path
+              d="M3 7.5 6 4.5l3 3"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
       </div>
     </aside>
   );
 }
 
-function SectionHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-2.5 text-[11px] uppercase tracking-[0.18em] text-lumo-fg-low font-medium">
-      {children}
-    </div>
-  );
-}
+// ─────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────
 
-function FooterLink({
+function MenuLink({
   href,
   label,
-  highlight,
+  hint,
 }: {
   href: string;
   label: string;
-  /**
-   * When true, renders as the primary nav target with a left-bar accent.
-   * Used for /workspace — the demo surface — so it's visually distinct
-   * from secondary admin links like History / Connections.
-   */
-  highlight?: boolean;
+  hint: string;
 }) {
-  if (highlight) {
-    return (
-      <Link
-        href={href}
-        className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] font-medium text-lumo-fg hover:bg-lumo-elevated/80 transition-colors border-l-2 border-lumo-accent -ml-px"
-      >
-        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-lumo-accent" />
-        {label}
-      </Link>
-    );
-  }
   return (
     <Link
       href={href}
-      className="block rounded-lg px-2.5 py-2 text-[13px] text-lumo-fg-low hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors"
+      className="block px-3 py-2 hover:bg-lumo-bg transition-colors"
     >
-      {label}
+      <div className="text-[12.5px] text-lumo-fg">{label}</div>
+      <div className="text-[10.5px] text-lumo-fg-low">{hint}</div>
     </Link>
   );
 }
 
+function initialFor(me: Me | null): string {
+  const src =
+    (me?.first_name && me.first_name.trim()) ||
+    (me?.full_name && me.full_name.trim()) ||
+    (me?.email && me.email.split("@")[0]) ||
+    "";
+  const ch = src.charAt(0);
+  return ch ? ch.toUpperCase() : "·";
+}
+
+interface DayGroup {
+  label: string;
+  items: RecentSession[];
+}
+
 /**
- * SignOutButton — hits POST /api/auth/logout and hard-navigates to
- * /login. Hard-nav (window.location.assign) instead of next/router
- * so the browser drops all in-memory state and reloads against
- * freshly-cleared cookies — guarantees no stale user data is ever
- * rendered after sign-out. Disabled briefly while in-flight so a
- * double-click can't fire two logout requests.
+ * Bucket recents by Today / Yesterday / This week / older. Same
+ * mental model as Claude Desktop's "Recents" rollup so users feel
+ * at home immediately.
  */
-function SignOutButton() {
-  const [busy, setBusy] = useState(false);
-  const onClick = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        // Keep the request atomic — don't let it be aborted when we
-        // navigate away immediately after.
-        keepalive: true,
+function groupByDay(items: RecentSession[]): DayGroup[] {
+  if (items.length === 0) return [];
+  const now = new Date();
+  const today = startOfDay(now);
+  const yday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+  const weekStart = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+  const groups: DayGroup[] = [];
+  const byLabel = new Map<string, DayGroup>();
+
+  for (const s of items) {
+    const d = new Date(s.last_activity_at);
+    let label: string;
+    if (sameDay(d, today)) label = "Today";
+    else if (sameDay(d, yday)) label = "Yesterday";
+    else if (d >= weekStart) label = "This week";
+    else
+      label = d.toLocaleDateString(undefined, {
+        month: "long",
+        year: "numeric",
       });
-    } catch {
-      // Network failure still proceeds to /login; server will 401 on
-      // the next request and middleware will bounce accordingly, and
-      // the cookies are effectively orphaned.
+    const existing = byLabel.get(label);
+    if (existing) existing.items.push(s);
+    else {
+      const g = { label, items: [s] };
+      byLabel.set(label, g);
+      groups.push(g);
     }
-    // Hard reload — drops every client ref to the signed-in identity.
-    window.location.assign("/login");
-  };
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy}
-      className="block w-full rounded-lg px-3 py-2 text-left text-[12.5px] text-lumo-fg-low hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors disabled:opacity-60"
-    >
-      {busy ? "Signing out…" : "Sign out"}
-    </button>
-  );
-}
-
-function tooltipForAgent(a: AgentHealth): string {
-  const parts: string[] = [a.display_name];
-  switch (a.connection_status) {
-    case "active":
-      parts.push("connected");
-      break;
-    case "expired":
-      parts.push("token expired — reconnect");
-      break;
-    case "revoked":
-      parts.push("revoked — reconnect to use again");
-      break;
-    case "error":
-      parts.push("connection error");
-      break;
-    case null:
-      parts.push("not connected");
-      break;
   }
-  if (a.health === "degraded") parts.push("agent degraded");
-  return parts.join(" · ");
+  return groups;
 }
 
-function HealthDot({ health }: { health: AgentHealth["health"] }) {
-  const cls =
-    health === "ok"
-      ? "bg-lumo-accent shadow-[0_0_8px_rgba(94,234,172,0.6)]"
-      : health === "degraded"
-      ? "bg-lumo-warn"
-      : "bg-lumo-fg-low/40";
+function startOfDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function sameDay(a: Date, b: Date): boolean {
   return (
-    <span
-      className={`inline-block h-1.5 w-1.5 rounded-full ${cls}`}
-      aria-label={health}
-    />
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
   );
 }

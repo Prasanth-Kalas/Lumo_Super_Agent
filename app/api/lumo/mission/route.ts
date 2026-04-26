@@ -12,6 +12,11 @@ import { getServerUser } from "@/lib/auth";
 import { listConnectionsForUser } from "@/lib/connections";
 import { listInstalledAgentsForUser } from "@/lib/app-installs";
 import { buildLumoMissionPlan } from "@/lib/lumo-mission";
+import {
+  describeRegistryAgents,
+  evaluateRiskBadgesForAgents,
+  rankAgentsForIntent,
+} from "@/lib/marketplace-intelligence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,6 +49,23 @@ export async function POST(req: NextRequest): Promise<Response> {
           listInstalledAgentsForUser(user_id),
         ])
       : [[], []];
+  const installedAgentIds = new Set(
+    installs.filter((i) => i.status === "installed").map((i) => i.agent_id),
+  );
+  const agentDescriptors = describeRegistryAgents(registry, installedAgentIds);
+  const [rankResult, riskBadges] = await Promise.all([
+    rankAgentsForIntent({
+      user_id,
+      user_intent: request,
+      agents: agentDescriptors,
+      installed_agent_ids: Array.from(installedAgentIds),
+      limit: 10,
+    }),
+    evaluateRiskBadgesForAgents({
+      user_id,
+      agents: agentDescriptors,
+    }),
+  ]);
 
   const plan = buildLumoMissionPlan({
     request,
@@ -51,9 +73,19 @@ export async function POST(req: NextRequest): Promise<Response> {
     connections,
     installs,
     user_id,
+    ranked_agents: rankResult.ranked_agents,
+    risk_badges: riskBadges,
   });
 
-  return json({ plan, authenticated: !!user });
+  return json({
+    plan,
+    authenticated: !!user,
+    intelligence: {
+      rank_source: rankResult.source,
+      rank_latency_ms: rankResult.latency_ms,
+      rank_error: rankResult.error,
+    },
+  });
 }
 
 function readMessage(body: Body): string {

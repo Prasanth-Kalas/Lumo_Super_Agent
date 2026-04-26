@@ -57,6 +57,15 @@ interface MarketplaceAgent {
     installed_at: string;
     last_used_at: string | null;
   } | null;
+  risk_badge: {
+    level: "low" | "medium" | "high" | "review_required";
+    score: number;
+    reasons: string[];
+    mitigations: string[];
+    source: "ml" | "fallback";
+    latency_ms: number;
+    error?: string;
+  };
 }
 
 export default function MarketplacePage() {
@@ -287,6 +296,7 @@ export default function MarketplacePage() {
                 source={a.source}
                 coming_soon_label={a.coming_soon?.eta_label}
                 coming_soon_rationale={a.coming_soon?.rationale}
+                risk_badge={a.risk_badge}
                 onConnect={
                   a.source === "coming_soon"
                     ? undefined

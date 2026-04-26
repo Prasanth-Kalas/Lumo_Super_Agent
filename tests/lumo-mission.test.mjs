@@ -124,6 +124,48 @@ t("continue approval does not re-open unavailable-only mission gate", () => {
   assert.equal(plan.can_continue_now, true);
 });
 
+t("rank and risk enrichment lands on Vegas mission proposals", () => {
+  const plan = buildLumoMissionPlan({
+    request: "Book flights, hotels and cabs to Vegas next Saturday.",
+    registry,
+    user_id: "00000000-0000-0000-0000-000000000001",
+    ranked_agents: [
+      {
+        agent_id: "flight",
+        display_name: "Lumo Flights",
+        score: 0.94,
+        installed: false,
+        reasons: ["Covers flight"],
+        missing_scopes: [],
+      },
+      {
+        agent_id: "hotel",
+        display_name: "Lumo Hotels",
+        score: 0.91,
+        installed: false,
+        reasons: ["Covers hotel"],
+        missing_scopes: [],
+      },
+    ],
+    risk_badges: {
+      flight: {
+        level: "medium",
+        score: 0.5,
+        reasons: ["Can book travel"],
+        mitigations: ["Confirm before booking"],
+        source: "ml",
+        latency_ms: 12,
+      },
+    },
+  });
+  const flight = plan.install_proposals.find((proposal) => proposal.agent_id === "flight");
+  assert.equal(flight?.rank_score, 0.94);
+  assert.equal(flight?.risk_badge?.level, "medium");
+  assert.ok(plan.ranked_recommendations.some((agent) => agent.agent_id === "hotel"));
+  assert.ok(plan.user_questions.length > 0);
+  assert.ok(plan.confirmation_points.length > 0);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
 

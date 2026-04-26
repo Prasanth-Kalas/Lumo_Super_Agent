@@ -811,7 +811,7 @@ export default function Home() {
                     // Assistant — typographic. Small "Lumo" label, then prose.
                     <div className="space-y-1.5">
                       <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-low num">
-                        <BrandMark size={12} className="text-lumo-fg-low" />
+                        <BrandMark size={12} className="text-lumo-fg-low" monochrome />
                         <span>Lumo</span>
                       </div>
                       <div className="pl-[18px]">
@@ -946,7 +946,7 @@ export default function Home() {
           {busy && (
             <div className="animate-fade-in space-y-1.5">
               <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-low num">
-                <BrandMark size={12} className="text-lumo-fg-low" />
+                <BrandMark size={12} className="text-lumo-fg-low" monochrome />
                 <span>Lumo</span>
               </div>
               <div className="pl-[18px] flex items-center gap-2 text-[14px]">

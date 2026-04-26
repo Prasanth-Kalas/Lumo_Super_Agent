@@ -36,6 +36,13 @@ export interface AgentCardProps {
   coming_soon_label?: string;
   /** When source==='coming_soon', tooltip-shown rationale (eta + why). */
   coming_soon_rationale?: string;
+  risk_badge?: {
+    level: "low" | "medium" | "high" | "review_required";
+    score: number;
+    reasons: string[];
+    mitigations?: string[];
+    source: "ml" | "fallback";
+  } | null;
 }
 
 export function AgentCard(props: AgentCardProps) {
@@ -62,6 +69,7 @@ export function AgentCard(props: AgentCardProps) {
                 via MCP
               </span>
             ) : null}
+            {props.risk_badge ? <RiskBadge badge={props.risk_badge} /> : null}
           </div>
           {props.category ? (
             <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-low mt-0.5">
@@ -123,6 +131,29 @@ export function AgentCard(props: AgentCardProps) {
     );
   }
   return body;
+}
+
+function RiskBadge({
+  badge,
+}: {
+  badge: NonNullable<AgentCardProps["risk_badge"]>;
+}) {
+  const classes =
+    badge.level === "low"
+      ? "border-lumo-ok/30 bg-lumo-ok/10 text-lumo-ok"
+      : badge.level === "medium"
+        ? "border-lumo-warn/35 bg-lumo-warn/10 text-lumo-warn"
+        : badge.level === "high"
+          ? "border-lumo-err/35 bg-lumo-err/10 text-lumo-err"
+          : "border-lumo-hair bg-lumo-bg text-lumo-fg-low";
+  return (
+    <span
+      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] uppercase tracking-[0.1em] border ${classes}`}
+      title={badge.reasons.join("; ")}
+    >
+      {badge.level === "review_required" ? "review" : `${badge.level} risk`}
+    </span>
+  );
 }
 
 function Logo({

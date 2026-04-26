@@ -34,6 +34,12 @@ import {
   buildLumoMissionPlan,
   type LumoMissionPlan,
 } from "./lumo-mission.js";
+import {
+  describeRegistryAgents,
+  evaluateRiskBadgesForAgents,
+  rankAgentsForIntent,
+} from "./marketplace-intelligence.js";
+import { shouldRunMarketplaceIntelligence } from "./marketplace-intelligence-core.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
 import { dispatchMcpTool, isMcpToolName } from "./mcp/dispatch.js";
@@ -262,13 +268,54 @@ export async function runTurn(
 
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
+  const useMarketplaceIntelligence =
+    input.user_id !== "anon" && shouldRunMarketplaceIntelligence(lastUserForMission);
+  const agentDescriptors = useMarketplaceIntelligence
+    ? describeRegistryAgents(registry, installedAgentIds)
+    : [];
+  const [rankResult, riskBadges] = useMarketplaceIntelligence
+    ? await Promise.all([
+        rankAgentsForIntent({
+          user_id: input.user_id,
+          user_intent: lastUserForMission,
+          agents: agentDescriptors,
+          installed_agent_ids: Array.from(installedAgentIds),
+          limit: 10,
+        }),
+        evaluateRiskBadgesForAgents({
+          user_id: input.user_id,
+          agents: agentDescriptors,
+        }),
+      ])
+    : [null, new Map()];
   const missionPlan = buildLumoMissionPlan({
     request: lastUserForMission,
     registry,
     connections,
     installs,
     user_id: input.user_id,
+    ranked_agents: rankResult?.ranked_agents,
+    risk_badges: riskBadges,
   });
+  if (rankResult) {
+    emit({
+      type: "internal",
+      value: {
+        kind: "lumo_marketplace_rank",
+        detail: {
+          source: rankResult.source,
+          latency_ms: rankResult.latency_ms,
+          error: rankResult.error,
+          ranked_agents: rankResult.ranked_agents.slice(0, 6).map((agent) => ({
+            agent_id: agent.agent_id,
+            score: agent.score,
+            installed: agent.installed,
+          })),
+          missing_capabilities: rankResult.missing_capabilities,
+        },
+      },
+    });
+  }
   if (missionPlan.should_pause_for_permission) {
     emit({ type: "text", value: missionPlan.message });
     emit({ type: "mission", value: missionPlan });

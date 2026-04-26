@@ -168,6 +168,22 @@ Tool outputs must use the same Lumo tool envelope conventions as partner agents:
 structured JSON, stable error codes, and `_lumo_summary` where the orchestrator
 needs user-readable summaries.
 
+Day-5 Core wiring uses a pure-core/thin-glue pattern:
+
+- `rank_agents` runs through `lib/marketplace-intelligence.ts` with a 300ms
+  budget. User intent is treated as untrusted data and redacted before it
+  leaves Core. If the brain is missing, slow, or malformed, Core falls back to
+  deterministic capability/keyword ranking.
+- `evaluate_agent_risk` powers a stable `risk_badge` contract on marketplace
+  agents and mission install proposals:
+  `{ level, score, reasons, mitigations, source, latency_ms, error? }`, where
+  `level` is `low | medium | high | review_required`.
+- Slow or failed risk calls never render a green badge; Core returns
+  `review_required` unless the deterministic fallback already sees medium/high
+  scope risk.
+- `/api/marketplace`, `/api/lumo/mission`, and the chat orchestrator all use
+  the same client and fallback logic, so the app-store surfaces do not drift.
+
 ## 6. Data and storage
 
 ### Existing state
@@ -352,6 +368,13 @@ Fallback rules:
 
 No workspace card should block page rendering on a slow ML call.
 
+Prompt-injection posture for marketplace ranking: Phase 1 ranking is
+deterministic in both Core fallback and the current Python brain scaffold. User
+intent text is never interpolated into an LLM system prompt for ranking. If a
+future brain implementation uses an LLM ranker, the intent must remain
+delimited as untrusted user content and the embedding/keyword ranker remains
+the hot-path fallback.
+
 ## 10. Evals and acceptance
 
 Phase 1 is accepted only when all of these pass:
@@ -392,8 +415,8 @@ Phase 1 is accepted only when all of these pass:
 | 1-2 | Add `lumo-ml` to Lumo registry config as `system: true` and make the bridge include it for authenticated users |
 | 3 | Add pgvector migration for `content_embeddings`; build indexer cron over `connector_responses_archive` |
 | 4 | Train first lead classifier on 100 hand-labelled examples; wire `/api/workspace/inbox` to `classify` with heuristic fallback |
-| 5 | Add E2B/Firecracker-backed `run_python_sandbox` with 30s timeout, no-network default, scoped FS, and audit logging |
-| 6 | Wire `recall` and `rank_agents` into chat; run and record the Vegas demo |
+| 5 | Wire `rank_agents` and `evaluate_agent_risk` into chat, mission planning, and marketplace risk badges |
+| 6 | Wire `recall` into chat; run and record the Vegas demo |
 | 7 | Add eval harness to CI, finish handoff docs, and update this ADR with implementation deltas |
 
 ## 12. Later phases
@@ -401,7 +424,8 @@ Phase 1 is accepted only when all of these pass:
 ### Phase 2 - Marketplace brain
 
 - Personalized marketplace ranking
-- Risk badges on marketplace tiles
+- Risk badges on marketplace tiles graduate from scaffolded scoring to peer
+  calibrated scoring
 - Permission over-ask comparison by category
 - Install prompts that explain why an agent is needed for a user task
 

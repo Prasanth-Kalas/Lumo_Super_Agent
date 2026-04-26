@@ -12,6 +12,7 @@ import type { AgentManifest } from "@lumo/agent-sdk";
 import type { Registry, RegistryEntry } from "./agent-registry.js";
 import type { AppInstall } from "./app-installs.js";
 import type { ConnectionMeta } from "./connections.js";
+import type { RankedAgentResult, RiskBadge } from "./marketplace-intelligence-core.js";
 
 export type MissionAgentState =
   | "ready"
@@ -46,6 +47,9 @@ export interface MissionAgentCandidate {
   pii_scope: AgentManifest["pii_scope"];
   requires_payment: boolean;
   health_score: number;
+  rank_score: number | null;
+  rank_reasons: string[];
+  risk_badge: RiskBadge | null;
   state: MissionAgentState;
   state_reason: string;
 }
@@ -73,6 +77,9 @@ export interface LumoMissionPlan {
   required_agents: MissionAgentCandidate[];
   ready_agents: MissionAgentCandidate[];
   install_proposals: MissionInstallProposal[];
+  ranked_recommendations: RankedAgentResult[];
+  user_questions: string[];
+  confirmation_points: string[];
   unavailable_capabilities: MissionUnavailableCapability[];
   can_continue_now: boolean;
   should_pause_for_permission: boolean;
@@ -84,6 +91,8 @@ export interface BuildMissionPlanInput {
   connections?: ConnectionMeta[];
   installs?: AppInstall[];
   user_id?: string | null;
+  ranked_agents?: RankedAgentResult[];
+  risk_badges?: Record<string, RiskBadge> | Map<string, RiskBadge>;
 }
 
 interface CapabilityDefinition {
@@ -296,6 +305,13 @@ export function buildLumoMissionPlan(
   const toolTextByAgent = buildToolTextByAgent(input.registry);
   const required_agents: MissionAgentCandidate[] = [];
   const unavailable_capabilities: MissionUnavailableCapability[] = [];
+  const rankedByAgentId = new Map(
+    (input.ranked_agents ?? []).map((agent) => [agent.agent_id, agent]),
+  );
+  const riskByAgentId =
+    input.risk_badges instanceof Map
+      ? input.risk_badges
+      : new Map(Object.entries(input.risk_badges ?? {}));
 
   for (const capability of detected) {
     if (capability.id === "ground_transport") {
@@ -316,6 +332,8 @@ export function buildLumoMissionPlan(
       connectedAgentIds,
       installedAgentIds,
       input.user_id,
+      rankedByAgentId,
+      riskByAgentId,
     );
     if (candidate) required_agents.push(candidate);
   }
@@ -341,6 +359,11 @@ export function buildLumoMissionPlan(
     install_proposals,
     unavailable_capabilities,
   });
+  const ranked_recommendations = (input.ranked_agents ?? [])
+    .filter((agent) => agent.score >= 0.2)
+    .slice(0, 8);
+  const user_questions = questionsForMission(request, dedupedAgents);
+  const confirmation_points = confirmationPointsForMission(dedupedAgents);
 
   return {
     mission_id,
@@ -350,6 +373,9 @@ export function buildLumoMissionPlan(
     required_agents: dedupedAgents,
     ready_agents,
     install_proposals,
+    ranked_recommendations,
+    user_questions,
+    confirmation_points,
     unavailable_capabilities,
     can_continue_now,
     should_pause_for_permission,
@@ -381,6 +407,8 @@ function bestAgentForCapability(
   connectedAgentIds: ReadonlySet<string>,
   installedAgentIds: ReadonlySet<string>,
   user_id: string | null | undefined,
+  rankedByAgentId: ReadonlyMap<string, RankedAgentResult>,
+  riskByAgentId: ReadonlyMap<string, RiskBadge>,
 ): MissionAgentCandidate | null {
   let best: { entry: RegistryEntry; score: number } | null = null;
   for (const entry of Object.values(registry.agents)) {
@@ -403,6 +431,7 @@ function bestAgentForCapability(
     user_id,
   );
   const manifest = entry.manifest;
+  const rankHint = rankedByAgentId.get(manifest.agent_id) ?? null;
 
   return {
     agent_id: manifest.agent_id,
@@ -419,6 +448,9 @@ function bestAgentForCapability(
     pii_scope: manifest.pii_scope,
     requires_payment: manifest.requires_payment,
     health_score: entry.health_score,
+    rank_score: rankHint?.score ?? null,
+    rank_reasons: rankHint?.reasons ?? [],
+    risk_badge: riskByAgentId.get(manifest.agent_id) ?? null,
     state: state.state,
     state_reason: state.reason,
   };
@@ -595,6 +627,51 @@ function buildMissionMessage(input: {
   return "I did not find a marketplace app match for that request yet.";
 }
 
+function questionsForMission(
+  request: string,
+  agents: MissionAgentCandidate[],
+): string[] {
+  const normalized = normalizeText(request);
+  const questions: string[] = [];
+  if (
+    agents.some((agent) => agent.capability === "flights") &&
+    !/\b(from|departing from|leaving from)\b/.test(normalized)
+  ) {
+    questions.push("What departure city or airport should I use?");
+  }
+  if (agents.some((agent) => agent.capability === "flights" || agent.capability === "hotels")) {
+    questions.push("How many travelers should I plan for?");
+    questions.push("Should I optimize for cheapest, fastest, or most comfortable options?");
+  }
+  if (agents.some((agent) => agent.capability === "hotels")) {
+    questions.push("What hotel budget and preferred area should I use?");
+  }
+  if (agents.some((agent) => agent.capability === "ev_charging")) {
+    questions.push("What EV connector or vehicle should I optimize charging stops for?");
+  }
+  return dedupeStrings(questions).slice(0, 5);
+}
+
+function confirmationPointsForMission(
+  agents: MissionAgentCandidate[],
+): string[] {
+  const points = new Set<string>();
+  if (agents.some((agent) => agent.capability === "flights")) {
+    points.add("Confirm flight itinerary, travelers, bags, and total fare before booking.");
+  }
+  if (agents.some((agent) => agent.capability === "hotels")) {
+    points.add("Confirm hotel dates, room type, fees, and cancellation policy before booking.");
+  }
+  if (agents.some((agent) => agent.capability === "food" || agent.capability === "restaurants")) {
+    points.add("Confirm order, reservation time, party size, and total before dispatch.");
+  }
+  if (agents.some((agent) => agent.requires_payment)) {
+    points.add("Confirm every payment or money-moving action in a Lumo confirmation card.");
+  }
+  points.add("Ask before creating accounts, sharing profile details, sending messages, or committing bookings.");
+  return Array.from(points);
+}
+
 function inferMissionTitle(
   request: string,
   agents: MissionAgentCandidate[],
@@ -655,4 +732,12 @@ function titleCase(input: string): string {
 
 function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const out: string[] = [];
+  for (const value of values) {
+    if (!out.includes(value)) out.push(value);
+  }
+  return out;
 }

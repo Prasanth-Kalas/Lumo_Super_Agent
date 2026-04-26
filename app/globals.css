@@ -56,6 +56,21 @@
 
   /* Single shadow token. Anything deeper than this reads gratuitous. */
   --lumo-shadow:        0 1px 0 0 #00000066, 0 24px 48px -24px #00000099;
+
+  /* Google-inspired multi-accent palette. The shell is monochrome
+     by default (mint accent above) — these four colors are reserved
+     for things that benefit from being immediately distinguishable:
+     the brand mark, category badges, voice state dots, agent source
+     chips, and the occasional notification pill. Used sparingly so
+     the chat itself doesn't look like a kindergarten poster.
+       g-blue   = primary "do this" / Lumo identity
+       g-red    = errors / destructive
+       g-yellow = thinking / pending
+       g-green  = success / committed */
+  --g-blue:             #4285F4;
+  --g-red:              #EA4335;
+  --g-yellow:           #FBBC04;
+  --g-green:            #34A853;
 }
 
 [data-theme="light"] {
@@ -84,6 +99,13 @@
   --lumo-ring:          #0B7A4E44;
 
   --lumo-shadow:        0 1px 0 0 #0B0E1408, 0 24px 48px -24px #0B0E1418;
+
+  /* Same Google palette in light mode. The hex values are visible
+     enough on white without de-saturating. */
+  --g-blue:             #1A73E8;
+  --g-red:              #D93025;
+  --g-yellow:           #F9AB00;
+  --g-green:            #1E8E3E;
 }
 
 /* ─── Base canvas ──────────────────────────────────────────────────── */

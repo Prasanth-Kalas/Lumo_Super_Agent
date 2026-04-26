@@ -35,9 +35,21 @@ interface MarketplaceAgent {
     terms_url?: string;
     pricing_note?: string;
   } | null;
-  connect_model: "oauth2" | "lumo_id" | "none";
+  connect_model:
+    | "oauth2"
+    | "lumo_id"
+    | "none"
+    | "mcp_bearer"
+    | "mcp_none"
+    | "coming_soon";
   required_scopes: Array<{ name: string; description: string }>;
   health_score: number;
+  source?: "lumo" | "mcp" | "coming_soon";
+  coming_soon?: {
+    status: "in_review" | "planned";
+    eta_label: string;
+    rationale: string;
+  };
   connection: {
     id: string;
     status: "active" | "expired" | "revoked" | "error";
@@ -49,6 +61,15 @@ interface MarketplaceAgent {
     installed_at: string;
     last_used_at: string | null;
   } | null;
+  risk_badge: {
+    level: "low" | "medium" | "high" | "review_required";
+    score: number;
+    reasons: string[];
+    mitigations: string[];
+    source: "ml" | "fallback";
+    latency_ms: number;
+    error?: string;
+  };
 }
 
 export default function AgentDetailPage() {
@@ -287,6 +308,23 @@ export default function AgentDetailPage() {
 
         <aside className="space-y-3">
           <div className="rounded-xl border border-lumo-hair bg-lumo-surface p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[12px] font-medium text-lumo-fg">Permission risk</div>
+              <RiskBadge badge={agent.risk_badge} />
+            </div>
+            <div className="text-[12px] leading-relaxed text-lumo-fg-mid">
+              {agent.risk_badge.reasons[0] ?? "No sensitive required scopes detected"}
+            </div>
+            {agent.risk_badge.level !== "low" ? (
+              <ul className="space-y-1 text-[11.5px] leading-relaxed text-lumo-fg-low">
+                {agent.risk_badge.mitigations.slice(0, 2).map((mitigation) => (
+                  <li key={mitigation}>{mitigation}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl border border-lumo-hair bg-lumo-surface p-4 space-y-3">
             {isConnected ? (
               <>
                 <div className="text-[12.5px] text-lumo-ok flex items-center gap-1.5">
@@ -388,6 +426,26 @@ export default function AgentDetailPage() {
         </aside>
       </div>
     </main>
+  );
+}
+
+function RiskBadge({
+  badge,
+}: {
+  badge: MarketplaceAgent["risk_badge"];
+}) {
+  const classes =
+    badge.level === "low"
+      ? "border-lumo-ok/30 bg-lumo-ok/10 text-lumo-ok"
+      : badge.level === "medium"
+        ? "border-lumo-warn/35 bg-lumo-warn/10 text-lumo-warn"
+        : badge.level === "high"
+          ? "border-lumo-err/35 bg-lumo-err/10 text-lumo-err"
+          : "border-lumo-hair bg-lumo-bg text-lumo-fg-low";
+  return (
+    <span className={`rounded px-2 py-1 text-[10.5px] uppercase tracking-[0.1em] border ${classes}`}>
+      {badge.level === "review_required" ? "review" : `${badge.level} risk`}
+    </span>
   );
 }
 

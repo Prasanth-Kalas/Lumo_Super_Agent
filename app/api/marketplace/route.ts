@@ -20,6 +20,12 @@ import {
   listMcpConnectionsForUser,
 } from "@/lib/mcp/registry";
 import type { AgentManifest } from "@lumo/agent-sdk";
+import {
+  evaluateRiskBadgesForAgents,
+  fallbackRiskBadgeForAgent,
+  type IntelligenceAgentDescriptor,
+  type RiskBadge,
+} from "@/lib/marketplace-intelligence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +64,7 @@ interface MarketplaceAgent {
     installed_at: string;
     last_used_at: string | null;
   } | null;
+  risk_badge: RiskBadge;
 }
 
 /**
@@ -90,6 +97,19 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
     required_scopes: [],
     health_score: 1,
     source: "coming_soon",
+    risk_badge: fallbackRiskBadgeForAgent({
+      agent_id: "coming-soon:meta-instagram",
+      display_name: "Instagram",
+      domain: "personal",
+      category: "Creator",
+      one_liner:
+        "Pull post analytics, manage comments, and publish — gated by your confirmation card.",
+      intents: [],
+      scopes: [],
+      installed: false,
+      connect_model: "coming_soon",
+      source: "coming_soon",
+    }),
     coming_soon: {
       status: "in_review",
       eta_label: "Coming soon — in review",
@@ -112,6 +132,18 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
     required_scopes: [],
     health_score: 1,
     source: "coming_soon",
+    risk_badge: fallbackRiskBadgeForAgent({
+      agent_id: "coming-soon:meta-facebook",
+      display_name: "Facebook Pages",
+      domain: "personal",
+      category: "Creator",
+      one_liner: "Page insights + post management + comment replies, all gated.",
+      intents: [],
+      scopes: [],
+      installed: false,
+      connect_model: "coming_soon",
+      source: "coming_soon",
+    }),
     coming_soon: {
       status: "in_review",
       eta_label: "Coming soon — in review",
@@ -135,6 +167,19 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
     required_scopes: [],
     health_score: 1,
     source: "coming_soon",
+    risk_badge: fallbackRiskBadgeForAgent({
+      agent_id: "coming-soon:linkedin",
+      display_name: "LinkedIn",
+      domain: "personal",
+      category: "Creator",
+      one_liner:
+        "Personal post + analytics + comment management for executives and creators.",
+      intents: [],
+      scopes: [],
+      installed: false,
+      connect_model: "coming_soon",
+      source: "coming_soon",
+    }),
     coming_soon: {
       status: "in_review",
       eta_label: "Coming soon — pending MDP",
@@ -157,6 +202,18 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
     required_scopes: [],
     health_score: 1,
     source: "coming_soon",
+    risk_badge: fallbackRiskBadgeForAgent({
+      agent_id: "coming-soon:newsletter",
+      display_name: "Newsletter (Beehiiv · Mailchimp · Substack)",
+      domain: "personal",
+      category: "Creator",
+      one_liner: "Subscriber count, open rate, top issues — alongside your social.",
+      intents: [],
+      scopes: [],
+      installed: false,
+      connect_model: "coming_soon",
+      source: "coming_soon",
+    }),
     coming_soon: {
       status: "planned",
       eta_label: "Coming next sprint",
@@ -179,6 +236,18 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
     required_scopes: [],
     health_score: 1,
     source: "coming_soon",
+    risk_badge: fallbackRiskBadgeForAgent({
+      agent_id: "coming-soon:x",
+      display_name: "X (Twitter)",
+      domain: "personal",
+      category: "Creator",
+      one_liner: "Reads + posting once X API pricing makes V1 economics work.",
+      intents: [],
+      scopes: [],
+      installed: false,
+      connect_model: "coming_soon",
+      source: "coming_soon",
+    }),
     coming_soon: {
       status: "planned",
       eta_label: "V2 — TBD",
@@ -229,6 +298,40 @@ export async function GET(_req: NextRequest): Promise<Response> {
         required_scopes,
         health_score: e.health_score,
         source: "lumo",
+        risk_badge: fallbackRiskBadgeForAgent(describeMarketplaceAgentForRisk({
+          agent_id: m.agent_id,
+          display_name: m.display_name,
+          one_liner: m.one_liner,
+          domain: m.domain,
+          version: m.version,
+          intents: m.intents,
+          listing: m.listing ?? null,
+          connect_model: connect.model,
+          required_scopes,
+          health_score: e.health_score,
+          source: "lumo",
+          connection: conn
+            ? {
+                id: conn.id,
+                status: conn.status,
+                connected_at: conn.connected_at,
+                last_used_at: conn.last_used_at,
+              }
+            : null,
+          install: install
+            ? {
+                status: install.status,
+                installed_at: install.installed_at,
+                last_used_at: install.last_used_at,
+              }
+            : conn
+              ? {
+                  status: "installed",
+                  installed_at: conn.connected_at,
+                  last_used_at: conn.last_used_at,
+                }
+              : null,
+        })),
         connection: conn
           ? {
               id: conn.id,
@@ -284,6 +387,19 @@ export async function GET(_req: NextRequest): Promise<Response> {
       // worth the latency until we have a cache.
       health_score: 1,
       source: "mcp",
+      risk_badge: fallbackRiskBadgeForAgent({
+        agent_id: `mcp:${s.server_id}`,
+        display_name: s.display_name,
+        domain: s.category ?? "MCP",
+        category: s.category ?? "MCP",
+        one_liner: s.one_liner,
+        intents: [],
+        scopes: (s.scopes ?? []).map((scope) => scope.name),
+        installed: conn?.status === "active",
+        connect_model: s.auth_model === "bearer" ? "mcp_bearer" : "mcp_none",
+        health_score: 1,
+        source: "mcp",
+      }),
       connection: conn
         ? {
             id: conn.id,
@@ -312,6 +428,17 @@ export async function GET(_req: NextRequest): Promise<Response> {
     agents.push(tile);
   }
 
+  const riskInputs = agents.map(describeMarketplaceAgentForRisk);
+  const riskBadges = await evaluateRiskBadgesForAgents({
+    user_id: user?.id ?? "anon",
+    agents: riskInputs,
+  });
+  for (const agent of agents) {
+    agent.risk_badge =
+      riskBadges.get(agent.agent_id) ??
+      fallbackRiskBadgeForAgent(describeMarketplaceAgentForRisk(agent));
+  }
+
   return new Response(
     JSON.stringify({
       agents,
@@ -322,4 +449,25 @@ export async function GET(_req: NextRequest): Promise<Response> {
       headers: { "content-type": "application/json" },
     },
   );
+}
+
+function describeMarketplaceAgentForRisk(
+  agent: Omit<MarketplaceAgent, "risk_badge"> | MarketplaceAgent,
+): IntelligenceAgentDescriptor {
+  return {
+    agent_id: agent.agent_id,
+    display_name: agent.display_name,
+    domain: agent.domain,
+    category: agent.listing?.category ?? agent.domain,
+    one_liner: agent.one_liner,
+    intents: agent.intents,
+    scopes: agent.required_scopes.map((scope) => scope.name),
+    installed:
+      agent.connection?.status === "active" || agent.install?.status === "installed",
+    connect_model: agent.connect_model,
+    requires_payment: false,
+    pii_scope: [],
+    health_score: agent.health_score,
+    source: agent.source,
+  };
 }
