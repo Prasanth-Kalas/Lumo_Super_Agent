@@ -96,6 +96,8 @@ interface UIMessage {
   mission?: LumoMissionPlan | null;
 }
 
+type ReplayPhase = "idle" | "loading" | "loaded" | "empty" | "error";
+
 // Starter suggestion cards were removed — the personalized hello
 // from the assistant ("Hey Alex! Good morning. I can book flights,
 // order food, reserve hotels…") carries the same discovery intent
@@ -238,12 +240,10 @@ export default function Home() {
   //
   // On first paint we read ?session=<uuid> from the URL and adopt it
   // as our session_id if present — this is how /history's "Open
-  // conversation" button attaches new messages to an existing
-  // thread in the audit log rather than spawning an orphan
-  // session. If the query param is missing or malformed we fall
-  // back to a fresh random UUID (or a timestamp if the crypto API
-  // isn't around — mobile webviews). Message replay from
-  // /api/events is a separate ticket; for now we only pin the ID.
+  // conversation" button replays earlier messages and attaches any
+  // new messages to the existing thread. If the query param is
+  // missing or malformed we fall back to a fresh random UUID (or a
+  // timestamp if the crypto API isn't around — mobile webviews).
   //
   // ⚠︎ SSR-safety: the old implementation computed this in a lazy
   // ref initializer that read window.location + crypto.randomUUID()
@@ -257,13 +257,19 @@ export default function Home() {
   // after hydration, avoiding the mismatch entirely.
   const sessionIdRef = useRef<string>("");
   const [sessionId, setSessionId] = useState<string>("");
+  const [replaySessionId, setReplaySessionId] = useState<string | null>(null);
+  const [replayPhase, setReplayPhase] = useState<ReplayPhase>("idle");
   useEffect(() => {
     let id = "";
+    let replayId: string | null = null;
     try {
       const fromUrl = new URL(window.location.href).searchParams.get(
         "session",
       );
-      if (fromUrl && /^[0-9a-fA-F-]{8,}$/.test(fromUrl)) id = fromUrl;
+      if (fromUrl && /^[0-9a-fA-F-]{8,}$/.test(fromUrl)) {
+        id = fromUrl;
+        replayId = fromUrl;
+      }
     } catch {
       /* ignore */
     }
@@ -275,7 +281,46 @@ export default function Home() {
     }
     sessionIdRef.current = id;
     setSessionId(id);
+    setReplaySessionId(replayId);
   }, []);
+
+  useEffect(() => {
+    if (!replaySessionId) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    setReplayPhase("loading");
+
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/history/sessions/${encodeURIComponent(replaySessionId)}/messages`,
+          { cache: "no-store", signal: controller.signal },
+        );
+        if (!res.ok) throw new Error(`history_replay_http_${res.status}`);
+        const body = (await res.json()) as { messages?: unknown[] };
+        const replayed = Array.isArray(body.messages)
+          ? body.messages.map(replayMessageToUI).filter((m): m is UIMessage => !!m)
+          : [];
+        if (cancelled || sessionIdRef.current !== replaySessionId) return;
+        if (replayed.length > 0) {
+          setMessages(replayed);
+          setReplayPhase("loaded");
+        } else {
+          setReplayPhase("empty");
+        }
+      } catch (err) {
+        if (cancelled || controller.signal.aborted) return;
+        console.error("[history] replay failed:", err);
+        setReplayPhase("error");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [replaySessionId]);
 
   // J4 — ambient context. Opportunistic geolocation: ask once on the
   // first real user message, remember yes/no for the session. Denied
@@ -339,8 +384,10 @@ export default function Home() {
     return null;
   }
 
+  const isReplayLoading = replayPhase === "loading";
+
   async function sendText(text: string) {
-    if (!text || busy) return;
+    if (!text || busy || isReplayLoading) return;
     const next: UIMessage = {
       id: `u-${Date.now()}`,
       role: "user",
@@ -569,6 +616,8 @@ export default function Home() {
   }
 
   function newThread() {
+    setReplaySessionId(null);
+    setReplayPhase("idle");
     setMessages([
       {
         id: "hello",
@@ -780,6 +829,16 @@ export default function Home() {
         className="thread flex-1 overflow-y-auto"
       >
         <div className="mx-auto w-full max-w-4xl px-6 pt-8 pb-12 space-y-6">
+          {replayPhase !== "idle" ? (
+            <div
+              className="inline-flex items-center gap-2 rounded-full border border-lumo-hair bg-lumo-elevated/70 px-3 py-1.5 text-[12px] text-lumo-fg-mid"
+              role={replayPhase === "loading" ? "status" : undefined}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-lumo-accent" aria-hidden />
+              <span>{replayPillText(replayPhase)}</span>
+            </div>
+          ) : null}
+
           {messages.map((m) => {
             const isItinerary =
               m.role === "assistant" &&
@@ -826,7 +885,7 @@ export default function Home() {
                       payload={m.summary.payload as ItineraryPayload}
                       onConfirm={() => void sendText("Yes, book it.")}
                       onCancel={() => void sendText("Cancel — don't book that.")}
-                      disabled={busy || !!decided?.exists}
+                      disabled={busy || isReplayLoading || !!decided?.exists}
                       decidedLabel={decided?.kind ?? null}
                     />
                   </div>
@@ -838,7 +897,7 @@ export default function Home() {
                       payload={m.summary.payload as TripPayload}
                       onConfirm={() => void sendText("Yes, book the trip.")}
                       onCancel={() => void sendText("Cancel — don't book that.")}
-                      disabled={busy || !!decided?.exists}
+                      disabled={busy || isReplayLoading || !!decided?.exists}
                       decidedLabel={decided?.kind ?? null}
                       legStatuses={tripStatuses}
                     />
@@ -851,7 +910,7 @@ export default function Home() {
                       payload={m.summary.payload as ReservationPayload}
                       onConfirm={() => void sendText("Yes, book it.")}
                       onCancel={() => void sendText("Cancel — don't book that.")}
-                      disabled={busy || !!decided?.exists}
+                      disabled={busy || isReplayLoading || !!decided?.exists}
                       decidedLabel={decided?.kind ?? null}
                     />
                   </div>
@@ -861,7 +920,7 @@ export default function Home() {
                   <div className="pl-[18px]">
                     <LumoMissionCard
                       plan={m.mission}
-                      disabled={busy}
+                      disabled={busy || isReplayLoading}
                       onContinue={(text) => void sendText(text)}
                     />
                   </div>
@@ -879,7 +938,7 @@ export default function Home() {
                                   key={`${m.id}-food`}
                                   payload={sel.payload as FoodMenuSelection}
                                   onSubmit={(text) => void sendText(text)}
-                                  disabled={busy}
+                                  disabled={busy || isReplayLoading}
                                   decidedLabel={selectionDecided.kind}
                                 />
                               );
@@ -890,7 +949,7 @@ export default function Home() {
                                   key={`${m.id}-flight-offers`}
                                   payload={sel.payload as FlightOffersSelection}
                                   onSubmit={(text) => void sendText(text)}
-                                  disabled={busy}
+                                  disabled={busy || isReplayLoading}
                                   decidedLabel={selectionDecided.kind}
                                 />
                               );
@@ -901,7 +960,7 @@ export default function Home() {
                                   key={`${m.id}-time-slots`}
                                   payload={sel.payload as TimeSlotsSelection}
                                   onSubmit={(text) => void sendText(text)}
-                                  disabled={busy}
+                                  disabled={busy || isReplayLoading}
                                   decidedLabel={selectionDecided.kind}
                                 />
                               );
@@ -977,7 +1036,7 @@ export default function Home() {
                   // Respect busy: a late STT result after the agent
                   // already started a new turn is dropped. The user
                   // can retry.
-                  if (!busy) void sendText(t);
+                  if (!busy && !isReplayLoading) void sendText(t);
                 }}
                 spokenText={spokenStreamText}
                 busy={busy}
@@ -1001,7 +1060,7 @@ export default function Home() {
               placeholder="Ask Lumo to book a flight, order dinner, plan a trip…"
               className="block w-full resize-none bg-transparent px-5 pt-4 pb-1.5 text-[16.5px] leading-[1.5] text-lumo-fg placeholder:text-lumo-fg-low focus:outline-none"
               style={{ outline: "none" }}
-              disabled={busy}
+              disabled={busy || isReplayLoading}
             />
 
             {/* Composer toolbar — just the voice toggle and Send.
@@ -1033,7 +1092,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={send}
-                disabled={busy || !input.trim()}
+                disabled={busy || isReplayLoading || !input.trim()}
                 aria-label="Send"
                 className="h-9 px-4 rounded-full inline-flex items-center gap-2 text-[14px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low disabled:cursor-not-allowed transition-colors"
               >
@@ -1060,7 +1119,7 @@ export default function Home() {
           onToggleMuted={() => setVoiceMuted((m) => !m)}
           userRegion="US"
           onSuggestion={(t) => {
-            if (!busy) void sendText(t);
+            if (!busy && !isReplayLoading) void sendText(t);
           }}
           memoryRefreshKey={memoryRefreshKey}
         />
@@ -1077,6 +1136,39 @@ export default function Home() {
 // ──────────────────────────────────────────────────────────────────────
 // Local helpers
 // ──────────────────────────────────────────────────────────────────────
+
+function replayPillText(phase: ReplayPhase): string {
+  if (phase === "loading") return "Loading previous conversation";
+  if (phase === "loaded") return "Continuing previous conversation";
+  if (phase === "empty") return "Continuing previous conversation — no replayable messages yet";
+  if (phase === "error") return "Continuing previous conversation — earlier messages could not be loaded";
+  return "";
+}
+
+function replayMessageToUI(raw: unknown): UIMessage | null {
+  if (!isRecord(raw)) return null;
+  const id = typeof raw["id"] === "string" ? raw["id"] : "";
+  const role = raw["role"];
+  const content = typeof raw["content"] === "string" ? raw["content"] : "";
+  if (!id || (role !== "user" && role !== "assistant")) return null;
+
+  return {
+    id,
+    role,
+    content,
+    summary: isRecord(raw["summary"]) ? (raw["summary"] as unknown as UISummary) : null,
+    selections: Array.isArray(raw["selections"])
+      ? (raw["selections"] as UISelection[])
+      : undefined,
+    mission: isRecord(raw["mission"])
+      ? (raw["mission"] as unknown as LumoMissionPlan)
+      : null,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
 
 /**
  * "Good morning." / "Good afternoon." / "Good evening." based on the
