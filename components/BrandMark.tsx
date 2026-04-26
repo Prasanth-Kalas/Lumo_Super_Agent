@@ -112,23 +112,22 @@ export function BrandMark({
 
 /**
  * "LUMO" wordmark — renders the canonical brand bitmap from
- * /public/lumo-wordmark.png via an <img> tag. The PNG is generated
- * by `scripts/build-wordmark.py` from the reference artwork
- * (bright sky-cyan body + darker same-hue paper-fold creases) at
- * 1600×384 — that's the source of truth for the visual.
+ * /public/lumo-wordmark.png via an <img> tag. The PNG is the
+ * official brand artwork (bright sky-cyan body + darker same-hue
+ * paper-fold creases), shipped at 2100×500.
  *
- * Why <img> instead of inline SVG: SVG path approximations of a
+ * Why <img> instead of inline SVG: SVG path approximations of the
  * specific bitmap kept producing visible drift (letter spacing,
- * O proportions, fold band geometry). Sourcing from the bitmap
- * itself eliminates that whole class of issue and means the only
- * way the wordmark changes is if someone regenerates the asset.
+ * O proportions, fold geometry). Sourcing from the bitmap itself
+ * eliminates that whole class of issue — the only way the wordmark
+ * changes now is if someone replaces the asset.
  *
- * The asset has a 1600:384 aspect ratio (~4.17:1). We scale by
- * height; width auto-derives from the aspect to stay crisp at any
- * size.
+ * The asset has a 2100:500 aspect ratio (4.2:1). We scale by
+ * height; width auto-derives from the aspect to stay crisp at
+ * any size.
  */
-const WORDMARK_W = 1600;
-const WORDMARK_H = 384;
+const WORDMARK_W = 2100;
+const WORDMARK_H = 500;
 
 export function LumoWordmark({
   height = 22,

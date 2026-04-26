@@ -45,6 +45,7 @@ import {
   recallFromArchive,
   shouldRunArchiveRecall,
 } from "./archive-recall.js";
+import { optimizeMissionTrip } from "./trip-optimization.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
 import { dispatchMcpTool, isMcpToolName } from "./mcp/dispatch.js";
@@ -341,6 +342,33 @@ export async function runTurn(
     ranked_agents: rankResult?.ranked_agents,
     risk_badges: riskBadges,
   });
+  const tripOptimization =
+    input.user_id !== "anon"
+      ? await optimizeMissionTrip({
+          user_id: input.user_id,
+          plan: missionPlan,
+        })
+      : null;
+  const missionPlanForTurn: LumoMissionPlan = tripOptimization
+    ? { ...missionPlan, trip_optimization: tripOptimization }
+    : missionPlan;
+  if (tripOptimization) {
+    emit({
+      type: "internal",
+      value: {
+        kind: "lumo_trip_optimize",
+        detail: {
+          source: tripOptimization.source,
+          status: tripOptimization.status,
+          solver: tripOptimization.solver,
+          latency_ms: tripOptimization.latency_ms,
+          error: tripOptimization.error,
+          stop_count: tripOptimization.route.length,
+          total_duration_minutes: tripOptimization.total_duration_minutes,
+        },
+      },
+    });
+  }
   if (rankResult) {
     emit({
       type: "internal",
@@ -360,28 +388,28 @@ export async function runTurn(
       },
     });
   }
-  if (missionPlan.should_pause_for_permission) {
-    emit({ type: "text", value: missionPlan.message });
-    emit({ type: "mission", value: missionPlan });
+  if (missionPlanForTurn.should_pause_for_permission) {
+    emit({ type: "text", value: missionPlanForTurn.message });
+    emit({ type: "mission", value: missionPlanForTurn });
     emit({
       type: "internal",
       value: {
         kind: "lumo_mission_permission_gate",
         detail: {
-          mission_id: missionPlan.mission_id,
-          proposals: missionPlan.install_proposals.map((p) => ({
+          mission_id: missionPlanForTurn.mission_id,
+          proposals: missionPlanForTurn.install_proposals.map((p) => ({
             agent_id: p.agent_id,
             action: p.action,
             capability: p.capability,
           })),
-          unavailable_capabilities: missionPlan.unavailable_capabilities.map(
+          unavailable_capabilities: missionPlanForTurn.unavailable_capabilities.map(
             (u) => u.capability,
           ),
         },
       },
     });
     return {
-      assistant_text: missionPlan.message,
+      assistant_text: missionPlanForTurn.message,
       tool_calls: [],
       summary: null,
       selections: [],

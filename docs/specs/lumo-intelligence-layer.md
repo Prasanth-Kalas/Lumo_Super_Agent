@@ -157,6 +157,7 @@ JWT plus per-user context.
 | `plan_task` | user intent, installed agents, marketplace agents, user context summary | mission plan with required agents, missing agents, questions, confirmation points, rollback plan | yes | Core Vegas demo artifact |
 | `rank_agents` | user intent, registry catalog, install state | ranked installed and marketplace agents with scores and reasons | yes | Drives app-store install suggestions |
 | `evaluate_agent_risk` | manifest, OpenAPI summary, scopes, category peers | risk grade, over-ask flags, reasons, suggested mitigations | yes | Powers marketplace trust badges |
+| `optimize_trip` | sanitized stops, leg estimates, objective | ordered route, totals, solver metadata | yes | OR-Tools CPU optimizer for trip and itinerary sequencing |
 | `embed` | text chunks, source metadata | embedding ids, model metadata, content hashes | yes | Used by indexer and recall |
 | `classify` | text/items, classifier name, thresholds | labels, calibrated scores, reasons | yes | Replaces inbox regex lead scoring |
 | `recall` | query, user id, filters, top_k | cited snippets from embedded archive/transcripts/memory | yes | Target under 1000ms end-to-end |
@@ -470,6 +471,13 @@ Open acceptance items:
   synchronous regex fast path for archive indexing, so every future Whisper,
   CLIP, and PDF ingestion path inherits redaction before data reaches the brain.
 
+### Phase 2 Sprint 0 - CPU optimization
+
+- `lumo_optimize_trip` uses Google OR-Tools in the Python brain to order
+  sanitized trip stops and leg estimates. Lumo Core never sends the raw user
+  prompt to this tool; it derives a bounded stop graph from the mission plan and
+  falls back locally if the optimizer is slow, unavailable, or malformed.
+
 ### Phase 2 - Marketplace brain
 
 - Personalized marketplace ranking
@@ -532,3 +540,4 @@ Open acceptance items:
 | 2026-04-26 | Make the Vegas trip flow the Phase 1 acceptance demo |
 | 2026-04-26 | Keep confirmation cards as the only path to side effects |
 | 2026-04-26 | Add Presidio-backed second-pass redaction before Phase 2 multimodal ingestion |
+| 2026-04-26 | Add OR-Tools trip optimization as a bounded computation tool with Core fallback |

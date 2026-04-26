@@ -50,6 +50,30 @@ export interface LumoRiskBadge {
   error?: string;
 }
 
+export interface LumoOptimizedTripStop {
+  id: string;
+  label: string;
+  category: string;
+  sequence: number;
+  arrival_minute: number;
+  departure_minute: number;
+  wait_minutes: number;
+}
+
+export interface LumoTripOptimization {
+  status: "ok" | "fallback" | "infeasible";
+  objective: "balanced" | "fastest" | "cheapest" | "comfort";
+  route: LumoOptimizedTripStop[];
+  dropped_stop_ids: string[];
+  total_duration_minutes: number;
+  total_cost_usd: number;
+  total_distance_km: number;
+  solver: string;
+  source: "ml" | "fallback";
+  latency_ms: number;
+  error?: string;
+}
+
 export interface LumoUnavailableCapability {
   capability: string;
   capability_label: string;
@@ -64,6 +88,7 @@ export interface LumoMissionPlan {
   message: string;
   install_proposals: LumoMissionProposal[];
   ranked_recommendations?: LumoRankedRecommendation[];
+  trip_optimization?: LumoTripOptimization | null;
   user_questions?: string[];
   confirmation_points?: string[];
   unavailable_capabilities: LumoUnavailableCapability[];
@@ -299,6 +324,42 @@ export function LumoMissionCard({
           </div>
         ) : null}
 
+        {plan.trip_optimization?.route?.length ? (
+          <div className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[12px] font-medium text-lumo-fg">
+                Optimized itinerary
+              </div>
+              <span className="rounded-full bg-lumo-bg px-2 py-0.5 text-[10.5px] text-lumo-fg-low">
+                {plan.trip_optimization.objective} · {plan.trip_optimization.source}
+              </span>
+            </div>
+            <ol className="mt-2 space-y-1.5 text-[11.5px] leading-relaxed text-lumo-fg-mid">
+              {plan.trip_optimization.route.slice(0, 6).map((stop) => (
+                <li key={`${stop.sequence}-${stop.id}`} className="flex gap-2">
+                  <span className="w-[58px] shrink-0 text-lumo-fg-low">
+                    {formatTripMinute(stop.arrival_minute)}
+                  </span>
+                  <span className="min-w-0">
+                    {stop.label}
+                    {stop.wait_minutes > 0 ? (
+                      <span className="text-lumo-fg-low">
+                        {" "}
+                        · wait {stop.wait_minutes}m
+                      </span>
+                    ) : null}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <div className="mt-2 text-[11px] text-lumo-fg-low">
+              {Math.round(plan.trip_optimization.total_duration_minutes / 60)}h total ·{" "}
+              {Math.round(plan.trip_optimization.total_distance_km)} km ·{" "}
+              {plan.trip_optimization.solver}
+            </div>
+          </div>
+        ) : null}
+
         {plan.user_questions?.length ? (
           <div className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3">
             <div className="text-[12px] font-medium text-lumo-fg">
@@ -361,6 +422,14 @@ export function LumoMissionCard({
       </div>
     </div>
   );
+}
+
+function formatTripMinute(minute: number): string {
+  const day = Math.floor(minute / 1440) + 1;
+  const withinDay = ((minute % 1440) + 1440) % 1440;
+  const hours = Math.floor(withinDay / 60);
+  const mins = withinDay % 60;
+  return `D${day} ${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
 }
 
 function buttonLabel(

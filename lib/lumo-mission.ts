@@ -13,6 +13,7 @@ import type { Registry, RegistryEntry } from "./agent-registry.js";
 import type { AppInstall } from "./app-installs.js";
 import type { ConnectionMeta } from "./connections.js";
 import type { RankedAgentResult, RiskBadge } from "./marketplace-intelligence-core.js";
+import type { TripOptimizationResult } from "./trip-optimization.js";
 
 export type MissionAgentState =
   | "ready"
@@ -78,6 +79,7 @@ export interface LumoMissionPlan {
   ready_agents: MissionAgentCandidate[];
   install_proposals: MissionInstallProposal[];
   ranked_recommendations: RankedAgentResult[];
+  trip_optimization?: TripOptimizationResult | null;
   user_questions: string[];
   confirmation_points: string[];
   unavailable_capabilities: MissionUnavailableCapability[];
@@ -93,6 +95,7 @@ export interface BuildMissionPlanInput {
   user_id?: string | null;
   ranked_agents?: RankedAgentResult[];
   risk_badges?: Record<string, RiskBadge> | Map<string, RiskBadge>;
+  trip_optimization?: TripOptimizationResult | null;
 }
 
 interface CapabilityDefinition {
@@ -374,6 +377,7 @@ export function buildLumoMissionPlan(
     ready_agents,
     install_proposals,
     ranked_recommendations,
+    trip_optimization: input.trip_optimization ?? null,
     user_questions,
     confirmation_points,
     unavailable_capabilities,

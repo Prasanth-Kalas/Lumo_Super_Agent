@@ -17,6 +17,7 @@ import {
   evaluateRiskBadgesForAgents,
   rankAgentsForIntent,
 } from "@/lib/marketplace-intelligence";
+import { optimizeMissionTrip } from "@/lib/trip-optimization";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }),
   ]);
 
-  const plan = buildLumoMissionPlan({
+  const planBase = buildLumoMissionPlan({
     request,
     registry,
     connections,
@@ -76,6 +77,16 @@ export async function POST(req: NextRequest): Promise<Response> {
     ranked_agents: rankResult.ranked_agents,
     risk_badges: riskBadges,
   });
+  const tripOptimization =
+    user_id !== "anon"
+      ? await optimizeMissionTrip({
+          user_id,
+          plan: planBase,
+        })
+      : null;
+  const plan = tripOptimization
+    ? { ...planBase, trip_optimization: tripOptimization }
+    : planBase;
 
   return json({
     plan,
