@@ -11,6 +11,7 @@ export type MissionState =
   | "ready"
   | "executing"
   | "awaiting_confirmation"
+  | "rolling_back"
   | "completed"
   | "failed"
   | "rolled_back";
@@ -24,6 +25,7 @@ export type MissionStepStatus =
   | "running"
   | "succeeded"
   | "failed"
+  | "rollback_failed"
   | "rolled_back"
   | "skipped";
 
@@ -68,14 +70,15 @@ export interface ConfirmationStepUpdate {
 }
 
 const STATE_TRANSITIONS: Record<MissionState, MissionState[]> = {
-  draft: ["awaiting_permissions", "awaiting_user_input", "ready", "failed"],
-  awaiting_permissions: ["awaiting_user_input", "ready", "failed", "rolled_back"],
-  awaiting_user_input: ["awaiting_permissions", "ready", "failed"],
-  ready: ["executing", "awaiting_confirmation", "failed"],
-  executing: ["awaiting_confirmation", "completed", "failed", "rolled_back"],
-  awaiting_confirmation: ["executing", "completed", "failed", "rolled_back"],
-  completed: [],
-  failed: ["rolled_back"],
+  draft: ["awaiting_permissions", "awaiting_user_input", "ready", "failed", "rolled_back"],
+  awaiting_permissions: ["awaiting_user_input", "ready", "failed", "rolling_back", "rolled_back"],
+  awaiting_user_input: ["awaiting_permissions", "ready", "failed", "rolling_back"],
+  ready: ["executing", "awaiting_confirmation", "failed", "rolling_back"],
+  executing: ["awaiting_confirmation", "completed", "failed", "rolling_back"],
+  awaiting_confirmation: ["executing", "completed", "failed", "rolling_back"],
+  rolling_back: ["rolled_back", "failed"],
+  completed: ["rolling_back"],
+  failed: ["rolling_back", "rolled_back"],
   rolled_back: [],
 };
 
@@ -199,6 +202,7 @@ function agentToStepRow(
       install_action: installProposal?.action ?? null,
       risk_badge: agent.risk_badge,
       rank_score: agent.rank_score,
+      rollback: agent.rollback ?? null,
     },
     outputs: {},
     confirmation_card_id: null,

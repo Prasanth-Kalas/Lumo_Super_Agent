@@ -79,6 +79,7 @@ const KNOWN_CRONS = [
   "/api/cron/publish-due-posts",
   "/api/cron/index-archive",
   "/api/cron/execute-mission-steps",
+  "/api/cron/rollback-missions",
 ] as const;
 
 /**

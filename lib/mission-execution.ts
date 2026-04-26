@@ -405,6 +405,7 @@ function normalizeStepRow(row: unknown): MissionStepForConfirmation | null {
       "running",
       "succeeded",
       "failed",
+      "rollback_failed",
       "rolled_back",
       "skipped",
     ].includes(status)

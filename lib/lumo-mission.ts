@@ -54,6 +54,12 @@ export interface MissionAgentCandidate {
   risk_badge: RiskBadge | null;
   state: MissionAgentState;
   state_reason: string;
+  rollback?: {
+    reversibility?: "reversible" | "compensating" | "irreversible";
+    compensating_tool?: string;
+    compensating_inputs_template?: Record<string, unknown>;
+    compensating_window_seconds?: number;
+  } | null;
 }
 
 export interface MissionInstallProposal extends MissionAgentCandidate {
@@ -479,6 +485,7 @@ function bestAgentForCapability(
   );
   const manifest = entry.manifest;
   const rankHint = rankedByAgentId.get(manifest.agent_id) ?? null;
+  const rollback = rollbackMetadataForAgent(registry, manifest.agent_id);
 
   return {
     agent_id: manifest.agent_id,
@@ -500,6 +507,7 @@ function bestAgentForCapability(
     risk_badge: riskByAgentId.get(manifest.agent_id) ?? null,
     state: state.state,
     state_reason: state.reason,
+    rollback,
   };
 }
 
@@ -628,6 +636,44 @@ function buildToolTextByAgent(registry: Registry): Map<string, string> {
     byAgent.set(routing.agent_id, chunks);
   }
   return new Map(Array.from(byAgent, ([agentId, chunks]) => [agentId, chunks.join(" ")]));
+}
+
+function rollbackMetadataForAgent(
+  registry: Registry,
+  agent_id: string,
+): MissionAgentCandidate["rollback"] {
+  const entries = Object.values(registry.bridge.routing).filter(
+    (routing) => routing.agent_id === agent_id,
+  ) as Array<{
+    operation_id: string;
+    cost_tier?: string;
+    reversibility?: "reversible" | "compensating" | "irreversible";
+    compensating_tool?: string;
+    compensating_inputs_template?: Record<string, unknown>;
+    compensating_window_seconds?: number;
+    cancels?: string;
+  }>;
+  const compensating =
+    entries.find((entry) => entry.reversibility === "compensating" && entry.compensating_tool) ??
+    entries.find((entry) => entry.cost_tier === "money" && (entry.compensating_tool || entry.cancels));
+  if (!compensating) return null;
+  return {
+    reversibility: compensating.reversibility ?? "compensating",
+    compensating_tool: compensating.compensating_tool ?? compensating.cancels,
+    compensating_inputs_template:
+      compensating.compensating_inputs_template ??
+      defaultCompensatingInputsTemplate(compensating.operation_id),
+    compensating_window_seconds: compensating.compensating_window_seconds,
+  };
+}
+
+function defaultCompensatingInputsTemplate(operationId: string): Record<string, unknown> {
+  return {
+    booking_id: "{{outputs.booking_id}}",
+    order_id: "{{outputs.order_id}}",
+    reservation_id: "{{outputs.reservation_id}}",
+    original_operation_id: operationId,
+  };
 }
 
 function requiredScopes(manifest: AgentManifest): MissionScope[] {

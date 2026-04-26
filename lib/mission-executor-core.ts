@@ -100,7 +100,7 @@ export function missionCompletionFromStatuses(
   statuses: MissionStepStatus[],
   lastStepSucceeded: boolean,
 ): MissionStepCompletion {
-  if (statuses.some((status) => status === "failed")) {
+  if (statuses.some((status) => status === "failed" || status === "rollback_failed")) {
     return {
       step_status: lastStepSucceeded ? "succeeded" : "failed",
       mission_state: "failed",

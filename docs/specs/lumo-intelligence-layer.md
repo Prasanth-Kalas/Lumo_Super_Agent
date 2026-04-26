@@ -604,7 +604,7 @@ can be built against a real schema.
   but it cannot bypass connection checks, confirmation cards, or side-effect
   policy. Mission states are `draft`, `awaiting_permissions`,
   `awaiting_user_input`, `ready`, `executing`, `awaiting_confirmation`,
-  `completed`, `failed`, and `rolled_back`.
+  `rolling_back`, `completed`, `failed`, and `rolled_back`.
 - Every tool call writes an execution event with `mission_id`, `agent_id`,
   `tool_name`, `status`, `latency_ms`, and the confirmation card id when a
   booking, payment, message-send, calendar-write, or account-creation action is
@@ -651,6 +651,18 @@ can be built against a real schema.
 - Rollback is explicit per agent. Agents must declare whether a side effect is
   reversible, compensating-only, or irreversible before Lumo lets the mission
   planner batch it with other steps.
+- D5 ships rollback as a separate default-off worker, not as part of the D4
+  forward executor. Migration 025 adds the `rolling_back` mission state,
+  `rollback_failed` step status, `mission_step_rollback_attempts`, and
+  `next_rollback_step_for_execution`, which claims succeeded steps in reverse
+  `step_order` with `FOR UPDATE SKIP LOCKED`. User cancel and admin rollback
+  routes set the mission to `rolling_back` and write `rollback_initiated`; the
+  cron records `rollback_step_started`, `rollback_step_succeeded`,
+  `rollback_step_failed`, `rollback_step_skipped`, and `rollback_completed`.
+  Reversible steps are skipped as no-ops, compensating steps invoke their
+  declared compensating tool with templated inputs, and irreversible steps are
+  skipped with evidence so the audit trail stays honest. Production keeps
+  `LUMO_MISSION_ROLLBACK_ENABLED=false` until a rollback smoke test passes.
 - Phase 3 acceptance is a deployed Vegas trip mission that can pause for missing
   apps, connect an app, resume the same mission, ask remaining slot questions,
   surface all confirmations, and show a complete execution/audit timeline.
@@ -713,3 +725,4 @@ can be built against a real schema.
 | 2026-04-27 | Persist mission plans durably as best-effort planning side effects before step execution wiring |
 | 2026-04-27 | Link confirmation-card outcomes to durable mission steps before the execution worker |
 | 2026-04-27 | Ship the mission step executor cron default-off until preview smoke verifies end-to-end execution |
+| 2026-04-27 | Ship mission rollback as an explicit default-off worker separate from the forward executor |

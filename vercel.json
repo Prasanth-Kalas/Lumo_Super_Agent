@@ -26,6 +26,9 @@
     },
     "app/api/cron/execute-mission-steps/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/rollback-missions/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -55,6 +58,10 @@
     },
     {
       "path": "/api/cron/execute-mission-steps",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/rollback-missions",
       "schedule": "* * * * *"
     }
   ]

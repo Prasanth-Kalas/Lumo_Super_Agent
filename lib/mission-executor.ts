@@ -312,6 +312,7 @@ function isMissionStepStatus(status: string): status is MissionStepStatus {
     "running",
     "succeeded",
     "failed",
+    "rollback_failed",
     "rolled_back",
     "skipped",
   ].includes(status);
@@ -325,6 +326,7 @@ function isMissionState(state: string): state is MissionState {
     "ready",
     "executing",
     "awaiting_confirmation",
+    "rolling_back",
     "completed",
     "failed",
     "rolled_back",
