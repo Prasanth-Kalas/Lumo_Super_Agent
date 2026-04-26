@@ -10,7 +10,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { detectMetricAnomalies, type MetricPointInput } from "@/lib/anomaly-detection";
 import { forecastMetricForUser } from "@/lib/forecasting";
+import { fetchWithArchive } from "@/lib/connector-archive";
+import { getDispatchableConnection } from "@/lib/connections";
 import { getSupabase } from "@/lib/db";
+import { GOOGLE_AGENT_ID, googleFetchJson } from "@/lib/integrations/google";
 import { deliver } from "@/lib/notifications";
 import { recordCronRun } from "@/lib/ops";
 
@@ -22,6 +25,8 @@ const ENDPOINT = "/api/cron/proactive-scan";
 const MAX_METRIC_GROUPS = 200;
 const MAX_POINTS_PER_GROUP = 720;
 const USER_MOMENT_CAP = 3;
+const CALENDAR_REFRESH_STALE_MS = 6 * 60 * 60 * 1000;
+const CALENDAR_REFRESH_USER_CAP = 50;
 
 interface MetricRow {
   user_id: string;
@@ -54,6 +59,7 @@ interface Counts extends Record<string, number> {
   anomaly_findings: number;
   proactive_moments: number;
   forecast_groups: number;
+  calendar_refreshed: number;
   trip_time_to_act_moments: number;
   trip_stuck: number;
   trip_rolled_back: number;
@@ -74,6 +80,7 @@ export async function GET(req: NextRequest) {
     anomaly_findings: 0,
     proactive_moments: 0,
     forecast_groups: 0,
+    calendar_refreshed: 0,
     trip_time_to_act_moments: 0,
     trip_stuck: 0,
     trip_rolled_back: 0,
@@ -166,12 +173,16 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const tripEvents = await loadTripCalendarEvents(db);
     const bookingPriceGroups = new Map(
       Array.from(metricGroups.entries())
         .filter(([key]) => key.endsWith("|travel.booking_price"))
         .map(([key, rows]) => [splitMetricKey(key).user_id, rows]),
     );
+    const { events: tripEvents, refreshed } = await loadTripCalendarEvents(
+      db,
+      new Set(bookingPriceGroups.keys()),
+    );
+    counts.calendar_refreshed = refreshed;
     for (const event of tripEvents) {
       const rows = bookingPriceGroups.get(event.user_id);
       if (!rows || rows.length < 14) continue;
@@ -399,7 +410,9 @@ function isUniqueViolation(error: unknown): boolean {
 
 async function loadTripCalendarEvents(
   db: NonNullable<ReturnType<typeof getSupabase>>,
-): Promise<TripCalendarEvent[]> {
+  candidateUserIds: Set<string>,
+): Promise<{ events: TripCalendarEvent[]; refreshed: number }> {
+  const refreshed = await refreshStaleGoogleCalendarArchives(db, candidateUserIds);
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await db
     .from("connector_responses_archive")
@@ -413,7 +426,84 @@ async function loadTripCalendarEvents(
   for (const row of (data ?? []) as CalendarArchiveRow[]) {
     out.push(...extractTripEvents(row));
   }
-  return out;
+  return { events: out, refreshed };
+}
+
+async function refreshStaleGoogleCalendarArchives(
+  db: NonNullable<ReturnType<typeof getSupabase>>,
+  candidateUserIds: Set<string>,
+): Promise<number> {
+  const userIds = Array.from(candidateUserIds).slice(0, CALENDAR_REFRESH_USER_CAP);
+  if (userIds.length === 0) return 0;
+
+  const { data, error } = await db
+    .from("connector_responses_archive")
+    .select("user_id, fetched_at")
+    .eq("agent_id", GOOGLE_AGENT_ID)
+    .eq("endpoint", "calendar.events.next3")
+    .in("user_id", userIds)
+    .order("fetched_at", { ascending: false })
+    .limit(userIds.length * 3);
+  if (error) throw error;
+
+  const latest = new Map<string, string>();
+  for (const row of (data ?? []) as Array<{ user_id: string; fetched_at: string }>) {
+    if (!latest.has(row.user_id)) latest.set(row.user_id, row.fetched_at);
+  }
+
+  let refreshed = 0;
+  for (const user_id of userIds) {
+    const fetched_at = latest.get(user_id);
+    const age = fetched_at ? Date.now() - Date.parse(fetched_at) : Number.POSITIVE_INFINITY;
+    if (Number.isFinite(age) && age <= CALENDAR_REFRESH_STALE_MS) continue;
+    if (await refreshGoogleCalendarArchive(user_id)) refreshed++;
+  }
+  return refreshed;
+}
+
+async function refreshGoogleCalendarArchive(user_id: string): Promise<boolean> {
+  const conn = await getDispatchableConnection({
+    user_id,
+    agent_id: GOOGLE_AGENT_ID,
+    oauth2_config: {
+      authorize_url: "",
+      token_url: "",
+      scopes: [],
+      client_id_env: "",
+      client_secret_env: "",
+      client_type: "confidential",
+    } as never,
+  }).catch(() => null);
+  if (!conn) return false;
+
+  const result = await fetchWithArchive(
+    {
+      user_id,
+      agent_id: GOOGLE_AGENT_ID,
+      endpoint: "calendar.events.next3",
+    },
+    {
+      ttl_seconds: 300,
+      force_refresh: true,
+      fetcher: async () => {
+        const data = await googleFetchJson<unknown>({
+          access_token: conn.access_token,
+          url: "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+          query: {
+            timeMin: new Date().toISOString(),
+            maxResults: 10,
+            singleEvents: "true",
+            orderBy: "startTime",
+          },
+        });
+        return { data, response_status: 200 };
+      },
+    },
+  ).catch((err) => {
+    console.warn("[proactive-scan] calendar refresh soft-failed", messageFor(err));
+    return null;
+  });
+  return result?.source === "live";
 }
 
 function extractTripEvents(row: CalendarArchiveRow): TripCalendarEvent[] {

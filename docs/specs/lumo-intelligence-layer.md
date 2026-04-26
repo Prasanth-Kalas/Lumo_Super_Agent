@@ -578,6 +578,10 @@ can be built against a real schema.
   for `time_to_act` moments. Moment budget is consumed only after a new moment
   is actually inserted, so duplicate or non-actionable forecasts do not starve
   later opportunities in the same run.
+- Before trip scanning, the cron refreshes stale Google calendar archives for
+  candidate travel-price users when `calendar.events.next3` is missing or older
+  than six hours. This keeps newly added trips from waiting for the daily
+  workspace cache refresh while capping Google calls to one per user per run.
 - Sprint 2.5 makes these moments user-visible: `/api/workspace/proactive-moments`
   reads the next five pending moments through the service-role RPC with a 60s
   in-memory cache, `/api/proactive-moments/[id]` marks moments `acted_on` or
