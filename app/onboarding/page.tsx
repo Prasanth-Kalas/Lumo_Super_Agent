@@ -31,7 +31,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AgentCard } from "@/components/AgentCard";
-import { BrandMark } from "@/components/BrandMark";
+import { LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import McpConnectModal from "@/components/McpConnectModal";
 
@@ -76,11 +76,8 @@ function OnboardingShell() {
     <main className="min-h-dvh bg-lumo-bg text-lumo-fg-high">
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/80 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-3">
-          <div className="flex items-center gap-2.5">
-            <BrandMark size={22} className="text-lumo-fg" />
-            <span className="text-[14px] font-semibold tracking-tight text-lumo-fg">
-              Lumo
-            </span>
+          <div className="flex items-center">
+            <LumoWordmark height={20} />
           </div>
           <ThemeToggle />
         </div>
@@ -287,10 +284,7 @@ function OnboardingFlow() {
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/85 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-3">
           <div className="flex items-center gap-2.5">
-            <BrandMark size={22} className="text-lumo-fg" />
-            <span className="text-[14px] font-semibold tracking-tight text-lumo-fg">
-              Lumo
-            </span>
+            <LumoWordmark height={20} />
             <span className="hidden sm:inline text-lumo-fg-low text-[12px]">
               /
             </span>

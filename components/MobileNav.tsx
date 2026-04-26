@@ -31,7 +31,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BrandMark } from "@/components/BrandMark";
+import { LumoWordmark } from "@/components/BrandMark";
 
 interface RecentSession {
   session_id: string;
@@ -216,15 +216,9 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
             onClick={onClose}
             className="flex items-center gap-3 group"
           >
-            <span className="relative inline-flex items-center justify-center">
-              <BrandMark size={26} className="text-lumo-fg" />
-              <span className="absolute inset-0 rounded-full bg-lumo-accent/25 blur-md opacity-70" />
-            </span>
+            <LumoWordmark height={28} />
             <div className="flex flex-col leading-tight">
-              <span className="text-[16px] font-semibold tracking-tight text-lumo-fg">
-                Lumo
-              </span>
-              <span className="text-[11px] uppercase tracking-[0.16em] text-lumo-fg-low mt-0.5">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-lumo-fg-low">
                 one app · any task
               </span>
             </div>

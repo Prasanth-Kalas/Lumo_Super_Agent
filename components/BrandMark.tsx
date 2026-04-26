@@ -86,23 +86,23 @@ export function BrandMark({
           height="20"
           rx="6"
           fill="var(--lumo-surface)"
-          stroke="var(--g-blue)"
+          stroke="#1FB8E8"
           strokeOpacity="0.4"
           strokeWidth="1"
         />
         <path
           d="M7 6v10"
-          stroke="var(--g-blue)"
+          stroke="#1FB8E8"
           strokeWidth="2"
           strokeLinecap="round"
         />
         <path
           d="M7 16h7"
-          stroke="var(--g-blue)"
+          stroke="#1FB8E8"
           strokeWidth="2"
           strokeLinecap="round"
         />
-        <circle cx="15.6" cy="16" r="1.5" fill="var(--g-red)" />
+        <circle cx="15.6" cy="16" r="1.5" fill="#0F7FAE" />
       </svg>
     </span>
   );

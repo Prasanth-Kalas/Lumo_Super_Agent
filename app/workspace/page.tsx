@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { BrandMark } from "@/components/BrandMark";
+import { LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 type TabId = "today" | "content" | "inbox" | "copilot" | "operations";
@@ -134,7 +134,7 @@ export default function WorkspacePage() {
     <main className="workspace">
       <header className="workspace__header">
         <Link href="/" className="workspace__home" aria-label="Home">
-          <BrandMark />
+          <LumoWordmark height={22} />
         </Link>
         <h1 className="workspace__title">
           Workspace

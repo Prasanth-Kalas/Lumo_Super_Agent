@@ -24,7 +24,7 @@
  */
 
 import Link from "next/link";
-import { BrandMark } from "@/components/BrandMark";
+import { BrandMark, LumoWordmark } from "@/components/BrandMark";
 
 export const metadata = {
   title: "Lumo — one app, any task",
@@ -73,10 +73,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-10 border-b border-lumo-hair bg-lumo-bg/80 backdrop-blur-md">
         <div className="max-w-5xl mx-auto flex items-center justify-between px-6 h-14">
           <Link href="/landing" className="flex items-center gap-2 text-lumo-fg">
-            <BrandMark size={20} />
-            <span className="text-[14.5px] font-semibold tracking-[-0.01em]">
-              Lumo
-            </span>
+            <LumoWordmark height={20} />
             <span className="text-[12.5px] text-lumo-fg-mid hidden sm:inline">
               · one app, any task
             </span>

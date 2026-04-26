@@ -16,7 +16,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { BrandMark } from "@/components/BrandMark";
+import { LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface ConnectionMeta {
@@ -126,11 +126,8 @@ function ConnectionsInner() {
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/80 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 py-3">
           <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-2.5 hover:text-lumo-accent transition-colors">
-              <BrandMark size={22} className="text-lumo-fg" />
-              <span className="text-[14px] font-semibold tracking-tight text-lumo-fg">
-                Lumo
-              </span>
+            <Link href="/" className="flex items-center hover:opacity-90 transition-opacity">
+              <LumoWordmark height={20} />
             </Link>
             <span className="text-lumo-fg-low text-[12px]">/</span>
             <span className="text-[13px] text-lumo-fg">Connections</span>

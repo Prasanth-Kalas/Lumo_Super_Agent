@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { BrandMark } from "@/components/BrandMark";
+import { LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface Submission {
@@ -174,16 +174,13 @@ export default function AdminReviewQueuePage() {
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-3">
           <Link
             href="/"
-            className="flex items-center gap-2.5 text-lumo-fg hover:text-lumo-accent transition-colors"
+            className="flex items-center gap-2.5 hover:opacity-90 transition-opacity"
           >
-            <BrandMark size={22} />
-            <span className="text-[14px] font-semibold tracking-tight">
-              Lumo
-            </span>
+            <LumoWordmark height={20} />
             <span className="hidden sm:inline text-[12px] text-lumo-fg-low">
               /
             </span>
-            <span className="hidden sm:inline text-[13px]">Admin — review queue</span>
+            <span className="hidden sm:inline text-[13px] text-lumo-fg">Admin — review queue</span>
           </Link>
           <ThemeToggle />
         </div>

@@ -29,7 +29,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { BrandMark } from "@/components/BrandMark";
+import { LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface TripRow {
@@ -143,12 +143,9 @@ export default function HistoryPage() {
           <div className="flex items-center gap-2.5">
             <Link
               href="/"
-              className="flex items-center gap-2.5 text-lumo-fg hover:text-lumo-accent transition-colors"
+              className="flex items-center hover:opacity-90 transition-opacity"
             >
-              <BrandMark size={22} />
-              <span className="text-[14px] font-semibold tracking-tight">
-                Lumo
-              </span>
+              <LumoWordmark height={20} />
             </Link>
             <span className="hidden sm:inline text-lumo-fg-low text-[12px]">
               /
