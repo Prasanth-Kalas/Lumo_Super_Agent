@@ -15,7 +15,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # eval:phase1 imports .ts pure-core modules via
+          # --experimental-strip-types, which is unavailable on Node 20.
+          node-version: 22
           cache: npm
 
       - name: Configure GitHub git dependency access
