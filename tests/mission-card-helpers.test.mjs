@@ -54,6 +54,12 @@ t("missionStateAccent returns distinct CSS vars for every mission state", () => 
       `var ${v} did not match prefix`,
     );
   }
+  for (const s of states) {
+    assert.ok(
+      missionStateAccent(s).className.startsWith("lumo-mission-state-accent-"),
+      `state ${s} did not expose a CSS utility class`,
+    );
+  }
   // Labels and icons should be non-empty for every state.
   for (const s of states) {
     const a = missionStateAccent(s);

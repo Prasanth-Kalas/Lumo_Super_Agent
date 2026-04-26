@@ -21,6 +21,7 @@ import Link from "next/link";
 import { LumoWordmark } from "@/components/BrandMark";
 import { ProactiveMomentCard } from "@/components/ProactiveMomentCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { WorkspaceMissionsPanel } from "@/components/WorkspaceMissionsPanel";
 import {
   compactPreferenceText,
   logPreferenceEvent,
@@ -533,7 +534,10 @@ function TodayTab({ connections }: { connections: MarketplaceConnection[] }) {
             </section>
           )}
         </div>
-        <HeadsUpPanel />
+        <aside className="today__side" aria-label="Mission and proactive panels">
+          <WorkspaceMissionsPanel />
+          <HeadsUpPanel />
+        </aside>
       </div>
 
       <style jsx>{`
@@ -598,6 +602,11 @@ function TodayTab({ connections }: { connections: MarketplaceConnection[] }) {
           align-items: start;
         }
         .today__main {
+          min-width: 0;
+        }
+        .today__side {
+          display: grid;
+          gap: 22px;
           min-width: 0;
         }
         .today__grid {

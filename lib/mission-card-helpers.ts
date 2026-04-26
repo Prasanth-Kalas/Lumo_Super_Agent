@@ -67,52 +67,88 @@ export function missionStateAccent(
   state: MissionStateOrRollingBack | string,
 ): {
   varName: string;
+  className: string;
   label: string;
   icon: string;
 } {
   switch (state) {
     case "draft":
-      return { varName: "--lumo-mission-state-draft", label: "Drafting", icon: "✎" };
+      return {
+        varName: "--lumo-mission-state-draft",
+        className: "lumo-mission-state-accent-draft",
+        label: "Drafting",
+        icon: "✎",
+      };
     case "awaiting_permissions":
       return {
         varName: "--lumo-mission-state-awaiting-permissions",
+        className: "lumo-mission-state-accent-awaiting-permissions",
         label: "Needs permissions",
         icon: "🔑",
       };
     case "awaiting_user_input":
       return {
         varName: "--lumo-mission-state-awaiting-user-input",
+        className: "lumo-mission-state-accent-awaiting-user-input",
         label: "Needs your input",
         icon: "?",
       };
     case "awaiting_confirmation":
       return {
         varName: "--lumo-mission-state-awaiting-confirmation",
+        className: "lumo-mission-state-accent-awaiting-confirmation",
         label: "Awaiting confirmation",
         icon: "⏸",
       };
     case "ready":
-      return { varName: "--lumo-mission-state-ready", label: "Queued", icon: "•" };
+      return {
+        varName: "--lumo-mission-state-ready",
+        className: "lumo-mission-state-accent-ready",
+        label: "Queued",
+        icon: "•",
+      };
     case "executing":
-      return { varName: "--lumo-mission-state-executing", label: "In flight", icon: "⚡" };
+      return {
+        varName: "--lumo-mission-state-executing",
+        className: "lumo-mission-state-accent-executing",
+        label: "In flight",
+        icon: "⚡",
+      };
     case "completed":
-      return { varName: "--lumo-mission-state-completed", label: "Done", icon: "✓" };
+      return {
+        varName: "--lumo-mission-state-completed",
+        className: "lumo-mission-state-accent-completed",
+        label: "Done",
+        icon: "✓",
+      };
     case "failed":
-      return { varName: "--lumo-mission-state-failed", label: "Failed", icon: "✗" };
+      return {
+        varName: "--lumo-mission-state-failed",
+        className: "lumo-mission-state-accent-failed",
+        label: "Failed",
+        icon: "✗",
+      };
     case "rolling_back":
       return {
         varName: "--lumo-mission-state-rolling-back",
+        className: "lumo-mission-state-accent-rolling-back",
         label: "Rolling back",
         icon: "↺",
       };
     case "rolled_back":
       return {
         varName: "--lumo-mission-state-rolled-back",
+        className: "lumo-mission-state-accent-rolled-back",
         label: "Rolled back",
         icon: "↺",
       };
     default:
-      return { varName: "--lumo-mission-state-draft", label: "Unknown", icon: "?" };
+      return {
+        varName: "--lumo-mission-state-draft",
+        className: "lumo-mission-state-accent-draft",
+        label: "Unknown",
+        icon: "?",
+      };
   }
 }
 

@@ -63,22 +63,14 @@ export function MissionCard({
       {/* State-coloured left-edge accent — same pattern as ProactiveMomentCard */}
       <span
         aria-hidden
-        className="absolute left-0 top-0 bottom-0 w-1"
-        style={{ backgroundColor: `var(${accent.varName})` }}
+        className={`absolute left-0 top-0 bottom-0 w-1 lumo-mission-state-edge ${accent.className}`}
       />
 
       {/* Header: state pill + step count + relative time */}
       <header className="flex items-start justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <span
-            className="inline-flex items-center gap-1 text-[10.5px] uppercase tracking-wide rounded px-1.5 py-0.5"
-            style={{
-              color: `var(${accent.varName})`,
-              borderWidth: 1,
-              borderStyle: "solid",
-              borderColor: `color-mix(in srgb, var(${accent.varName}) 30%, transparent)`,
-              backgroundColor: `color-mix(in srgb, var(${accent.varName}) 10%, transparent)`,
-            }}
+            className={`inline-flex items-center gap-1 text-[10.5px] uppercase tracking-wide rounded px-1.5 py-0.5 lumo-mission-state-chip ${accent.className}`}
             aria-label={accent.label}
           >
             <span aria-hidden>{accent.icon}</span>

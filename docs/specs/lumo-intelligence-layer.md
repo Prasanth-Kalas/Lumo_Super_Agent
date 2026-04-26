@@ -674,6 +674,12 @@ can be built against a real schema.
   Both paths are best-effort side effects around the user surface: OAuth and
   chat should not fail just because mission resumption logging has a transient
   persistence error.
+- Workspace wiring makes durable missions user-visible before the executor is
+  broadly enabled. `/api/workspace/missions` feeds a compact Mission panel on
+  the Workspace Today tab; the panel polls every 30 seconds, renders each
+  mission with the state-coloured `MissionCard`, and sends Cancel through
+  `POST /api/missions/[id]/cancel` so D5 rollback remains the single rollback
+  entry point.
 - Phase 3 acceptance is a deployed Vegas trip mission that can pause for missing
   apps, connect an app, resume the same mission, ask remaining slot questions,
   surface all confirmations, and show a complete execution/audit timeline.
@@ -738,3 +744,4 @@ can be built against a real schema.
 | 2026-04-27 | Ship the mission step executor cron default-off until preview smoke verifies end-to-end execution |
 | 2026-04-27 | Ship mission rollback as an explicit default-off worker separate from the forward executor |
 | 2026-04-27 | Add permission and input gate-resolution triggers so persisted missions can resume into the executor queue |
+| 2026-04-27 | Surface durable missions in Workspace and route user Cancel through the rollback API |
