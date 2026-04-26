@@ -131,6 +131,34 @@ async function main() {
     ]);
   });
 
+  await t("worker falls back to direct ready-step claim when rpc returns no rows", async () => {
+    const db = mockMissionDb(
+      {
+        missions: [{ id: "mission_fallback", user_id: userId(), state: "ready" }],
+        steps: [
+          step("fallback_1", "mission_fallback", 0, "ready"),
+          step("fallback_2", "mission_fallback", 1, "ready"),
+        ],
+      },
+      { rpcReturnsEmpty: true },
+    );
+    const result = await runMissionExecutorTick({
+      db,
+      dispatchStep: async (claimed) => ({
+        ok: true,
+        result: { committed: true, step_id: claimed.id },
+        latency_ms: 4,
+      }),
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.counts.claimed, 2);
+    assert.equal(result.counts.succeeded, 2);
+    assert.equal(result.counts.mission_completed, 1);
+    assert.deepEqual(db.tables.steps.map((row) => row.status), ["succeeded", "succeeded"]);
+    assert.equal(db.tables.missions[0].state, "completed");
+  });
+
   await t("worker fails the mission on a non-retryable step failure", async () => {
     const db = mockMissionDb({
       missions: [{ id: "mission_2", user_id: userId(), state: "ready" }],
@@ -185,7 +213,7 @@ function step(id, mission_id, step_order, status) {
   };
 }
 
-function mockMissionDb(seed) {
+function mockMissionDb(seed, options = {}) {
   const tables = {
     missions: seed.missions.map((row) => ({ ...row })),
     steps: seed.steps.map((row) => ({ ...row })),
@@ -197,6 +225,7 @@ function mockMissionDb(seed) {
       if (fn !== "next_mission_step_for_execution") {
         return { data: null, error: { message: `unknown rpc ${fn}` } };
       }
+      if (options.rpcReturnsEmpty) return { data: [], error: null };
       const limit = Number(args?.requested_limit ?? 10);
       const claimable = tables.steps
         .filter((row) => row.status === "ready" && priorStepsDone(tables.steps, row))

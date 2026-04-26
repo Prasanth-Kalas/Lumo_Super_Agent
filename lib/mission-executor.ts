@@ -159,12 +159,112 @@ async function claimReadySteps(
   db: SupabaseLike,
   limit: number,
 ): Promise<ClaimedMissionStep[]> {
-  if (typeof db.rpc !== "function") throw new Error("mission_executor_rpc_unavailable");
-  const { data, error } = await db.rpc("next_mission_step_for_execution", {
-    requested_limit: Math.max(1, Math.min(10, Math.trunc(limit))),
-  });
-  if (error) throw new Error(`mission_step_claim_failed:${error.message ?? "unknown"}`);
-  return Array.isArray(data) ? data.map(normalizeClaimedStep).filter(isClaimedStep) : [];
+  const requestedLimit = Math.max(1, Math.min(10, Math.trunc(limit)));
+  if (typeof db.rpc === "function") {
+    const { data, error } = await db.rpc("next_mission_step_for_execution", {
+      requested_limit: requestedLimit,
+    });
+    if (error) throw new Error(`mission_step_claim_failed:${error.message ?? "unknown"}`);
+    const claimed = Array.isArray(data)
+      ? data.map(normalizeClaimedStep).filter(isClaimedStep)
+      : [];
+    if (claimed.length > 0) return claimed;
+  }
+  return claimReadyStepsDirectly(db, requestedLimit);
+}
+
+async function claimReadyStepsDirectly(
+  db: SupabaseLike,
+  limit: number,
+): Promise<ClaimedMissionStep[]> {
+  const { data: readyRows, error: readyError } = await db
+    .from("mission_steps")
+    .select("id,mission_id,step_order,agent_id,tool_name,reversibility,inputs,confirmation_card_id,status")
+    .eq("status", "ready")
+    .limit(Math.max(10, limit * 5));
+  if (readyError) throw new Error(`mission_step_fallback_read_failed:${readyError.message ?? "unknown"}`);
+  if (!Array.isArray(readyRows) || readyRows.length === 0) return [];
+
+  const missionIds = new Set(
+    readyRows
+      .map((row) => stringOrNull(row?.mission_id))
+      .filter((missionId): missionId is string => missionId !== null),
+  );
+  if (missionIds.size === 0) return [];
+
+  const { data: missionRows, error: missionError } = await db
+    .from("missions")
+    .select("id,user_id,state,updated_at");
+  if (missionError) throw new Error(`mission_fallback_read_failed:${missionError.message ?? "unknown"}`);
+  const missions = new Map<string, Record<string, unknown>>();
+  for (const row of Array.isArray(missionRows) ? missionRows : []) {
+    const id = stringOrNull(row?.id);
+    const state = stringOrNull(row?.state);
+    if (id && missionIds.has(id) && (state === "ready" || state === "executing")) {
+      missions.set(id, row as Record<string, unknown>);
+    }
+  }
+  if (missions.size === 0) return [];
+
+  const { data: stepRows, error: stepError } = await db
+    .from("mission_steps")
+    .select("mission_id,step_order,status");
+  if (stepError) throw new Error(`mission_prior_steps_read_failed:${stepError.message ?? "unknown"}`);
+  const allSteps = Array.isArray(stepRows) ? stepRows : [];
+
+  const runnable = readyRows
+    .filter((row) => {
+      const missionId = stringOrNull(row?.mission_id);
+      if (!missionId || !missions.has(missionId)) return false;
+      const stepOrder = numberOrZero(row?.step_order);
+      return allSteps
+        .filter((candidate) => stringOrNull(candidate?.mission_id) === missionId)
+        .filter((candidate) => numberOrZero(candidate?.step_order) < stepOrder)
+        .every((candidate) => ["succeeded", "skipped"].includes(String(candidate?.status ?? "")));
+    })
+    .sort((a, b) => {
+      const missionA = missions.get(stringOrNull(a?.mission_id) ?? "");
+      const missionB = missions.get(stringOrNull(b?.mission_id) ?? "");
+      const updatedA = Date.parse(String(missionA?.updated_at ?? "")) || 0;
+      const updatedB = Date.parse(String(missionB?.updated_at ?? "")) || 0;
+      return updatedA - updatedB || numberOrZero(a?.step_order) - numberOrZero(b?.step_order);
+    })
+    .slice(0, limit);
+
+  const claimed: ClaimedMissionStep[] = [];
+  for (const row of runnable) {
+    const id = stringOrNull(row?.id);
+    const missionId = stringOrNull(row?.mission_id);
+    if (!id || !missionId) continue;
+    const { error: claimError } = await db
+      .from("mission_steps")
+      .update({
+        status: "running",
+        started_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id)
+      .eq("status", "ready");
+    if (claimError) throw new Error(`mission_step_fallback_claim_failed:${claimError.message ?? "unknown"}`);
+
+    const mission = missions.get(missionId);
+    if (String(mission?.state ?? "") === "ready") {
+      const { error: missionUpdateError } = await db
+        .from("missions")
+        .update({ state: "executing", updated_at: new Date().toISOString() })
+        .eq("id", missionId);
+      if (missionUpdateError) {
+        throw new Error(`mission_fallback_update_failed:${missionUpdateError.message ?? "unknown"}`);
+      }
+    }
+
+    const normalized = normalizeClaimedStep({
+      ...row,
+      user_id: stringOrNull(mission?.user_id),
+    });
+    if (normalized) claimed.push(normalized);
+  }
+  return claimed;
 }
 
 async function markStepSucceeded(
