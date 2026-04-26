@@ -4,15 +4,19 @@ import { signLumoServiceJwt } from "./service-jwt.js";
 import {
   buildAudioTranscriptTextChunks,
   buildArchiveTextChunks,
+  buildPdfDocumentTextChunks,
   audioTranscriptSourceEtag,
+  pdfDocumentSourceEtag,
   sourceEtag,
   type AudioTranscriptContentRow,
   type ArchiveContentRow,
   type ArchiveTextChunk,
+  type PdfDocumentContentRow,
 } from "./content-indexing.js";
 
 const SOURCE_TABLE = "connector_responses_archive";
 const AUDIO_TRANSCRIPTS_SOURCE_TABLE = "audio_transcripts";
+const PDF_DOCUMENTS_SOURCE_TABLE = "pdf_documents";
 const LUMO_ML_AGENT_ID = "lumo-ml";
 const LUMO_EMBED_TOOL = "lumo_embed";
 const DEFAULT_ROW_LIMIT = 100;
@@ -287,6 +291,142 @@ export async function indexAudioTranscripts(
         user_id: row.user_id,
         agent_id: LUMO_ML_AGENT_ID,
         endpoint: "audio.transcribe",
+        request_hash: source_etag,
+      });
+    }
+  }
+
+  counts.chunks_prepared = chunks.length;
+  if (options.dryRun || chunks.length === 0) {
+    return { ok: true, counts, errors };
+  }
+
+  const batches = makeEmbedBatches(chunks, {
+    batchSize: clampInt(options.embedBatchSize, 1, 128, DEFAULT_EMBED_BATCH_SIZE),
+  });
+  const concurrency = clampInt(options.concurrency, 1, 12, DEFAULT_CONCURRENCY);
+  await runWithConcurrency(batches, concurrency, async (batch) => {
+    counts.embed_batches += 1;
+    try {
+      const embedded = await embedBatch(batch, options, counts);
+      await upsertEmbeddings(batch, embedded);
+      counts.chunks_embedded += batch.length;
+      for (const chunk of batch) {
+        const state = rowStates.get(chunk.source_row_id);
+        if (state) state.embedded += 1;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(message.slice(0, 240));
+      for (const chunk of batch) {
+        const state = rowStates.get(chunk.source_row_id);
+        if (state) state.error = message;
+      }
+    }
+  });
+
+  for (const [source_row_id, state] of rowStates) {
+    const embedded = state.embedded === state.total;
+    if (embedded) {
+      counts.rows_embedded += 1;
+      await deleteStaleEmbeddings(state.source_table, source_row_id, state.source_etag);
+    } else {
+      counts.rows_failed += 1;
+    }
+    await markSourceState({
+      source_table: state.source_table,
+      source_row_id,
+      user_id: state.user_id,
+      agent_id: state.agent_id,
+      endpoint: state.endpoint,
+      source_etag: state.source_etag,
+      status: embedded ? "embedded" : "failed",
+      chunk_count: state.embedded,
+      last_error: embedded ? null : state.error ?? "embedding batch failed",
+    });
+  }
+
+  return { ok: errors.length === 0, counts, errors: errors.slice(0, 10) };
+}
+
+export async function indexPdfDocuments(
+  options: ArchiveIndexerOptions = {},
+): Promise<ArchiveIndexerResult> {
+  const db = getSupabase();
+  const counts: ArchiveIndexerCounts = {
+    rows_scanned: 0,
+    rows_no_text: 0,
+    rows_embedded: 0,
+    rows_failed: 0,
+    chunks_prepared: 0,
+    chunks_embedded: 0,
+    embed_batches: 0,
+    embed_retries: 0,
+  };
+  const errors: string[] = [];
+
+  if (!db) {
+    return { ok: true, skipped: "persistence_disabled", counts, errors };
+  }
+
+  const rowLimit = clampInt(options.rowLimit, 1, 500, DEFAULT_ROW_LIMIT);
+  const { data, error } = await db.rpc("next_pdf_document_embedding_batch", {
+    requested_limit: rowLimit,
+  });
+  if (error) {
+    return {
+      ok: false,
+      counts,
+      errors: [`pdf document candidate query: ${error.message}`],
+    };
+  }
+
+  const rows = ((data ?? []) as PdfDocumentContentRow[]).slice(0, rowLimit);
+  counts.rows_scanned = rows.length;
+  if (rows.length === 0) {
+    return { ok: true, skipped: "no_rows", counts, errors };
+  }
+
+  const rowStates = new Map<string, RowState>();
+  const chunks: ChunkWorkItem[] = [];
+  for (const row of rows) {
+    const rowChunks = buildPdfDocumentTextChunks(row);
+    const rowId = String(row.id);
+    const source_etag = rowChunks[0]?.source_etag ?? pdfDocumentSourceEtag(row);
+    if (rowChunks.length === 0) {
+      counts.rows_no_text += 1;
+      if (!options.dryRun) {
+        await markSourceState({
+          source_table: PDF_DOCUMENTS_SOURCE_TABLE,
+          source_row_id: rowId,
+          user_id: row.user_id,
+          agent_id: LUMO_ML_AGENT_ID,
+          endpoint: "documents.extract_pdf",
+          source_etag,
+          status: "no_text",
+          chunk_count: 0,
+          last_error: null,
+        });
+      }
+      continue;
+    }
+    rowStates.set(rowId, {
+      source_table: PDF_DOCUMENTS_SOURCE_TABLE,
+      user_id: row.user_id,
+      agent_id: LUMO_ML_AGENT_ID,
+      endpoint: "documents.extract_pdf",
+      source_etag,
+      total: rowChunks.length,
+      embedded: 0,
+      error: null,
+    });
+    for (const chunk of rowChunks) {
+      chunks.push({
+        ...chunk,
+        source_table: PDF_DOCUMENTS_SOURCE_TABLE,
+        user_id: row.user_id,
+        agent_id: LUMO_ML_AGENT_ID,
+        endpoint: "documents.extract_pdf",
         request_hash: source_etag,
       });
     }

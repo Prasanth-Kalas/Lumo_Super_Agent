@@ -65,6 +65,7 @@ const PROTECTED_API_PREFIXES = [
   "/api/notifications",
   "/api/autonomy",
   "/api/audio",
+  "/api/documents",
   "/api/ops",
   "/api/preferences",
   // Must be gated — listSessionsForUser / listTripsForUser only know

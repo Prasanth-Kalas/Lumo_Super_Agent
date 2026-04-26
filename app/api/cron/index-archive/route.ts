@@ -8,7 +8,11 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
-import { indexAudioTranscripts, indexConnectorArchive } from "@/lib/content-indexer";
+import {
+  indexAudioTranscripts,
+  indexConnectorArchive,
+  indexPdfDocuments,
+} from "@/lib/content-indexer";
 import { recordCronRun } from "@/lib/ops";
 
 export const runtime = "nodejs";
@@ -54,7 +58,7 @@ export async function GET(req: NextRequest) {
   const embedBatchSize = intFromEnv("LUMO_ARCHIVE_INDEXER_BATCH_SIZE", 32);
   const concurrency = intFromEnv("LUMO_ARCHIVE_INDEXER_CONCURRENCY", 8);
 
-  const [archiveResult, audioResult] = await Promise.all([
+  const [archiveResult, audioResult, pdfResult] = await Promise.all([
     indexConnectorArchive({
       rowLimit,
       embedBatchSize,
@@ -67,19 +71,28 @@ export async function GET(req: NextRequest) {
       concurrency: Math.min(concurrency, 2),
       dryRun,
     }),
+    indexPdfDocuments({
+      rowLimit,
+      embedBatchSize,
+      concurrency: Math.min(concurrency, 2),
+      dryRun,
+    }),
   ]);
 
   const result = {
-    ok: archiveResult.ok && audioResult.ok,
+    ok: archiveResult.ok && audioResult.ok && pdfResult.ok,
     skipped:
-      archiveResult.skipped === "no_rows" && audioResult.skipped === "no_rows"
+      archiveResult.skipped === "no_rows" &&
+      audioResult.skipped === "no_rows" &&
+      pdfResult.skipped === "no_rows"
         ? "no_rows"
         : undefined,
     counts: {
       ...prefixCounts("archive", archiveResult.counts),
       ...prefixCounts("audio_transcripts", audioResult.counts),
+      ...prefixCounts("pdf_documents", pdfResult.counts),
     },
-    errors: [...archiveResult.errors, ...audioResult.errors].slice(0, 20),
+    errors: [...archiveResult.errors, ...audioResult.errors, ...pdfResult.errors].slice(0, 20),
   };
 
   await recordCronRun({

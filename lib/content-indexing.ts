@@ -47,6 +47,18 @@ export interface AudioTranscriptContentRow {
   created_at: string;
 }
 
+export interface PdfDocumentContentRow {
+  id: string | number;
+  user_id: string;
+  document_asset_id: string;
+  storage_path: string;
+  filename: string;
+  pages: unknown;
+  total_pages?: number | null;
+  language?: string | null;
+  created_at: string;
+}
+
 const INCLUDE_KEY_RE =
   /(^|[_-])(text|title|body|description|summary|snippet|subject|message|name|comment|comments|caption|transcript|content|note|notes|location)([_-]|$)/i;
 const EXCLUDE_KEY_RE =
@@ -54,7 +66,9 @@ const EXCLUDE_KEY_RE =
 
 const DEFAULT_CHUNK_CHARS = 1200;
 const DEFAULT_MAX_CHUNKS = 8;
+const DEFAULT_PDF_MAX_CHUNKS = 64;
 const MAX_TEXT_PER_ROW = 12_000;
+const MAX_TEXT_PER_PDF_PAGE = 16_000;
 
 export function buildArchiveTextChunks(
   row: ArchiveContentRow,
@@ -129,6 +143,53 @@ export function buildAudioTranscriptTextChunks(
     }));
 }
 
+export function buildPdfDocumentTextChunks(
+  row: PdfDocumentContentRow,
+  options: { chunkChars?: number; maxChunks?: number } = {},
+): ArchiveTextChunk[] {
+  const pages = normalizePdfPages(row.pages);
+  if (pages.length === 0) return [];
+
+  const source_etag = pdfDocumentSourceEtag(row);
+  const chunkChars = clampInt(options.chunkChars, 400, 4000, DEFAULT_CHUNK_CHARS);
+  const maxChunks = clampInt(options.maxChunks, 1, 96, DEFAULT_PDF_MAX_CHUNKS);
+  const out: ArchiveTextChunk[] = [];
+
+  for (const page of pages) {
+    if (out.length >= maxChunks) break;
+    const joined = page.texts.join("\n").slice(0, MAX_TEXT_PER_PDF_PAGE);
+    const redacted = redactForEmbedding(joined);
+    const normalized = normalizeText(redacted.text);
+    if (normalized.length < 24) continue;
+
+    for (const text of splitIntoChunks(normalized, chunkChars)) {
+      if (out.length >= maxChunks) break;
+      out.push({
+        source_row_id: String(row.id),
+        source_etag,
+        chunk_index: out.length,
+        text,
+        content_hash: sha256(text),
+        metadata: {
+          source: "pdf_documents",
+          document_asset_id: row.document_asset_id,
+          filename: row.filename,
+          storage_path_hash: sha256(row.storage_path),
+          page_number: page.page_number,
+          total_pages: finitePositiveInt(row.total_pages) ?? pages.length,
+          language: row.language ?? null,
+          block_count: page.block_count,
+          created_at: row.created_at,
+          redacted: true,
+          redaction_counts: redacted.counts,
+        },
+      });
+    }
+  }
+
+  return out;
+}
+
 export function sourceEtag(row: ArchiveContentRow): string {
   return sha256(
     stableJson({
@@ -150,6 +211,18 @@ export function audioTranscriptSourceEtag(row: AudioTranscriptContentRow): strin
       language: row.language ?? null,
       duration_s: row.duration_s ?? null,
       model: row.model ?? null,
+    }),
+  );
+}
+
+export function pdfDocumentSourceEtag(row: PdfDocumentContentRow): string {
+  return sha256(
+    stableJson({
+      document_asset_id: row.document_asset_id,
+      filename: row.filename,
+      pages: row.pages,
+      total_pages: row.total_pages ?? null,
+      language: row.language ?? null,
     }),
   );
 }
@@ -234,6 +307,60 @@ export function redactForEmbedding(input: string): RedactionResult {
   );
 
   return { text, counts };
+}
+
+function normalizePdfPages(value: unknown): Array<{
+  page_number: number;
+  block_count: number;
+  texts: string[];
+}> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<{ page_number: number; block_count: number; texts: string[] }> = [];
+
+  for (const rawPage of value) {
+    if (!rawPage || typeof rawPage !== "object" || Array.isArray(rawPage)) continue;
+    const page = rawPage as Record<string, unknown>;
+    const pageNumber = finitePositiveInt(page.page_number);
+    if (!pageNumber || !Array.isArray(page.blocks)) continue;
+
+    const texts: string[] = [];
+    for (const rawBlock of page.blocks) {
+      if (!rawBlock || typeof rawBlock !== "object" || Array.isArray(rawBlock)) continue;
+      const block = rawBlock as Record<string, unknown>;
+      const text = typeof block.text === "string" ? normalizeText(block.text) : "";
+      if (!text) continue;
+      const type = normalizePdfBlockType(block.type);
+      texts.push(prefixPdfBlock(type, text));
+    }
+
+    if (texts.length > 0) {
+      out.push({ page_number: pageNumber, block_count: texts.length, texts });
+    }
+  }
+
+  return out.sort((a, b) => a.page_number - b.page_number);
+}
+
+function normalizePdfBlockType(value: unknown): "heading" | "paragraph" | "table" | "list" {
+  return value === "heading" || value === "table" || value === "list"
+    ? value
+    : "paragraph";
+}
+
+function prefixPdfBlock(
+  type: "heading" | "paragraph" | "table" | "list",
+  text: string,
+): string {
+  switch (type) {
+    case "heading":
+      return `Heading: ${text}`;
+    case "table":
+      return `Table: ${text}`;
+    case "list":
+      return `List: ${text}`;
+    default:
+      return text;
+  }
 }
 
 function extractUsefulStrings(value: unknown): string[] {
@@ -356,4 +483,10 @@ function clampInt(
   if (!Number.isFinite(value)) return fallback;
   const n = Math.trunc(Number(value));
   return Math.min(max, Math.max(min, n));
+}
+
+function finitePositiveInt(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.trunc(n);
 }

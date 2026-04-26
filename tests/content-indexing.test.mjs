@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import {
   buildAudioTranscriptTextChunks,
   buildArchiveTextChunks,
+  buildPdfDocumentTextChunks,
   redactForEmbedding,
   sourceEtag,
 } from "../lib/content-indexing.ts";
@@ -142,6 +143,44 @@ t("audio transcript chunks redact before recall indexing", () => {
   assert.match(chunks[0].text, /\[EMAIL\]/);
   assert.equal(chunks[0].metadata.source, "audio_transcripts");
   assert.equal(chunks[0].metadata.model, "whisper-large-v3");
+});
+
+t("pdf document chunks preserve page metadata for recall citations", () => {
+  const chunks = buildPdfDocumentTextChunks({
+    id: 14,
+    user_id: "user_1",
+    document_asset_id: "doc_1",
+    storage_path: "users/user_1/doc_1.pdf",
+    filename: "contract.pdf",
+    pages: [
+      {
+        page_number: 2,
+        blocks: [
+          { type: "heading", text: "Payment Terms" },
+          {
+            type: "paragraph",
+            text:
+              "The second page says Lumo should surface this clause in recall. Email alex@example.com for billing.",
+          },
+        ],
+      },
+      {
+        page_number: 1,
+        blocks: [{ type: "paragraph", text: "Short first page context for the contract." }],
+      },
+    ],
+    total_pages: 2,
+    language: "en",
+    created_at: "2026-04-26T00:00:00.000Z",
+  });
+
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks[0].metadata.source, "pdf_documents");
+  assert.equal(chunks[0].metadata.page_number, 1);
+  assert.equal(chunks[1].metadata.page_number, 2);
+  assert.equal(chunks[1].metadata.filename, "contract.pdf");
+  assert.match(chunks[1].text, /Payment Terms/);
+  assert.match(chunks[1].text, /\[EMAIL\]/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -501,6 +501,19 @@ Open acceptance items:
 - Preference logging is best-effort and fire-and-forget from the browser so a
   slow analytics write can never block chat, consent, or marketplace flows.
 
+### Phase 2 Sprint 1 - PDF recall
+
+- `lumo_extract_pdf` returns layout-aware PDF pages and blocks only. It does not
+  embed. Lumo Core stores the extracted layout in `pdf_documents`, redacts page
+  chunks, then routes those chunks through the existing `lumo_embed` path.
+- Browser PDFs land in a private Supabase `documents` bucket via
+  `/api/documents/upload`. Lumo Core signs a short read URL for the brain and
+  records extraction state in `document_assets`.
+- `/api/cron/index-archive` now indexes `connector_responses_archive`,
+  `audio_transcripts`, and `pdf_documents` into the same 384-dim
+  `content_embeddings` table. PDF chunk metadata preserves `page_number` so
+  recall can cite "from page N" without a new retrieval path.
+
 ### Phase 2 - Marketplace brain
 
 - Personalized marketplace ranking
@@ -566,3 +579,4 @@ Open acceptance items:
 | 2026-04-26 | Add OR-Tools trip optimization as a bounded computation tool with Core fallback |
 | 2026-04-26 | Add Whisper-on-Modal audio transcription feeding pgvector recall |
 | 2026-04-26 | Add preference-event logging substrate before personalization models |
+| 2026-04-26 | Add layout-aware PDF extraction feeding page-cited pgvector recall |
