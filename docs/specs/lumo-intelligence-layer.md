@@ -663,6 +663,17 @@ can be built against a real schema.
   declared compensating tool with templated inputs, and irreversible steps are
   skipped with evidence so the audit trail stays honest. Production keeps
   `LUMO_MISSION_ROLLBACK_ENABLED=false` until a rollback smoke test passes.
+- D6 closes the gate-resolution gap found in production smoke. Mission
+  planning persists steps as `pending`; D4 only claims `ready` steps. The
+  missing triggers are now explicit: successful OAuth callbacks and inline
+  Lumo installs call `resolvePermissionGate(user_id, agent_id)`, advancing
+  matching pending steps to `ready` and recording `permission_resolved` events.
+  Chat answers and `PATCH /api/missions/[id]/inputs` call `resolveInputGate`,
+  merge answers into `missions.plan.input_answers`, advance pending steps to
+  `ready` when the input gate is complete, and record `input_resolved` events.
+  Both paths are best-effort side effects around the user surface: OAuth and
+  chat should not fail just because mission resumption logging has a transient
+  persistence error.
 - Phase 3 acceptance is a deployed Vegas trip mission that can pause for missing
   apps, connect an app, resume the same mission, ask remaining slot questions,
   surface all confirmations, and show a complete execution/audit timeline.
@@ -726,3 +737,4 @@ can be built against a real schema.
 | 2026-04-27 | Link confirmation-card outcomes to durable mission steps before the execution worker |
 | 2026-04-27 | Ship the mission step executor cron default-off until preview smoke verifies end-to-end execution |
 | 2026-04-27 | Ship mission rollback as an explicit default-off worker separate from the forward executor |
+| 2026-04-27 | Add permission and input gate-resolution triggers so persisted missions can resume into the executor queue |

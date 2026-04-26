@@ -13,6 +13,7 @@ import {
   permissionSnapshotForManifest,
   upsertAgentInstall,
 } from "@/lib/app-installs";
+import { resolvePermissionGate } from "@/lib/mission-gate-resolution";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,6 +88,12 @@ export async function POST(req: NextRequest): Promise<Response> {
       agent_id,
       permissions,
       install_source: "lumo",
+    });
+    await resolvePermissionGate(user.id, agent_id).catch((gateErr) => {
+      console.warn("[lumo/mission/install] mission permission gate resolution failed", {
+        agent_id,
+        error: gateErr instanceof Error ? gateErr.message : String(gateErr),
+      });
     });
 
     return json({

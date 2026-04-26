@@ -52,6 +52,7 @@ import {
 import { recordEvent, type EventFrameType } from "@/lib/events";
 import { getServerUser } from "@/lib/auth";
 import { resolveCardOutcome } from "@/lib/mission-execution";
+import { resolveLatestInputGateForSession } from "@/lib/mission-gate-resolution";
 
 export const runtime = "nodejs"; // orchestrator uses Anthropic SDK + node:crypto
 export const dynamic = "force-dynamic";
@@ -143,6 +144,16 @@ export async function POST(req: NextRequest): Promise<Response> {
       turn_count: body.messages.length,
     },
   });
+  if (user_id !== "anon" && lastUserMessage.trim()) {
+    await resolveLatestInputGateForSession(user_id, body.session_id, {
+      answer_text: lastUserMessage,
+    }).catch((err) => {
+      console.warn("[/api/chat] mission input gate resolution failed", {
+        session_id: body.session_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
 
   const stream = new ReadableStream({
     async start(controller) {

@@ -28,6 +28,7 @@ import {
 import { constantTimeEqual } from "@/lib/crypto";
 import { permissionSnapshotForManifest } from "@/lib/app-installs";
 import { hasRecentActiveOAuthConnection } from "@/lib/oauth-callback";
+import { resolvePermissionGate } from "@/lib/mission-gate-resolution";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -115,6 +116,12 @@ export async function GET(req: NextRequest): Promise<Response> {
         ...permissionSnapshotForManifest(entry.manifest),
         granted_scopes: scopes_granted,
       },
+    });
+    await resolvePermissionGate(user.id, stateRow.agent_id).catch((gateErr) => {
+      console.warn("[connections/callback] mission permission gate resolution failed", {
+        agent_id: stateRow.agent_id,
+        error: gateErr instanceof Error ? gateErr.message : String(gateErr),
+      });
     });
 
     const dest = stateRow.redirect_after ?? "/connections?connected=1";
