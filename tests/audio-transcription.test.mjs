@@ -44,17 +44,35 @@ await t("normalizes valid Whisper response", async () => {
     {
       status: "ok",
       transcript: "hello vegas",
-      segments: [{ start: 0, end: 1.4, text: " hello vegas ", speaker: null }],
+      segments: [{ start: 0, end: 1.4, text: " hello vegas ", speaker: "SPEAKER_00" }],
       language: "en",
       duration_s: 1.5,
       model: "whisper-large-v3",
+      diarization: "ok",
     },
     42,
   );
   assert.equal(result?.status, "ok");
   assert.equal(result?.segments[0]?.text, "hello vegas");
+  assert.equal(result?.segments[0]?.speaker, "SPEAKER_00");
+  assert.equal(result?.diarization, "ok");
   assert.equal(result?.language, "en");
   assert.equal(result?.latency_ms, 42);
+});
+
+await t("preserves diarization not_configured warning", async () => {
+  const result = normalizeTranscribeResponse({
+    status: "ok",
+    transcript: "hello vegas",
+    segments: [{ start: 0, end: 1.4, text: "hello vegas", speaker: null }],
+    language: "en",
+    duration_s: 1.5,
+    model: "whisper-large-v3",
+    diarization: "not_configured",
+  });
+  assert.equal(result?.status, "ok");
+  assert.equal(result?.diarization, "not_configured");
+  assert.equal(result?.segments[0]?.speaker, null);
 });
 
 await t("malformed response degrades without throwing", async () => {

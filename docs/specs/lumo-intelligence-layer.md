@@ -486,8 +486,12 @@ Open acceptance items:
 - Transcript text is redacted through the same `redactForEmbedding` path before
   it enters `content_embeddings`; `/api/cron/index-archive` now indexes both
   `connector_responses_archive` rows and `audio_transcripts`.
-- Speaker diarization is response-shape compatible in Sprint 0 (`speaker:
-  null`); pyannote-backed speakers remain Sprint 1.
+- Speaker diarization runs in the Whisper Modal job when requested and when
+  pyannote model credentials are available. If pyannote or its model weights are
+  unavailable, transcription still succeeds with `speaker: null` per segment and
+  `diarization: "not_configured"`. Diarized chunks carry
+  `metadata.speaker = "SPEAKER_00"` into `content_embeddings` so recall can
+  attribute quoted audio snippets.
 
 ### Phase 2 Sprint 0 - Preference substrate
 
@@ -609,3 +613,4 @@ Open acceptance items:
 | 2026-04-26 | Add layout-aware PDF extraction feeding page-cited pgvector recall |
 | 2026-04-26 | Lock Phase 3 around durable mission state, rollback policy, and execution audit |
 | 2026-04-26 | Add CLIP image embeddings with text-recall summaries and native 512-dim vector storage |
+| 2026-04-26 | Add pyannote speaker diarization labels to Whisper transcripts and recall metadata |

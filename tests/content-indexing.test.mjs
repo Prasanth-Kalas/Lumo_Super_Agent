@@ -144,6 +144,43 @@ t("audio transcript chunks redact before recall indexing", () => {
   assert.match(chunks[0].text, /\[EMAIL\]/);
   assert.equal(chunks[0].metadata.source, "audio_transcripts");
   assert.equal(chunks[0].metadata.model, "whisper-large-v3");
+  assert.equal(chunks[0].metadata.speaker, null);
+});
+
+t("diarized audio transcript chunks preserve speaker metadata", () => {
+  const chunks = buildAudioTranscriptTextChunks({
+    id: 8,
+    user_id: "user_1",
+    audio_upload_id: "audio_2",
+    storage_path: "users/user_1/audio_2.mp3",
+    transcript:
+      "Alex asked about Vegas hotels. Priya said book the hotel near the conference.",
+    segments: [
+      {
+        start: 0,
+        end: 4.2,
+        text: "Alex asked about Vegas hotels.",
+        speaker: "SPEAKER_00",
+      },
+      {
+        start: 4.4,
+        end: 8.1,
+        text: "Priya said book the hotel near the conference.",
+        speaker: "SPEAKER_01",
+      },
+    ],
+    language: "en",
+    duration_s: 9,
+    model: "whisper-large-v3",
+    created_at: "2026-04-26T00:00:00.000Z",
+  });
+
+  assert.equal(chunks.length, 2);
+  assert.match(chunks[0].text, /Speaker SPEAKER_00/);
+  assert.match(chunks[1].text, /Speaker SPEAKER_01/);
+  assert.equal(chunks[0].metadata.speaker, "SPEAKER_00");
+  assert.equal(chunks[1].metadata.speaker, "SPEAKER_01");
+  assert.equal(chunks[1].metadata.segment_index, 1);
 });
 
 t("pdf document chunks preserve page metadata for recall citations", () => {

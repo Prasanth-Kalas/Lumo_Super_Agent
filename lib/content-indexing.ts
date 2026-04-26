@@ -47,6 +47,14 @@ export interface AudioTranscriptContentRow {
   created_at: string;
 }
 
+interface NormalizedTranscriptSegment {
+  index: number;
+  start: number | null;
+  end: number | null;
+  text: string;
+  speaker: string | null;
+}
+
 export interface PdfDocumentContentRow {
   id: string | number;
   user_id: string;
@@ -128,6 +136,13 @@ export function buildAudioTranscriptTextChunks(
   row: AudioTranscriptContentRow,
   options: { chunkChars?: number; maxChunks?: number } = {},
 ): ArchiveTextChunk[] {
+  const diarizedSegments = normalizeTranscriptSegments(row.segments).filter(
+    (segment) => segment.speaker,
+  );
+  if (diarizedSegments.length > 0) {
+    return buildSpeakerTranscriptChunks(row, diarizedSegments, options);
+  }
+
   const redacted = redactForEmbedding(row.transcript);
   const normalized = normalizeText(redacted.text).slice(0, MAX_TEXT_PER_ROW);
   if (normalized.length < 24) return [];
@@ -150,12 +165,60 @@ export function buildAudioTranscriptTextChunks(
         language: row.language ?? null,
         duration_s: row.duration_s ?? null,
         model: row.model ?? null,
+        speaker: null,
         segment_count: Array.isArray(row.segments) ? row.segments.length : null,
         created_at: row.created_at,
         redacted: true,
         redaction_counts: redacted.counts,
       },
     }));
+}
+
+function buildSpeakerTranscriptChunks(
+  row: AudioTranscriptContentRow,
+  segments: NormalizedTranscriptSegment[],
+  options: { chunkChars?: number; maxChunks?: number },
+): ArchiveTextChunk[] {
+  const source_etag = audioTranscriptSourceEtag(row);
+  const chunkChars = clampInt(options.chunkChars, 400, 4000, DEFAULT_CHUNK_CHARS);
+  const maxChunks = clampInt(options.maxChunks, 1, 24, DEFAULT_MAX_CHUNKS);
+  const out: ArchiveTextChunk[] = [];
+
+  for (const segment of segments) {
+    if (out.length >= maxChunks) break;
+    const redacted = redactForEmbedding(`Speaker ${segment.speaker}: ${segment.text}`);
+    const normalized = normalizeText(redacted.text);
+    if (normalized.length < 24) continue;
+
+    for (const text of splitIntoChunks(normalized, chunkChars)) {
+      if (out.length >= maxChunks) break;
+      out.push({
+        source_row_id: String(row.id),
+        source_etag,
+        chunk_index: out.length,
+        text,
+        content_hash: sha256(text),
+        metadata: {
+          source: "audio_transcripts",
+          audio_upload_id: row.audio_upload_id,
+          storage_path_hash: sha256(row.storage_path),
+          language: row.language ?? null,
+          duration_s: row.duration_s ?? null,
+          model: row.model ?? null,
+          speaker: segment.speaker,
+          segment_index: segment.index,
+          segment_start_s: segment.start,
+          segment_end_s: segment.end,
+          segment_count: Array.isArray(row.segments) ? row.segments.length : null,
+          created_at: row.created_at,
+          redacted: true,
+          redaction_counts: redacted.counts,
+        },
+      });
+    }
+  }
+
+  return out;
 }
 
 export function buildPdfDocumentTextChunks(
@@ -397,6 +460,29 @@ function normalizeImageLabels(value: unknown): Array<{ label: string; score: num
   return out;
 }
 
+function normalizeTranscriptSegments(value: unknown): NormalizedTranscriptSegment[] {
+  if (!Array.isArray(value)) return [];
+  const out: NormalizedTranscriptSegment[] = [];
+  value.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const item = raw as Record<string, unknown>;
+    const text = typeof item.text === "string" ? normalizeText(item.text) : "";
+    if (!text) return;
+    const speaker =
+      typeof item.speaker === "string" && item.speaker.trim()
+        ? item.speaker.trim().slice(0, 80)
+        : null;
+    out.push({
+      index,
+      start: finiteNonNegativeNumber(item.start),
+      end: finiteNonNegativeNumber(item.end),
+      text,
+      speaker,
+    });
+  });
+  return out;
+}
+
 function normalizePdfPages(value: unknown): Array<{
   page_number: number;
   block_count: number;
@@ -577,4 +663,10 @@ function finitePositiveInt(value: unknown): number | null {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 1) return null;
   return Math.trunc(n);
+}
+
+function finiteNonNegativeNumber(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
 }

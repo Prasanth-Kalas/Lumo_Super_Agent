@@ -159,6 +159,13 @@ export async function PATCH(
   return NextResponse.json({
     ...toPublicUpload(updated as AudioUploadRow),
     transcript_id: transcript.id,
+    transcription: {
+      diarization: result.diarization,
+      language: result.language,
+      duration_s: result.duration_s,
+      segment_count: result.segments.length,
+      latency_ms: result.latency_ms,
+    },
     indexing: {
       ok: indexResult.ok,
       skipped: indexResult.skipped ?? null,
