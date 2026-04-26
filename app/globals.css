@@ -153,6 +153,57 @@
   --g-green:            #1E8E3E;
 }
 
+/* Mission lifecycle utility classes. Components set one
+   `lumo-mission-state-accent-*` class and then reuse the same derived
+   token for chip backgrounds, edge accents, and future badges. */
+.lumo-mission-state-accent-draft {
+  --lumo-mission-state-color: var(--lumo-mission-state-draft);
+}
+.lumo-mission-state-accent-awaiting-permissions {
+  --lumo-mission-state-color: var(--lumo-mission-state-awaiting-permissions);
+}
+.lumo-mission-state-accent-awaiting-user-input {
+  --lumo-mission-state-color: var(--lumo-mission-state-awaiting-user-input);
+}
+.lumo-mission-state-accent-awaiting-confirmation {
+  --lumo-mission-state-color: var(--lumo-mission-state-awaiting-confirmation);
+}
+.lumo-mission-state-accent-ready {
+  --lumo-mission-state-color: var(--lumo-mission-state-ready);
+}
+.lumo-mission-state-accent-executing {
+  --lumo-mission-state-color: var(--lumo-mission-state-executing);
+}
+.lumo-mission-state-accent-completed {
+  --lumo-mission-state-color: var(--lumo-mission-state-completed);
+}
+.lumo-mission-state-accent-failed {
+  --lumo-mission-state-color: var(--lumo-mission-state-failed);
+}
+.lumo-mission-state-accent-rolling-back {
+  --lumo-mission-state-color: var(--lumo-mission-state-rolling-back);
+}
+.lumo-mission-state-accent-rolled-back {
+  --lumo-mission-state-color: var(--lumo-mission-state-rolled-back);
+}
+.lumo-mission-state-edge {
+  background-color: var(--lumo-mission-state-color, var(--lumo-mission-state-draft));
+}
+.lumo-mission-state-chip {
+  color: var(--lumo-mission-state-color, var(--lumo-mission-state-draft));
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--lumo-mission-state-color, var(--lumo-mission-state-draft)) 30%,
+      transparent
+    );
+  background-color: color-mix(
+    in srgb,
+    var(--lumo-mission-state-color, var(--lumo-mission-state-draft)) 10%,
+    transparent
+  );
+}
+
 /* ─── Base canvas ──────────────────────────────────────────────────── */
 
 html,
