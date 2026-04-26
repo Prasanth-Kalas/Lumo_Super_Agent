@@ -1942,6 +1942,16 @@ alter table public.user_agent_installs
 
 create extension if not exists vector;
 
+create or replace function public.touch_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
 create table if not exists public.content_embeddings (
   id                uuid primary key default gen_random_uuid(),
   user_id           uuid not null references public.profiles(id) on delete cascade,
@@ -2486,7 +2496,7 @@ as $$
   from public.pdf_documents d
   left join public.content_embedding_sources s
     on s.source_table = 'pdf_documents'
-   and s.source_row_id = d.id::text
+   and s.source_row_id = d.id
   where
     auth.role() = 'service_role'
     and (
@@ -2652,7 +2662,7 @@ as $$
   from public.image_embeddings e
   left join public.content_embedding_sources s
     on s.source_table = 'image_embeddings'
-   and s.source_row_id = e.id::text
+   and s.source_row_id = e.id
   where
     auth.role() = 'service_role'
     and (
@@ -2709,6 +2719,10 @@ create index if not exists time_series_metrics_by_user_metric_ts
 create index if not exists time_series_metrics_by_user_recent
   on public.time_series_metrics (user_id, created_at desc);
 
+alter table public.time_series_metrics enable row level security;
+revoke all on public.time_series_metrics from anon, authenticated;
+grant all on public.time_series_metrics to service_role;
+
 create table if not exists public.anomaly_findings (
   id                 uuid primary key default gen_random_uuid(),
   user_id            uuid not null references public.profiles(id) on delete cascade,
@@ -2737,6 +2751,10 @@ drop trigger if exists anomaly_findings_touch_updated_at on public.anomaly_findi
 create trigger anomaly_findings_touch_updated_at
   before update on public.anomaly_findings
   for each row execute function public.touch_updated_at();
+
+alter table public.anomaly_findings enable row level security;
+revoke all on public.anomaly_findings from anon, authenticated;
+grant all on public.anomaly_findings to service_role;
 
 create table if not exists public.proactive_moments (
   id              uuid primary key default gen_random_uuid(),
@@ -2771,6 +2789,10 @@ drop trigger if exists proactive_moments_touch_updated_at on public.proactive_mo
 create trigger proactive_moments_touch_updated_at
   before update on public.proactive_moments
   for each row execute function public.touch_updated_at();
+
+alter table public.proactive_moments enable row level security;
+revoke all on public.proactive_moments from anon, authenticated;
+grant all on public.proactive_moments to service_role;
 
 -- Service-role RPC: fetch the next batch of pending, still-valid proactive
 -- moments for a user. The proactive-scan cron uses this to decide which

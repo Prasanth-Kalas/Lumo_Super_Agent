@@ -143,7 +143,7 @@ as $$
   from public.image_embeddings e
   left join public.content_embedding_sources s
     on s.source_table = 'image_embeddings'
-   and s.source_row_id = e.id::text
+   and s.source_row_id = e.id
   where
     auth.role() = 'service_role'
     and (

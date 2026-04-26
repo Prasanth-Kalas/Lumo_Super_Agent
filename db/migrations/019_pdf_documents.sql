@@ -127,7 +127,7 @@ as $$
   from public.pdf_documents d
   left join public.content_embedding_sources s
     on s.source_table = 'pdf_documents'
-   and s.source_row_id = d.id::text
+   and s.source_row_id = d.id
   where
     auth.role() = 'service_role'
     and (
