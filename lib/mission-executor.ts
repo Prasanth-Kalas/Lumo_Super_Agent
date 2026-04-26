@@ -163,7 +163,7 @@ async function claimReadySteps(
   excludedStepIds = new Set<string>(),
 ): Promise<ClaimedMissionStep[]> {
   const requestedLimit = Math.max(1, Math.min(10, Math.trunc(limit)));
-  if (typeof db.rpc === "function") {
+  if (process.env.LUMO_MISSION_EXECUTOR_USE_RPC === "true" && typeof db.rpc === "function") {
     const { data, error } = await db.rpc("next_mission_step_for_execution", {
       requested_limit: requestedLimit,
     });
@@ -243,7 +243,7 @@ async function claimReadyStepsDirectly(
     const id = stringOrNull(row?.id);
     const missionId = stringOrNull(row?.mission_id);
     if (!id || !missionId) continue;
-    const { error: claimError } = await db
+    const { data: claimRows, error: claimError } = await db
       .from("mission_steps")
       .update({
         status: "running",
@@ -251,8 +251,10 @@ async function claimReadyStepsDirectly(
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
-      .eq("status", "ready");
+      .eq("status", "ready")
+      .select("id");
     if (claimError) throw new Error(`mission_step_fallback_claim_failed:${claimError.message ?? "unknown"}`);
+    if (!Array.isArray(claimRows) || claimRows.length === 0) continue;
 
     const mission = missions.get(missionId);
     if (String(mission?.state ?? "") === "ready") {
