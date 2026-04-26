@@ -56,6 +56,23 @@
   --lumo-urgency-medium: #FBBC04;
   --lumo-urgency-low:   #1FB8E8;
 
+  /* Mission lifecycle state accents (K10 MissionCard). Reuses the
+     urgency / semantic palette so a "failed" mission reads the same
+     red as a "high urgency" task. The amber family covers all three
+     awaiting-* sub-states because they share intent (waiting on the
+     user). Rolling-back gets its own orange to distinguish an
+     in-progress reversal from a steady-state amber pause. */
+  --lumo-mission-state-draft:                  #7C8290;  /* fg-mid grey-blue: low-energy, being drafted */
+  --lumo-mission-state-awaiting-permissions:   #FBBC04;  /* amber: needs user attention                 */
+  --lumo-mission-state-awaiting-user-input:    #FBBC04;  /* amber: same family                          */
+  --lumo-mission-state-awaiting-confirmation:  #FBBC04;  /* amber: same family                          */
+  --lumo-mission-state-ready:                  #1FB8E8;  /* brand cyan: queued                          */
+  --lumo-mission-state-executing:              #1FB8E8;  /* brand cyan: in flight                       */
+  --lumo-mission-state-completed:              #34A853;  /* green: success                              */
+  --lumo-mission-state-failed:                 #EA4335;  /* red: matches --lumo-urgency-high            */
+  --lumo-mission-state-rolling-back:           #F57C00;  /* orange: in-progress reversal                */
+  --lumo-mission-state-rolled-back:            #4A4F5B;  /* fg-low neutral grey: terminal post-reversal */
+
   /* Selection highlight in the composer / markdown — accent at low alpha. */
   --lumo-selection:     #1FB8E833;
   --lumo-ring:          #1FB8E866;
@@ -107,6 +124,20 @@
   --lumo-urgency-high:  #D93025;
   --lumo-urgency-medium: #F9AB00;
   --lumo-urgency-low:   #0F7FAE;
+
+  /* Mission lifecycle state accents — light-mode counterparts of the
+     dark block above. Hex values mirror the urgency / semantic light
+     palette so contrast on paper stays in spec. */
+  --lumo-mission-state-draft:                  #6A6F7A;  /* fg-mid grey-blue */
+  --lumo-mission-state-awaiting-permissions:   #F9AB00;  /* amber            */
+  --lumo-mission-state-awaiting-user-input:    #F9AB00;  /* amber            */
+  --lumo-mission-state-awaiting-confirmation:  #F9AB00;  /* amber            */
+  --lumo-mission-state-ready:                  #0F7FAE;  /* brand cyan dark  */
+  --lumo-mission-state-executing:              #0F7FAE;  /* brand cyan dark  */
+  --lumo-mission-state-completed:              #1E8E3E;  /* green            */
+  --lumo-mission-state-failed:                 #D93025;  /* red              */
+  --lumo-mission-state-rolling-back:           #C75B00;  /* orange (paper)   */
+  --lumo-mission-state-rolled-back:            #A2A6AF;  /* fg-low neutral   */
 
   --lumo-selection:     #1FB8E822;
   --lumo-ring:          #1FB8E844;
