@@ -159,7 +159,7 @@ JWT plus per-user context.
 | `evaluate_agent_risk` | manifest, OpenAPI summary, scopes, category peers | risk grade, over-ask flags, reasons, suggested mitigations | yes | Powers marketplace trust badges |
 | `embed` | text chunks, source metadata | embedding ids, model metadata, content hashes | yes | Used by indexer and recall |
 | `classify` | text/items, classifier name, thresholds | labels, calibrated scores, reasons | yes | Replaces inbox regex lead scoring |
-| `recall` | query, user id, filters, top_k | cited snippets from embedded archive/transcripts/memory | yes | Target under 500ms |
+| `recall` | query, user id, filters, top_k | cited snippets from embedded archive/transcripts/memory | yes | Target under 1000ms end-to-end |
 | `analyze_file` | file reference, task, schema | extracted facts, tables, summary, validation issues | no | Uses sandbox or batch path depending on file size |
 | `generate_chart` | tabular data or query result, chart intent | chart spec/artifact metadata | no | Computation only; UI renders in Lumo Core |
 | `run_python_sandbox` | code or notebook plan, files, resource policy | stdout, stderr, artifacts, resource usage | no | E2B/Firecracker only; no side effects |
