@@ -1,6 +1,6 @@
 # ADR/PRD - Lumo Intelligence Layer
 
-**Status:** Draft v1.0 - accepted architecture, pending implementation
+**Status:** Phase 1 code-complete; demo-pending and held-out-eval pending
 **Owner:** Kalas (CEO/CTO/CFO/PM hat)
 **Decision date locked:** 2026-04-26
 **Related systems:** `lib/agent-registry.ts`, `lib/orchestrator.ts`, `config/agents.registry*.json`, `app/api/workspace/inbox/route.ts`, `db/migrations/005_memory.sql`, `db/migrations/012_workspace_creator.sql`
@@ -504,8 +504,9 @@ Open acceptance items:
    Machines/Firecracker as fallback.
 2. Confirm Cloud Run project, region, billing owner, and deployment pipeline.
 3. Confirm Modal account and GPU budget guardrails.
-4. Decide who labels the first 100 lead examples and where that labelled set
-   lives.
+4. Phase 1.5 held-out classifier eval is deferred until the first 30 days of
+   production-like traffic. Until then, classifier F1 numbers are seed/regression
+   metrics only and must not be quoted externally or board-facing.
 5. Decide whether `content_embeddings` should stay on `384` dimensions or move
    to the existing `1536`-dimensional OpenAI embedding path before production.
 6. Decide whether marketplace risk grades are shown as `low/medium/high` or a

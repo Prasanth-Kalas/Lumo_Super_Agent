@@ -74,6 +74,59 @@ OPENAI_TTS_VOICE=cedar
 LUMO_ML_AGENT_URL=https://<your-cloud-run-lumo-ml-service-url>
 ```
 
+### Lumo Intelligence Layer preview deploy
+
+For the Phase 1 Vegas demo, deploy the Python brain first, then point a Vercel
+preview at it. Keep the Super Agent and brain on the same
+`LUMO_ML_SERVICE_JWT_SECRET`; rotate both together.
+
+From the `Lumo_ML_Service` repo:
+
+```bash
+gcloud config set project <gcp-project-id>
+gcloud run deploy lumo-ml-service \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars LUMO_ML_SERVICE_JWT_SECRET=<same-secret-as-super-agent>
+```
+
+For production, prefer Secret Manager-backed values instead of inline
+`--set-env-vars`; inline values are acceptable only for short-lived preview
+proving when the secret is rotated afterward.
+
+`LUMO_ML_PUBLIC_BASE_URL` is optional on the brain. Leave it unset for the first
+Cloud Run deploy so the service derives its manifest URLs from the incoming
+request; set it later only if you put the service behind a custom domain.
+
+After deploy, copy the Cloud Run HTTPS URL and verify the public contract:
+
+```bash
+curl https://<cloud-run-service-url>/.well-known/agent.json
+curl https://<cloud-run-service-url>/openapi.json
+curl https://<cloud-run-service-url>/api/health
+```
+
+Then set the Super Agent preview env vars:
+
+```bash
+vercel env add LUMO_ML_AGENT_URL preview
+vercel env add LUMO_ML_SERVICE_JWT_SECRET preview
+vercel
+```
+
+Use the returned Vercel preview URL for the Vegas demo. Sign in with a real
+test user, open chat, and send:
+
+```text
+I'm going to Vegas next Saturday for a week and returning to California. Book flights, hotels, cabs, food, events, attractions, and EV charging if I drive.
+```
+
+The recording is accepted only if the response shows installed agents, ranked
+marketplace recommendations, risk badges, missing scopes, user questions, and
+confirmation points. If any element is missing, log it as a demo blocker instead
+of marking Phase 1 complete.
+
 **Archive recall indexer** (optional until privacy review signs off):
 ```
 LUMO_ARCHIVE_INDEXER_ENABLED=false
