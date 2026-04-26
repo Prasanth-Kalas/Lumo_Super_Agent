@@ -532,6 +532,26 @@ Open acceptance items:
   find "receipt", "hotel room", or "EV charger" images without adding a second
   retrieval path to chat.
 
+### Phase 2 Sprint 2 - Proactive substrate
+
+Migration 021 adds three tables that Sprint 2's anomaly-detection,
+forecasting, and proactive-moment surfacing layer will write to.
+
+- `time_series_metrics`: per-user metric points over time (revenue,
+  engagement, calendar density) ingested from connectors or computed by
+  Lumo Core.
+- `anomaly_findings`: outliers detected against those time series, with
+  finding_type, z-score, confidence, and status state machine.
+- `proactive_moments`: user-surface-able insights derived from anomaly
+  findings, forecasts, calendar context, or pattern recognition.
+  Service-role RPC `next_proactive_moment_for_user` returns the next
+  batch of pending, urgency-ordered moments.
+
+The tables stay empty until Codex's `anomaly-detection-core`,
+`forecasting-core`, and the `proactive-scan` cron land in subsequent
+Sprint-2 commits. Schema is shipped first so the cron route + UI card
+can be built against a real schema.
+
 ### Phase 2 - Marketplace brain
 
 - Personalized marketplace ranking
@@ -614,3 +634,4 @@ Open acceptance items:
 | 2026-04-26 | Lock Phase 3 around durable mission state, rollback policy, and execution audit |
 | 2026-04-26 | Add CLIP image embeddings with text-recall summaries and native 512-dim vector storage |
 | 2026-04-26 | Add pyannote speaker diarization labels to Whisper transcripts and recall metadata |
+| 2026-04-26 | Land Sprint-2 schema (proactive moments + anomaly findings + time-series metrics) before the cron and UI |
