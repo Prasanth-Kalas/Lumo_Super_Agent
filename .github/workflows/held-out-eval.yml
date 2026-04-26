@@ -1,0 +1,36 @@
+name: Held-out Classifier Eval
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  held-out-eval:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The harness imports `lib/lead-scoring.ts` via
+          # --experimental-strip-types, which is unstable on Node 20.
+          node-version: 22
+          cache: npm
+
+      - name: Configure GitHub git dependency access
+        env:
+          GH_PACKAGE_TOKEN: ${{ secrets.LUMO_BOT_PAT || github.token }}
+        run: |
+          git config --global url."https://x-access-token:${GH_PACKAGE_TOKEN}@github.com/".insteadOf "ssh://git@github.com/"
+          git config --global url."https://x-access-token:${GH_PACKAGE_TOKEN}@github.com/".insteadOf "git@github.com:"
+
+      - run: npm ci
+
+      - name: Run held-out classifier eval
+        run: node --experimental-strip-types eval/held-out-classifier/run.mjs
+
+      - name: Run held-out classifier eval (JSON, for log archival)
+        run: node --experimental-strip-types eval/held-out-classifier/run.mjs --json
