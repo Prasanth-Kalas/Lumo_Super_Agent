@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { BrandMark, LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { logPreferenceEvent } from "@/lib/preference-events-client";
 
 interface MarketplaceAgent {
   agent_id: string;
@@ -184,6 +185,32 @@ export default function AgentDetailPage() {
 
   const isConnected = agent?.connection?.status === "active";
   const isInstalled = agent?.install?.status === "installed";
+  const preferenceContext = useMemo(
+    () => (agent ? detailPreferenceContext(agent) : null),
+    [agent],
+  );
+
+  useEffect(() => {
+    if (!agent || !preferenceContext) return;
+    const started = Date.now();
+    logPreferenceEvent({
+      surface: "marketplace_tile",
+      target_type: "agent",
+      target_id: agent.agent_id,
+      event_type: "impression",
+      context: { ...preferenceContext, view: "detail" },
+    });
+    return () => {
+      logPreferenceEvent({
+        surface: "marketplace_tile",
+        target_type: "agent",
+        target_id: agent.agent_id,
+        event_type: "dwell",
+        dwell_ms: Date.now() - started,
+        context: { ...preferenceContext, view: "detail" },
+      });
+    };
+  }, [agent, preferenceContext]);
 
   if (loading) {
     return (
@@ -335,7 +362,16 @@ export default function AgentDetailPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => void disconnect()}
+                  onClick={() => {
+                    logPreferenceEvent({
+                      surface: "marketplace_tile",
+                      target_type: "agent",
+                      target_id: agent.agent_id,
+                      event_type: "click",
+                      context: { ...detailPreferenceContext(agent), action: "disconnect" },
+                    });
+                    void disconnect();
+                  }}
                   className="w-full h-8 rounded-md border border-lumo-hair text-[12.5px] text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge transition-colors"
                 >
                   Disconnect
@@ -346,7 +382,16 @@ export default function AgentDetailPage() {
                 <button
                   type="button"
                   disabled={connecting}
-                  onClick={() => void startConnect()}
+                  onClick={() => {
+                    logPreferenceEvent({
+                      surface: "marketplace_tile",
+                      target_type: "agent",
+                      target_id: agent.agent_id,
+                      event_type: "click",
+                      context: { ...detailPreferenceContext(agent), action: "connect" },
+                    });
+                    void startConnect();
+                  }}
                   className="w-full h-9 rounded-md bg-lumo-fg text-lumo-bg text-[13px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:opacity-60 transition-colors"
                 >
                   {connecting ? "Opening…" : `Connect ${agent.display_name}`}
@@ -362,7 +407,19 @@ export default function AgentDetailPage() {
                 <button
                   type="button"
                   disabled={connecting}
-                  onClick={() => void toggleInstall()}
+                  onClick={() => {
+                    logPreferenceEvent({
+                      surface: "marketplace_tile",
+                      target_type: "agent",
+                      target_id: agent.agent_id,
+                      event_type: "click",
+                      context: {
+                        ...detailPreferenceContext(agent),
+                        action: isInstalled ? "remove_install" : "install",
+                      },
+                    });
+                    void toggleInstall();
+                  }}
                   className="w-full h-9 rounded-md bg-lumo-fg text-lumo-bg text-[13px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:opacity-60 transition-colors"
                 >
                   {connecting
@@ -444,6 +501,18 @@ function RiskBadge({
       {badge.level === "review_required" ? "review" : `${badge.level} risk`}
     </span>
   );
+}
+
+function detailPreferenceContext(agent: MarketplaceAgent) {
+  return {
+    display_name: agent.display_name,
+    category: agent.listing?.category ?? null,
+    connect_model: agent.connect_model,
+    connected: agent.connection?.status === "active",
+    installed: agent.install?.status === "installed",
+    source: agent.source ?? "lumo",
+    risk_level: agent.risk_badge.level,
+  };
 }
 
 function humanizeIntent(i: string): string {

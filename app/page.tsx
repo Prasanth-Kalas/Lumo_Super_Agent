@@ -56,6 +56,11 @@ import LeftRail from "@/components/LeftRail";
 import RightRail, { type ActiveTripView, type LegStatusLite } from "@/components/RightRail";
 import MobileNav from "@/components/MobileNav";
 import { seedProfile } from "@/lib/seed-profile";
+import {
+  compactPreferenceText,
+  logPreferenceEvent,
+  preferenceTargetId,
+} from "@/lib/preference-events-client";
 
 /**
  * Local mirror of the shell's ConfirmationSummary — we re-declare it
@@ -1119,6 +1124,17 @@ export default function Home() {
           onToggleMuted={() => setVoiceMuted((m) => !m)}
           userRegion="US"
           onSuggestion={(t) => {
+            logPreferenceEvent({
+              surface: "chat_suggestion",
+              target_type: "suggestion",
+              target_id: preferenceTargetId("suggestion", t),
+              event_type: "click",
+              session_id: sessionIdRef.current,
+              context: {
+                source: "right_rail",
+                text_preview: compactPreferenceText(t),
+              },
+            });
             if (!busy && !isReplayLoading) void sendText(t);
           }}
           memoryRefreshKey={memoryRefreshKey}

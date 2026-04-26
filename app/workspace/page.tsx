@@ -20,6 +20,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import {
+  compactPreferenceText,
+  logPreferenceEvent,
+  preferenceTargetId,
+} from "@/lib/preference-events-client";
 
 type TabId = "today" | "content" | "inbox" | "copilot" | "operations";
 
@@ -639,8 +644,42 @@ function PlatformTile({
   hint: string;
   accent: string;
 }) {
+  useEffect(() => {
+    const started = Date.now();
+    const context = { source: "workspace_getstarted", name, hint };
+    logPreferenceEvent({
+      surface: "marketplace_tile",
+      target_type: "agent",
+      target_id: agent_id,
+      event_type: "impression",
+      context,
+    });
+    return () => {
+      logPreferenceEvent({
+        surface: "marketplace_tile",
+        target_type: "agent",
+        target_id: agent_id,
+        event_type: "dwell",
+        dwell_ms: Date.now() - started,
+        context,
+      });
+    };
+  }, [agent_id, hint, name]);
+
   return (
-    <Link href={`/marketplace#${agent_id}`} className="ptile">
+    <Link
+      href={`/marketplace#${agent_id}`}
+      className="ptile"
+      onClick={() => {
+        logPreferenceEvent({
+          surface: "marketplace_tile",
+          target_type: "agent",
+          target_id: agent_id,
+          event_type: "click",
+          context: { source: "workspace_getstarted", name, action: "open_marketplace" },
+        });
+      }}
+    >
       <span className="ptile__dot" style={{ background: accent }} />
       <span className="ptile__body">
         <span className="ptile__name">{name}</span>
@@ -723,6 +762,34 @@ function Card({
   icon: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const target_id = `today:${title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")}`;
+  useEffect(() => {
+    const started = Date.now();
+    const context = {
+      title,
+      subtitle: subtitle ?? null,
+      has_data: hasAny,
+      source: envelope?.source ?? null,
+    };
+    logPreferenceEvent({
+      surface: "workspace_card",
+      target_type: "workspace_card",
+      target_id,
+      event_type: "impression",
+      context,
+    });
+    return () => {
+      logPreferenceEvent({
+        surface: "workspace_card",
+        target_type: "workspace_card",
+        target_id,
+        event_type: "dwell",
+        dwell_ms: Date.now() - started,
+        context,
+      });
+    };
+  }, [envelope?.source, hasAny, subtitle, target_id, title]);
+
   return (
     <section className="card">
       <div className="card__bar" style={{ background: accent }} />
@@ -755,6 +822,19 @@ function Card({
           </p>
           <Link
             href={emptyConnect.href}
+            onClick={() => {
+              logPreferenceEvent({
+                surface: "workspace_card",
+                target_type: "workspace_card",
+                target_id,
+                event_type: "click",
+                context: {
+                  title,
+                  action: "connect_empty_card",
+                  href: emptyConnect.href,
+                },
+              });
+            }}
             className="card__connect"
             style={{
               background: accent,
@@ -2355,8 +2435,19 @@ function CopilotTab({ connections }: { connections: MarketplaceConnection[] }) {
     (p) => !p.needs_agent_id || activeAgents.has(p.needs_agent_id),
   );
 
-  function handoff(prompt: string) {
+  function handoff(prompt: string, label?: string) {
     if (typeof window === "undefined") return;
+    logPreferenceEvent({
+      surface: "chat_suggestion",
+      target_type: "suggestion",
+      target_id: preferenceTargetId("workspace_prompt", prompt),
+      event_type: "click",
+      context: {
+        source: "workspace_copilot",
+        label: label ?? null,
+        text_preview: compactPreferenceText(prompt),
+      },
+    });
     const q = encodeURIComponent(prompt);
     window.location.href = `/?q=${q}`;
   }
@@ -2364,7 +2455,7 @@ function CopilotTab({ connections }: { connections: MarketplaceConnection[] }) {
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (input.trim().length === 0) return;
-    handoff(input.trim());
+    handoff(input.trim(), "custom");
   }
 
   // Group presets by category for layout.
@@ -2415,7 +2506,7 @@ function CopilotTab({ connections }: { connections: MarketplaceConnection[] }) {
                   <button
                     key={p.prompt}
                     className="cp__chip"
-                    onClick={() => handoff(p.prompt)}
+                    onClick={() => handoff(p.prompt, p.label)}
                     title={p.prompt}
                   >
                     {p.label}

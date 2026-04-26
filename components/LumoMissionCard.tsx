@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { logPreferenceEvent } from "@/lib/preference-events-client";
 
 export interface LumoMissionScope {
   name: string;
@@ -122,10 +123,49 @@ export function LumoMissionCard({
     autoInstallable.length > 0 &&
     autoInstallable.every((p) => stateByAgent[p.agent_id] === "done");
   const hasOAuth = oauthProposals.length > 0;
+  const missionContext = useMemo(
+    () => missionPreferenceContext(plan),
+    [plan],
+  );
+
+  useEffect(() => {
+    const started = Date.now();
+    logPreferenceEvent({
+      surface: "mission_card",
+      target_type: "mission_action",
+      target_id: plan.mission_id,
+      event_type: "impression",
+      context: missionContext,
+    });
+    return () => {
+      logPreferenceEvent({
+        surface: "mission_card",
+        target_type: "mission_action",
+        target_id: plan.mission_id,
+        event_type: "dwell",
+        dwell_ms: Date.now() - started,
+        context: missionContext,
+      });
+    };
+  }, [missionContext, plan.mission_id]);
 
   async function installProposal(proposal: LumoMissionProposal): Promise<boolean> {
     if (disabled || stateByAgent[proposal.agent_id] === "working") return false;
     setError(null);
+    logPreferenceEvent({
+      surface: "mission_card",
+      target_type: "agent",
+      target_id: proposal.agent_id,
+      event_type: "click",
+      context: {
+        action: proposal.action,
+        mission_id: plan.mission_id,
+        mission_title: plan.mission_title,
+        rank_score: proposal.rank_score,
+        risk_level: proposal.risk_badge?.level ?? null,
+        requires_payment: proposal.requires_payment,
+      },
+    });
 
     if (proposal.action === "connect_oauth") {
       await startOAuth(proposal);
@@ -159,6 +199,13 @@ export function LumoMissionCard({
   }
 
   async function installAllAndContinue() {
+    logPreferenceEvent({
+      surface: "mission_card",
+      target_type: "mission_action",
+      target_id: `${plan.mission_id}:install_available`,
+      event_type: "click",
+      context: missionContext,
+    });
     for (const proposal of autoInstallable) {
       if (stateByAgent[proposal.agent_id] === "done") continue;
       const ok = await installProposal(proposal);
@@ -191,6 +238,13 @@ export function LumoMissionCard({
   }
 
   function continueMission() {
+    logPreferenceEvent({
+      surface: "mission_card",
+      target_type: "mission_action",
+      target_id: `${plan.mission_id}:continue`,
+      event_type: "click",
+      context: missionContext,
+    });
     onContinue(`Continue planning this mission with approved apps: ${plan.original_request}`);
   }
 
@@ -273,6 +327,21 @@ export function LumoMissionCard({
                 <div className="flex shrink-0 items-center gap-2">
                   <Link
                     href={proposal.marketplace_url}
+                    onClick={() => {
+                      logPreferenceEvent({
+                        surface: "mission_card",
+                        target_type: "agent",
+                        target_id: proposal.agent_id,
+                        event_type: "click",
+                        context: {
+                          action: "details",
+                          mission_id: plan.mission_id,
+                          mission_title: plan.mission_title,
+                          rank_score: proposal.rank_score,
+                          risk_level: proposal.risk_badge?.level ?? null,
+                        },
+                      });
+                    }}
                     className="h-8 rounded-md border border-lumo-hair px-3 text-[12px] leading-8 text-lumo-fg-mid hover:border-lumo-edge hover:text-lumo-fg transition-colors"
                   >
                     Details
@@ -428,6 +497,20 @@ function formatTripMinute(minute: number): string {
   const hours = Math.floor(withinDay / 60);
   const mins = withinDay % 60;
   return `D${day} ${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+}
+
+function missionPreferenceContext(plan: LumoMissionPlan) {
+  return {
+    mission_id: plan.mission_id,
+    mission_title: plan.mission_title,
+    proposal_count: plan.install_proposals.length,
+    ranked_count: plan.ranked_recommendations?.length ?? 0,
+    unavailable_count: plan.unavailable_capabilities.length,
+    question_count: plan.user_questions?.length ?? 0,
+    confirmation_count: plan.confirmation_points?.length ?? 0,
+    has_trip_optimization: Boolean(plan.trip_optimization?.route?.length),
+    trip_optimization_source: plan.trip_optimization?.source ?? null,
+  };
 }
 
 function buttonLabel(

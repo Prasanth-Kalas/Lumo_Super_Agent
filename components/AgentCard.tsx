@@ -9,7 +9,9 @@
  * Kept dumb: all behavior lives in the parent. This just draws.
  */
 
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
+import { logPreferenceEvent } from "@/lib/preference-events-client";
 
 export interface AgentCardProps {
   agent_id: string;
@@ -45,6 +47,47 @@ export interface AgentCardProps {
 }
 
 export function AgentCard(props: AgentCardProps) {
+  const preferenceContext = useMemo(
+    () => ({
+      display_name: props.display_name,
+      category: props.category ?? null,
+      connected: props.connected,
+      source: props.source ?? "lumo",
+      risk_level: props.risk_badge?.level ?? null,
+    }),
+    [
+      props.category,
+      props.connected,
+      props.display_name,
+      props.risk_badge?.level,
+      props.source,
+    ],
+  );
+
+  useEffect(() => {
+    const started = Date.now();
+    logPreferenceEvent({
+      surface: "marketplace_tile",
+      target_type: "agent",
+      target_id: props.agent_id,
+      event_type: "impression",
+      context: preferenceContext,
+    });
+    return () => {
+      logPreferenceEvent({
+        surface: "marketplace_tile",
+        target_type: "agent",
+        target_id: props.agent_id,
+        event_type: "dwell",
+        dwell_ms: Date.now() - started,
+        context: preferenceContext,
+      });
+    };
+  }, [
+    props.agent_id,
+    preferenceContext,
+  ]);
+
   const body = (
     <div className="group relative rounded-xl border border-lumo-hair bg-lumo-surface p-4 hover:border-lumo-edge transition-colors">
       <div className="flex items-start gap-3">
@@ -98,6 +141,17 @@ export function AgentCard(props: AgentCardProps) {
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              logPreferenceEvent({
+                surface: "marketplace_tile",
+                target_type: "agent",
+                target_id: props.agent_id,
+                event_type: "click",
+                context: {
+                  ...preferenceContext,
+                  action: props.connected ? "manage" : "connect",
+                  connect_model: props.source ?? "lumo",
+                },
+              });
               props.onConnect?.();
             }}
             disabled={props.connecting}
@@ -123,6 +177,15 @@ export function AgentCard(props: AgentCardProps) {
     return (
       <Link
         href={`/marketplace/${props.agent_id}`}
+        onClick={() => {
+          logPreferenceEvent({
+            surface: "marketplace_tile",
+            target_type: "agent",
+            target_id: props.agent_id,
+            event_type: "click",
+            context: { ...preferenceContext, action: "open_detail" },
+          });
+        }}
         className="block focus:outline-none focus:ring-2 focus:ring-lumo-accent rounded-xl"
       >
         {body}

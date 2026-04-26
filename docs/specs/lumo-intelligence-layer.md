@@ -489,6 +489,18 @@ Open acceptance items:
 - Speaker diarization is response-shape compatible in Sprint 0 (`speaker:
   null`); pyannote-backed speakers remain Sprint 1.
 
+### Phase 2 Sprint 0 - Preference substrate
+
+- Lumo Core records lightweight preference events for chat suggestions,
+  marketplace tiles, mission cards, and workspace cards into
+  `preference_events`.
+- Event types are deliberately small (`impression`, `click`, `dismiss`,
+  `dwell`) and context payloads are sanitized and bounded before insert. Sprint
+  0 only starts data capture; no recommender, bandit, or personalization model
+  reads this table yet.
+- Preference logging is best-effort and fire-and-forget from the browser so a
+  slow analytics write can never block chat, consent, or marketplace flows.
+
 ### Phase 2 - Marketplace brain
 
 - Personalized marketplace ranking
@@ -553,3 +565,4 @@ Open acceptance items:
 | 2026-04-26 | Add Presidio-backed second-pass redaction before Phase 2 multimodal ingestion |
 | 2026-04-26 | Add OR-Tools trip optimization as a bounded computation tool with Core fallback |
 | 2026-04-26 | Add Whisper-on-Modal audio transcription feeding pgvector recall |
+| 2026-04-26 | Add preference-event logging substrate before personalization models |

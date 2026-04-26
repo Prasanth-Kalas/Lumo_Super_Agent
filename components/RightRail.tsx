@@ -21,6 +21,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { VoiceState } from "@/components/VoiceMode";
+import { logPreferenceEvent } from "@/lib/preference-events-client";
 
 // ─── Types preserved for callers ─────────────────────────────
 
@@ -109,6 +110,15 @@ export default function RightRail(_props: RightRailProps) {
         </div>
         <Link
           href="/marketplace"
+          onClick={() => {
+            logPreferenceEvent({
+              surface: "marketplace_tile",
+              target_type: "agent",
+              target_id: "marketplace:browse_all",
+              event_type: "click",
+              context: { source: "right_rail", action: "browse_all" },
+            });
+          }}
           className="text-[11.5px] text-lumo-accent hover:underline underline-offset-4"
         >
           Browse all →
@@ -153,6 +163,15 @@ export default function RightRail(_props: RightRailProps) {
         New apps you connect will show up here.{" "}
         <Link
           href="/marketplace"
+          onClick={() => {
+            logPreferenceEvent({
+              surface: "marketplace_tile",
+              target_type: "agent",
+              target_id: "marketplace:browse_all",
+              event_type: "click",
+              context: { source: "right_rail_footer", action: "browse_all" },
+            });
+          }}
           className="text-lumo-accent hover:underline underline-offset-4"
         >
           Browse all
@@ -182,10 +201,56 @@ function AgentRow({
     ? null // MCP cards open the modal; deep link goes to /marketplace
     : agent.agent_id;
   const href = slug ? `/marketplace/${slug}` : "/marketplace";
+  useEffect(() => {
+    const started = Date.now();
+    const context = {
+      source: "right_rail",
+      connected: Boolean(connected),
+      category: agent.listing?.category ?? null,
+      display_name: agent.display_name,
+      agent_source: agent.source ?? "lumo",
+    };
+    logPreferenceEvent({
+      surface: "marketplace_tile",
+      target_type: "agent",
+      target_id: agent.agent_id,
+      event_type: "impression",
+      context,
+    });
+    return () => {
+      logPreferenceEvent({
+        surface: "marketplace_tile",
+        target_type: "agent",
+        target_id: agent.agent_id,
+        event_type: "dwell",
+        dwell_ms: Date.now() - started,
+        context,
+      });
+    };
+  }, [
+    agent.agent_id,
+    agent.display_name,
+    agent.listing?.category,
+    agent.source,
+    connected,
+  ]);
   return (
     <li>
       <Link
         href={href}
+        onClick={() => {
+          logPreferenceEvent({
+            surface: "marketplace_tile",
+            target_type: "agent",
+            target_id: agent.agent_id,
+            event_type: "click",
+            context: {
+              source: "right_rail",
+              action: "open_detail",
+              connected: Boolean(connected),
+            },
+          });
+        }}
         className="flex items-start gap-2.5 rounded-md px-2 py-2 hover:bg-lumo-elevated transition-colors group"
       >
         <AgentLogo

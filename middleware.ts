@@ -66,6 +66,7 @@ const PROTECTED_API_PREFIXES = [
   "/api/autonomy",
   "/api/audio",
   "/api/ops",
+  "/api/preferences",
   // Must be gated — listSessionsForUser / listTripsForUser only know
   // about the user_id you pass them; if we let unauth'd requests
   // through we'd leak whichever default the route picks.
