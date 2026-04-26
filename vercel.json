@@ -28,7 +28,7 @@
   "crons": [
     {
       "path": "/api/cron/proactive-scan",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/cron/evaluate-intents",

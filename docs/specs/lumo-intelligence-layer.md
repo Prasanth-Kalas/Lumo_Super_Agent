@@ -566,6 +566,12 @@ can be built against a real schema.
   Stripe revenue down this week?" and routes them through the anomaly wrapper
   against a bounded stub metric stream. The stub is a Sprint-2 bridge only; the
   proactive-scan cron will replace it with `time_series_metrics` once C5 lands.
+- `/api/cron/proactive-scan` now runs the Sprint-2 proactive pipeline behind
+  `LUMO_PROACTIVE_SCAN_ENABLED=true`: recent `time_series_metrics` are grouped
+  per user/metric, high-confidence anomalies write `anomaly_findings`, and at
+  most three `proactive_moments` are created per user per run. The cron also
+  checks trip-like calendar events 7-14 days out against travel price forecasts
+  for `time_to_act` moments.
 
 ### Phase 2 - Marketplace brain
 
