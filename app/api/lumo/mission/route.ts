@@ -25,6 +25,7 @@ export const dynamic = "force-dynamic";
 
 interface Body {
   message?: unknown;
+  session_id?: unknown;
   messages?: Array<{ role?: unknown; content?: unknown }>;
 }
 
@@ -75,6 +76,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     connections,
     installs,
     user_id,
+    session_id: readSessionId(body),
     ranked_agents: rankResult.ranked_agents,
     risk_badges: riskBadges,
   });
@@ -111,6 +113,12 @@ function readMessage(body: Body): string {
       )
       .map((m) => ({ role: m.role, content: m.content })) ?? [];
   return selectMissionPlanningRequest(messages).trim();
+}
+
+function readSessionId(body: Body): string | null {
+  return typeof body.session_id === "string" && body.session_id.trim()
+    ? body.session_id.trim()
+    : null;
 }
 
 function json(body: unknown, status = 200): Response {

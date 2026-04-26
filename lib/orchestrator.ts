@@ -376,6 +376,7 @@ export async function runTurn(
     connections,
     installs,
     user_id: input.user_id,
+    session_id: input.session_id,
     ranked_agents: rankResult?.ranked_agents,
     risk_badges: riskBadges,
   });

@@ -12,6 +12,7 @@
     "noImplicitOverride": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
     "jsx": "preserve",

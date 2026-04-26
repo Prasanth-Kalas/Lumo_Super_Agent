@@ -13,6 +13,7 @@ import type { Registry, RegistryEntry } from "./agent-registry.js";
 import type { AppInstall } from "./app-installs.js";
 import type { ConnectionMeta } from "./connections.js";
 import type { RankedAgentResult, RiskBadge } from "./marketplace-intelligence-core.js";
+import { persistMission } from "./mission-execution.ts";
 import type { TripOptimizationResult } from "./trip-optimization.js";
 
 export type MissionAgentState =
@@ -93,6 +94,7 @@ export interface BuildMissionPlanInput {
   connections?: ConnectionMeta[];
   installs?: AppInstall[];
   user_id?: string | null;
+  session_id?: string | null;
   ranked_agents?: RankedAgentResult[];
   risk_badges?: Record<string, RiskBadge> | Map<string, RiskBadge>;
   trip_optimization?: TripOptimizationResult | null;
@@ -368,7 +370,7 @@ export function buildLumoMissionPlan(
   const user_questions = questionsForMission(request, dedupedAgents);
   const confirmation_points = confirmationPointsForMission(dedupedAgents);
 
-  return {
+  const plan: LumoMissionPlan = {
     mission_id,
     original_request: request,
     mission_title,
@@ -384,6 +386,23 @@ export function buildLumoMissionPlan(
     can_continue_now,
     should_pause_for_permission,
   };
+  persistMissionBestEffort(plan, input);
+  return plan;
+}
+
+function persistMissionBestEffort(
+  plan: LumoMissionPlan,
+  input: BuildMissionPlanInput,
+): void {
+  if (!input.user_id || input.user_id === "anon") return;
+  if (!input.session_id) return;
+  if (plan.required_agents.length === 0) return;
+  void persistMission(plan, input.user_id, input.session_id).catch((err) => {
+    console.warn("[lumo-mission] durable mission persistence failed", {
+      mission_id: plan.mission_id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 }
 
 function detectCapabilities(request: string): CapabilityDefinition[] {

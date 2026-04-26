@@ -615,6 +615,19 @@ can be built against a real schema.
   with `FOR UPDATE SKIP LOCKED`. The first commit is schema-only so the
   executor, confirmation-card wiring, and rollback runner can land as separate
   auditable changes.
+- D2 wires mission persistence as a best-effort side effect of mission planning.
+  `mission-execution-core` owns the pure state machine: allowed transitions are
+  explicit, invalid transitions are rejected, and every plan maps to one mission
+  row plus ordered step rows. Initial states are derived from the plan gate:
+  missing permissions enter `awaiting_permissions`, unanswered slot questions
+  enter `awaiting_user_input`, and fully ready plans enter `ready`.
+- The reversibility taxonomy is intentionally conservative. Read-only
+  discovery, routing, weather, recall, and search-style steps are `reversible`;
+  send-message, publish, reply, or similar communication steps are
+  `compensating`; booking, payment, order, reservation, ticket, and
+  account-creation steps are `irreversible`. D2 only persists these labels.
+  D3-D5 will enforce confirmation cards, execute steps, and run rollback or
+  compensation.
 - Rollback is explicit per agent. Agents must declare whether a side effect is
   reversible, compensating-only, or irreversible before Lumo lets the mission
   planner batch it with other steps.
@@ -677,3 +690,4 @@ can be built against a real schema.
 | 2026-04-26 | Add pyannote speaker diarization labels to Whisper transcripts and recall metadata |
 | 2026-04-26 | Land Sprint-2 schema (proactive moments + anomaly findings + time-series metrics) before the cron and UI |
 | 2026-04-26 | Start Sprint 3 with durable mission tables and executor RPC before orchestration wiring |
+| 2026-04-27 | Persist mission plans durably as best-effort planning side effects before step execution wiring |
