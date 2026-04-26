@@ -52,6 +52,9 @@
   --lumo-ok:            #34A853;
   --lumo-warn:          #FBBC04;
   --lumo-err:           #EA4335;
+  --lumo-urgency-high:  #EA4335;
+  --lumo-urgency-medium: #FBBC04;
+  --lumo-urgency-low:   #1FB8E8;
 
   /* Selection highlight in the composer / markdown — accent at low alpha. */
   --lumo-selection:     #1FB8E833;
@@ -101,6 +104,9 @@
   --lumo-ok:            #1E8E3E;
   --lumo-warn:          #F9AB00;
   --lumo-err:           #D93025;
+  --lumo-urgency-high:  #D93025;
+  --lumo-urgency-medium: #F9AB00;
+  --lumo-urgency-low:   #0F7FAE;
 
   --lumo-selection:     #1FB8E822;
   --lumo-ring:          #1FB8E844;

@@ -19,12 +19,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { LumoWordmark } from "@/components/BrandMark";
+import { ProactiveMomentCard } from "@/components/ProactiveMomentCard";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   compactPreferenceText,
   logPreferenceEvent,
   preferenceTargetId,
 } from "@/lib/preference-events-client";
+import type { ProactiveMoment } from "@/lib/proactive-moment-card-helpers";
 
 type TabId = "today" | "content" | "inbox" | "copilot" | "operations";
 
@@ -509,25 +511,30 @@ function TodayTab({ connections }: { connections: MarketplaceConnection[] }) {
         <div className="today__error">Couldn&apos;t load all cards: {error}</div>
       )}
 
-      <div className="today__grid">
-        <CalendarCard envelope={data?.calendar} hasAny={hasGoogle || hasMicrosoft} />
-        <EmailCard envelope={data?.email} hasAny={hasGoogle || hasMicrosoft} />
-        <SpotifyCard envelope={data?.spotify} hasAny={hasSpotify} />
-        <YouTubeCard envelope={data?.youtube} hasAny={hasGoogle} />
-      </div>
-
-      {totalConnected === 0 && (
-        <section className="today__getstarted">
-          <h3 className="today__getstarted-title">Get started — connect a service</h3>
-          <p className="today__getstarted-sub">Each connection lights up the card above and adds tools your co-pilot can use.</p>
-          <div className="today__platforms">
-            <PlatformTile agent_id="google" name="Google" hint="Gmail · Calendar · YouTube · Contacts" accent="#4285F4" />
-            <PlatformTile agent_id="microsoft" name="Microsoft" hint="Outlook · Calendar · Contacts" accent="#00A4EF" />
-            <PlatformTile agent_id="spotify" name="Spotify" hint="Now playing · playlists · queue" accent="#1ED760" />
-            <PlatformTile agent_id="meta" name="Meta" hint="Instagram · Facebook · Messenger" accent="#E1306C" />
+      <div className="today__layout">
+        <div className="today__main">
+          <div className="today__grid">
+            <CalendarCard envelope={data?.calendar} hasAny={hasGoogle || hasMicrosoft} />
+            <EmailCard envelope={data?.email} hasAny={hasGoogle || hasMicrosoft} />
+            <SpotifyCard envelope={data?.spotify} hasAny={hasSpotify} />
+            <YouTubeCard envelope={data?.youtube} hasAny={hasGoogle} />
           </div>
-        </section>
-      )}
+
+          {totalConnected === 0 && (
+            <section className="today__getstarted">
+              <h3 className="today__getstarted-title">Get started — connect a service</h3>
+              <p className="today__getstarted-sub">Each connection lights up the card above and adds tools your co-pilot can use.</p>
+              <div className="today__platforms">
+                <PlatformTile agent_id="google" name="Google" hint="Gmail · Calendar · YouTube · Contacts" accent="#4285F4" />
+                <PlatformTile agent_id="microsoft" name="Microsoft" hint="Outlook · Calendar · Contacts" accent="#00A4EF" />
+                <PlatformTile agent_id="spotify" name="Spotify" hint="Now playing · playlists · queue" accent="#1ED760" />
+                <PlatformTile agent_id="meta" name="Meta" hint="Instagram · Facebook · Messenger" accent="#E1306C" />
+              </div>
+            </section>
+          )}
+        </div>
+        <HeadsUpPanel />
+      </div>
 
       <style jsx>{`
         .today__hero {
@@ -584,11 +591,19 @@ function TodayTab({ connections }: { connections: MarketplaceConnection[] }) {
           margin: 16px 0;
           font-size: 13px;
         }
+        .today__layout {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+          gap: 24px;
+          align-items: start;
+        }
+        .today__main {
+          min-width: 0;
+        }
         .today__grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
           gap: 14px;
-          margin-top: 24px;
         }
         .today__getstarted {
           margin-top: 40px;
@@ -615,9 +630,160 @@ function TodayTab({ connections }: { connections: MarketplaceConnection[] }) {
         @media (max-width: 640px) {
           .today__heading { font-size: 22px; }
           .today__hero { flex-direction: column; }
+          .today__layout { grid-template-columns: 1fr; }
         }
       `}</style>
     </div>
+  );
+}
+
+interface ProactiveMomentsEnvelope {
+  generated_at: string;
+  moments: ProactiveMoment[];
+}
+
+function HeadsUpPanel() {
+  const [moments, setMoments] = useState<ProactiveMoment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const r = await fetch("/api/workspace/proactive-moments", {
+        cache: "no-store",
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error(`proactive-moments ${r.status}`);
+      const body = (await r.json()) as ProactiveMomentsEnvelope;
+      setMoments(Array.isArray(body.moments) ? body.moments : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const updateMoment = useCallback(
+    async (id: string, status: "acted_on" | "dismissed") => {
+      try {
+        setBusyId(id);
+        setError(null);
+        const r = await fetch(`/api/proactive-moments/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+        if (!r.ok) throw new Error(`moment update ${r.status}`);
+        setMoments((prev) => prev.filter((moment) => moment.id !== id));
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "failed");
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [],
+  );
+
+  return (
+    <aside className="heads" aria-label="Proactive moments">
+      <div className="heads__header">
+        <div>
+          <p className="heads__eyebrow">Heads-up</p>
+          <h3 className="heads__title">Lumo is watching for patterns.</h3>
+        </div>
+        <button className="heads__refresh" onClick={() => void refresh()} disabled={loading}>
+          {loading ? "Checking" : "Refresh"}
+        </button>
+      </div>
+
+      {error ? <p className="heads__error">Couldn&apos;t load moments: {error}</p> : null}
+
+      <div className="heads__stack">
+        {loading && moments.length === 0 ? (
+          <p className="heads__empty">Checking signals...</p>
+        ) : moments.length === 0 ? (
+          <p className="heads__empty">Lumo&apos;s watching for patterns — nothing to flag yet.</p>
+        ) : (
+          moments.map((moment) => (
+            <ProactiveMomentCard
+              key={moment.id}
+              moment={moment}
+              busy={busyId === moment.id}
+              onAct={(id) => updateMoment(id, "acted_on")}
+              onDismiss={(id) => updateMoment(id, "dismissed")}
+            />
+          ))
+        )}
+      </div>
+
+      <style jsx>{`
+        .heads {
+          min-width: 0;
+        }
+        .heads__header {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 12px;
+        }
+        .heads__eyebrow {
+          margin: 0 0 3px 0;
+          color: var(--lumo-fg-low);
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .heads__title {
+          margin: 0;
+          color: var(--lumo-fg);
+          font-size: 15px;
+          font-weight: 600;
+          line-height: 1.25;
+        }
+        .heads__refresh {
+          border: 1px solid var(--lumo-border);
+          background: transparent;
+          color: var(--lumo-muted);
+          border-radius: 8px;
+          padding: 6px 9px;
+          font-size: 12px;
+          cursor: pointer;
+          flex-shrink: 0;
+        }
+        .heads__refresh:hover {
+          color: var(--lumo-fg);
+          border-color: var(--lumo-edge);
+        }
+        .heads__refresh:disabled {
+          cursor: wait;
+          opacity: 0.6;
+        }
+        .heads__stack {
+          display: grid;
+          gap: 10px;
+        }
+        .heads__empty,
+        .heads__error {
+          margin: 0;
+          color: var(--lumo-muted);
+          font-size: 13px;
+          line-height: 1.5;
+        }
+        .heads__error {
+          color: var(--lumo-err);
+          margin-bottom: 10px;
+        }
+      `}</style>
+    </aside>
   );
 }
 

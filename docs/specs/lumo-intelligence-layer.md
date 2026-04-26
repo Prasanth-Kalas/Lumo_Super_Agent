@@ -578,6 +578,10 @@ can be built against a real schema.
   for `time_to_act` moments. Moment budget is consumed only after a new moment
   is actually inserted, so duplicate or non-actionable forecasts do not starve
   later opportunities in the same run.
+- Sprint 2.5 makes these moments user-visible: `/api/workspace/proactive-moments`
+  reads the next five pending moments through the service-role RPC with a 60s
+  in-memory cache, `/api/proactive-moments/[id]` marks moments `acted_on` or
+  `dismissed`, and the Workspace Today tab renders a compact Heads-up column.
 
 ### Phase 2 - Marketplace brain
 
