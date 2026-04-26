@@ -609,6 +609,12 @@ can be built against a real schema.
   `tool_name`, `status`, `latency_ms`, and the confirmation card id when a
   booking, payment, message-send, calendar-write, or account-creation action is
   proposed.
+- Sprint 3 starts with migration 023: `missions`, `mission_steps`, and
+  `mission_execution_events`, plus a service-role
+  `next_mission_step_for_execution` RPC that atomically claims runnable steps
+  with `FOR UPDATE SKIP LOCKED`. The first commit is schema-only so the
+  executor, confirmation-card wiring, and rollback runner can land as separate
+  auditable changes.
 - Rollback is explicit per agent. Agents must declare whether a side effect is
   reversible, compensating-only, or irreversible before Lumo lets the mission
   planner batch it with other steps.
@@ -670,3 +676,4 @@ can be built against a real schema.
 | 2026-04-26 | Add CLIP image embeddings with text-recall summaries and native 512-dim vector storage |
 | 2026-04-26 | Add pyannote speaker diarization labels to Whisper transcripts and recall metadata |
 | 2026-04-26 | Land Sprint-2 schema (proactive moments + anomaly findings + time-series metrics) before the cron and UI |
+| 2026-04-26 | Start Sprint 3 with durable mission tables and executor RPC before orchestration wiring |
