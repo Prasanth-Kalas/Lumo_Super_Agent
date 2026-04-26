@@ -46,6 +46,10 @@ import {
   recallFromArchive,
   shouldRunArchiveRecall,
 } from "./archive-recall.js";
+import {
+  answerMetricInsight,
+  shouldRunMetricInsight,
+} from "./metric-insights.js";
 import { optimizeMissionTrip } from "./trip-optimization.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
@@ -310,6 +314,37 @@ export async function runTurn(
     emit({ type: "text", value: answer });
     return {
       assistant_text: answer,
+      tool_calls: [],
+      summary: null,
+      selections: [],
+    };
+  }
+  if (
+    input.user_id !== "anon" &&
+    shouldRunMetricInsight(lastUserForMission)
+  ) {
+    const insight = await answerMetricInsight({
+      user_id: input.user_id,
+      query: lastUserForMission,
+    });
+    emit({
+      type: "internal",
+      value: {
+        kind: "lumo_metric_insight",
+        detail: {
+          metric_key: insight.metric_key,
+          anomaly_source: insight.anomaly.source,
+          anomaly_model: insight.anomaly.model,
+          anomaly_error: insight.anomaly.error,
+          anomaly_count: insight.anomaly.findings.length,
+          forecast_source: insight.forecast?.source ?? null,
+          forecast_error: insight.forecast?.error,
+        },
+      },
+    });
+    emit({ type: "text", value: insight.answer });
+    return {
+      assistant_text: insight.answer,
       tool_calls: [],
       summary: null,
       selections: [],

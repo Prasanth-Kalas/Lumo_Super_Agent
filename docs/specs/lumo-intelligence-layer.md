@@ -552,6 +552,21 @@ The tables stay empty until Codex's `anomaly-detection-core`,
 Sprint-2 commits. Schema is shipped first so the cron route + UI card
 can be built against a real schema.
 
+### Phase 2 Sprint 2 - Anomaly and forecasting wrappers
+
+- `lumo_detect_anomaly` and `lumo_forecast_metric` are exposed by the
+  Intelligence Layer and called through Super Agent pure-core/thin-wrapper
+  modules (`anomaly-detection-core`/`anomaly-detection`,
+  `forecasting-core`/`forecasting`).
+- Both wrappers enforce the same trust boundary as recall, rank, risk, and
+  trip optimization: short-lived service JWTs, `agent_tool_usage` audit rows,
+  strict timeout budgets, and deterministic local fallbacks when the brain is
+  unreachable or malformed.
+- The orchestrator now recognizes explicit metric questions such as "Why is my
+  Stripe revenue down this week?" and routes them through the anomaly wrapper
+  against a bounded stub metric stream. The stub is a Sprint-2 bridge only; the
+  proactive-scan cron will replace it with `time_series_metrics` once C5 lands.
+
 ### Phase 2 - Marketplace brain
 
 - Personalized marketplace ranking
