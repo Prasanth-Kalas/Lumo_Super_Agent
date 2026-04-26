@@ -236,7 +236,7 @@ async function claimReadyStepsDirectly(
     const id = stringOrNull(row?.id);
     const missionId = stringOrNull(row?.mission_id);
     if (!id || !missionId) continue;
-    const { error: claimError } = await db
+    const { data: claimRows, error: claimError } = await db
       .from("mission_steps")
       .update({
         status: "running",
@@ -244,8 +244,10 @@ async function claimReadyStepsDirectly(
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
-      .eq("status", "ready");
+      .eq("status", "ready")
+      .select("id");
     if (claimError) throw new Error(`mission_step_fallback_claim_failed:${claimError.message ?? "unknown"}`);
+    if (!Array.isArray(claimRows) || claimRows.length === 0) continue;
 
     const mission = missions.get(missionId);
     if (String(mission?.state ?? "") === "ready") {

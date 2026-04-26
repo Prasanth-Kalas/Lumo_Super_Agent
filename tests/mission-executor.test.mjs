@@ -265,10 +265,15 @@ class MockQuery {
     this.filters = [];
     this.operation = "select";
     this.updatePayload = null;
+    this.returnSelection = false;
   }
 
   select() {
-    this.operation = "select";
+    if (this.operation === "update") {
+      this.returnSelection = true;
+    } else {
+      this.operation = "select";
+    }
     return this;
   }
 
@@ -304,7 +309,10 @@ class MockQuery {
     const matches = rows.filter((row) => this.matches(row));
     if (this.operation === "update") {
       for (const row of matches) Object.assign(row, this.updatePayload);
-      return { data: null, error: null };
+      return {
+        data: this.returnSelection ? matches.map((row) => ({ ...row })) : null,
+        error: null,
+      };
     }
     let data = matches.map((row) => ({ ...row }));
     if (typeof this.limitCount === "number") data = data.slice(0, this.limitCount);
