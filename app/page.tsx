@@ -631,7 +631,10 @@ export default function Home() {
     <main className="flex h-dvh flex-col bg-lumo-bg text-lumo-fg-high">
       {/* ─── Header ─────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/80 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-4 sm:px-5 py-3">
+        {/* Full-bleed: logo hugs the absolute left edge, nav hugs the
+            absolute right edge. The chat thread keeps its own
+            mx-auto max-w-4xl below; the header doesn't need to. */}
+        <div className="flex w-full items-center justify-between px-3 sm:px-4 py-3">
           <div className="flex items-center gap-2.5">
             {/* Mobile-only hamburger. Hidden on lg+ where LeftRail is visible. */}
             <button
@@ -650,7 +653,7 @@ export default function Home() {
               </svg>
             </button>
 
-            <BrandMark size={22} className="text-lumo-fg" />
+            <BrandMark size={22} />
             <div className="flex items-baseline gap-2">
               <span className="text-[15px] font-semibold tracking-tight text-lumo-fg">
                 Lumo

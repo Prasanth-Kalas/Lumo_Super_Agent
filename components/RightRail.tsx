@@ -1,28 +1,28 @@
 "use client";
 
 /**
- * RightRail — slimmed down to just the voice HUD.
+ * RightRail — Marketplace shortcut.
  *
- * Previously held three panels (Active trip, What Lumo knows, Right
- * now). The user asked for a clean shell — those got cut. Trip
- * status now lives inline in the chat thread (TripConfirmationCard
- * already shows leg progress). Memory has its own /memory page.
- * Ambient context is still threaded into the system prompt; it
- * doesn't need a UI surface.
+ * Replaces the prior voice/trip/memory panels with a compact view
+ * of what apps are available and which the user has connected.
+ * Click an app to open its detail page; click "Browse all" to jump
+ * to /marketplace.
  *
- * The rail only renders when voice mode is on. When voice is off,
- * the entire column collapses so the chat takes the full width.
+ * Hidden below xl (1280px) so the chat takes the full width on
+ * laptops. Voice mode now lives entirely in the composer (mic
+ * button + inline VoiceMode panel) — the right column is for
+ * discovery.
  *
- * The exported types (ActiveTripView, LegStatusLite) are kept
- * because the chat shell still constructs them for inline cards;
- * removing them would ripple into app/page.tsx and the trip card
- * components. They're declared here, just not consumed in this UI
- * anymore.
+ * Exported types (ActiveTripView, LegStatusLite, VoiceStateLite)
+ * are kept for callers (chat shell, trip cards) — they don't render
+ * here anymore but the shell still constructs them for inline cards.
  */
 
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import type { VoiceState } from "@/components/VoiceMode";
 
-// ─── Types kept for callers (cards, shell) ─────────────────────
+// ─── Types preserved for callers ─────────────────────────────
 
 export interface LegStatusLite {
   order: number;
@@ -51,96 +51,170 @@ export interface RightRailProps {
   memoryRefreshKey?: number | string;
 }
 
-// ─────────────────────────────────────────────────────────────
+// ─── Marketplace data shape ──────────────────────────────────
 
-export default function RightRail({
-  voiceEnabled,
-  voiceState,
-  voiceMuted,
-  onToggleVoice,
-  onToggleMuted,
-}: RightRailProps) {
-  // Hide the entire rail when voice is off. Center column gets the
-  // width back automatically because this is hidden xl:flex below.
-  if (!voiceEnabled) return null;
+interface MarketplaceAgent {
+  agent_id: string;
+  display_name: string;
+  one_liner: string;
+  source?: "lumo" | "mcp";
+  listing: {
+    category?: string;
+    logo_url?: string;
+  } | null;
+  connection: {
+    status: "active" | "expired" | "revoked" | "error";
+  } | null;
+}
+
+export default function RightRail(_props: RightRailProps) {
+  const [agents, setAgents] = useState<MarketplaceAgent[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch("/api/marketplace", { cache: "no-store" });
+        if (!alive) return;
+        if (!res.ok) {
+          setAgents([]);
+          return;
+        }
+        const j = (await res.json()) as { agents?: MarketplaceAgent[] };
+        setAgents(j.agents ?? []);
+      } catch {
+        if (alive) setAgents([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const connected = (agents ?? []).filter(
+    (a) => a.connection?.status === "active",
+  );
+  const featured = (agents ?? [])
+    .filter((a) => a.connection?.status !== "active")
+    .slice(0, 6);
 
   return (
-    <aside className="hidden xl:flex h-full w-[260px] shrink-0 flex-col border-l border-lumo-hair bg-lumo-surface">
-      <div className="p-4 border-b border-lumo-hair">
-        <div className="text-[10.5px] uppercase tracking-[0.14em] text-lumo-fg-low">
-          Voice
+    <aside className="hidden xl:flex h-full w-[280px] shrink-0 flex-col border-l border-lumo-hair bg-lumo-surface">
+      <div className="px-4 py-3 border-b border-lumo-hair flex items-center justify-between">
+        <div>
+          <div className="text-[10.5px] uppercase tracking-[0.14em] text-lumo-fg-low">
+            Marketplace
+          </div>
+          <div className="text-[13.5px] text-lumo-fg mt-0.5">Apps for Lumo</div>
         </div>
-        <div className="mt-2 flex items-center gap-2">
-          <StateDot state={voiceState} />
-          <span className="text-[13px] text-lumo-fg">
-            {labelFor(voiceState)}
-          </span>
-        </div>
+        <Link
+          href="/marketplace"
+          className="text-[11.5px] text-lumo-accent hover:underline underline-offset-4"
+        >
+          Browse all →
+        </Link>
       </div>
 
-      <div className="p-4 space-y-2">
-        <button
-          type="button"
-          onClick={onToggleMuted}
-          className={
-            "w-full inline-flex items-center justify-between rounded-md px-3 py-2 text-[12.5px] transition-colors " +
-            (voiceMuted
-              ? "border border-lumo-hair text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated"
-              : "border border-g-blue/40 text-g-blue hover:bg-g-blue/10")
-          }
-        >
-          <span>{voiceMuted ? "Lumo muted" : "Lumo speaking"}</span>
-          <span className="text-[10.5px] text-lumo-fg-low uppercase tracking-wide">
-            {voiceMuted ? "Tap to unmute" : "Tap to mute"}
-          </span>
-        </button>
+      <div className="flex-1 overflow-y-auto">
+        {agents === null ? (
+          <div className="p-4 text-[12px] text-lumo-fg-low">Loading…</div>
+        ) : (
+          <>
+            {connected.length > 0 ? (
+              <div className="px-3 py-3 border-b border-lumo-hair">
+                <SectionHeader>Your apps</SectionHeader>
+                <ul className="space-y-1 mt-2">
+                  {connected.map((a) => (
+                    <AgentRow key={a.agent_id} agent={a} connected />
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
-        <button
-          type="button"
-          onClick={onToggleVoice}
-          className="w-full inline-flex items-center justify-center rounded-md border border-lumo-hair px-3 py-2 text-[12.5px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
-        >
-          Turn voice off
-        </button>
+            {featured.length > 0 ? (
+              <div className="px-3 py-3">
+                <SectionHeader>Discover</SectionHeader>
+                <ul className="space-y-1 mt-2">
+                  {featured.map((a) => (
+                    <AgentRow key={a.agent_id} agent={a} />
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="p-4 text-[12px] text-lumo-fg-low">
+                Nothing in the catalog yet.
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      <div className="mt-auto p-4 text-[11px] text-lumo-fg-low leading-relaxed">
-        Tap and hold to speak, or just talk. Lumo responds when you
-        stop.
+      <div className="border-t border-lumo-hair px-4 py-3 text-[11.5px] text-lumo-fg-low leading-relaxed">
+        New apps you connect will show up here.{" "}
+        <Link
+          href="/marketplace"
+          className="text-lumo-accent hover:underline underline-offset-4"
+        >
+          Browse all
+        </Link>
+        .
       </div>
     </aside>
   );
 }
 
-function StateDot({ state }: { state: VoiceState }) {
-  const cls =
-    state === "listening"
-      ? "bg-g-blue animate-pulse"
-      : state === "speaking"
-        ? "bg-g-green animate-pulse"
-        : state === "thinking"
-          ? "bg-g-yellow animate-pulse"
-          : state === "error"
-            ? "bg-g-red"
-            : "bg-lumo-fg-low/50";
-  return <span className={`inline-block h-2 w-2 rounded-full ${cls}`} aria-hidden />;
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-1 text-[10px] uppercase tracking-[0.14em] text-lumo-fg-low">
+      {children}
+    </div>
+  );
 }
 
-function labelFor(s: VoiceState): string {
-  switch (s) {
-    case "off":
-      return "Off";
-    case "idle":
-      return "Ready";
-    case "listening":
-      return "Listening";
-    case "thinking":
-      return "Thinking";
-    case "speaking":
-      return "Speaking";
-    case "unsupported":
-      return "Not supported";
-    case "error":
-      return "Error";
-  }
+function AgentRow({
+  agent,
+  connected,
+}: {
+  agent: MarketplaceAgent;
+  connected?: boolean;
+}) {
+  const slug = agent.agent_id.startsWith("mcp:")
+    ? null // MCP cards open the modal; deep link goes to /marketplace
+    : agent.agent_id;
+  const href = slug ? `/marketplace/${slug}` : "/marketplace";
+  const dotColor = connected
+    ? "bg-g-green"
+    : agent.source === "mcp"
+      ? "bg-g-yellow"
+      : "bg-g-blue";
+  return (
+    <li>
+      <Link
+        href={href}
+        className="block rounded-md px-2 py-2 hover:bg-lumo-elevated transition-colors group"
+      >
+        <div className="flex items-start gap-2.5">
+          <span
+            className={`mt-1.5 inline-block h-1.5 w-1.5 rounded-full shrink-0 ${dotColor}`}
+            aria-hidden
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[12.5px] text-lumo-fg truncate">
+                {agent.display_name}
+              </span>
+              {agent.source === "mcp" ? (
+                <span className="text-[9.5px] uppercase tracking-[0.12em] text-lumo-fg-low border border-lumo-hair rounded px-1 py-px">
+                  MCP
+                </span>
+              ) : null}
+            </div>
+            <div className="text-[11.5px] text-lumo-fg-low line-clamp-2 leading-snug">
+              {agent.one_liner}
+            </div>
+          </div>
+        </div>
+      </Link>
+    </li>
+  );
 }

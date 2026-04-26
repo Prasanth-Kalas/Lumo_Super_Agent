@@ -39,20 +39,22 @@
   --lumo-fg-mid:        #7C8290;
   --lumo-fg-low:        #4A4F5B;
 
-  /* Accent — single restrained tone for selection, focus, confirmed
-     states. Desaturated mint — reads "instrument" not "alert". */
-  --lumo-accent:        #A8F0C8;
-  --lumo-accent-dim:    #6BC28D;
-  --lumo-accent-ink:    #04130A;  /* text on accent fills              */
+  /* Primary accent — Google blue. Used for CTAs, focus rings, the
+     voice-on chip, "tap to talk" buttons, link colors, the
+     Connected pill. Replaces the prior mint accent so the entire
+     shell picks up the brand tone instead of just the logo. */
+  --lumo-accent:        #4285F4;
+  --lumo-accent-dim:    #2C68C9;  /* hover state on accent fills      */
+  --lumo-accent-ink:    #FFFFFF;  /* text on accent fills              */
 
-  /* Semantic — used sparingly. */
-  --lumo-ok:            #6BC28D;
-  --lumo-warn:          #E8B86B;
-  --lumo-err:           #E88585;
+  /* Semantic — Google green / yellow / red, used sparingly. */
+  --lumo-ok:            #34A853;
+  --lumo-warn:          #FBBC04;
+  --lumo-err:           #EA4335;
 
-  /* Selection highlight in the composer / markdown. */
-  --lumo-selection:     #A8F0C833;
-  --lumo-ring:          #A8F0C866;
+  /* Selection highlight in the composer / markdown — accent at low alpha. */
+  --lumo-selection:     #4285F433;
+  --lumo-ring:          #4285F466;
 
   /* Single shadow token. Anything deeper than this reads gratuitous. */
   --lumo-shadow:        0 1px 0 0 #00000066, 0 24px 48px -24px #00000099;
@@ -87,16 +89,18 @@
   --lumo-fg-mid:        #6A6F7A;
   --lumo-fg-low:        #A2A6AF;
 
-  --lumo-accent:        #0B7A4E;
-  --lumo-accent-dim:    #0E9966;
+  /* Same Google-blue accent in light mode — slightly darker hex
+     so it still reads as "instrument" against the white canvas. */
+  --lumo-accent:        #1A73E8;
+  --lumo-accent-dim:    #1557B0;
   --lumo-accent-ink:    #FFFFFF;
 
-  --lumo-ok:            #0B7A4E;
-  --lumo-warn:          #A8651A;
-  --lumo-err:           #A8342C;
+  --lumo-ok:            #1E8E3E;
+  --lumo-warn:          #F9AB00;
+  --lumo-err:           #D93025;
 
-  --lumo-selection:     #0B7A4E22;
-  --lumo-ring:          #0B7A4E44;
+  --lumo-selection:     #1A73E822;
+  --lumo-ring:          #1A73E844;
 
   --lumo-shadow:        0 1px 0 0 #0B0E1408, 0 24px 48px -24px #0B0E1418;
 
