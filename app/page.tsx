@@ -51,6 +51,7 @@ import { ChatMarkdown } from "@/components/ChatMarkdown";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { BrandMark } from "@/components/BrandMark";
 import VoiceMode, { type VoiceState } from "@/components/VoiceMode";
+import { LumoWordmark } from "@/components/BrandMark";
 import LeftRail from "@/components/LeftRail";
 import RightRail, { type ActiveTripView, type LegStatusLite } from "@/components/RightRail";
 import MobileNav from "@/components/MobileNav";
@@ -653,15 +654,10 @@ export default function Home() {
               </svg>
             </button>
 
-            <BrandMark size={22} />
-            <div className="flex items-baseline gap-2">
-              <span className="text-[15px] font-semibold tracking-tight text-lumo-fg">
-                Lumo
-              </span>
-              <span className="hidden sm:inline text-[11px] text-lumo-fg-low tracking-wide">
-                one app · any task
-              </span>
-            </div>
+            <LumoWordmark height={22} />
+            <span className="hidden sm:inline text-[11px] text-lumo-fg-low tracking-wide ml-1">
+              one app · any task
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">
