@@ -131,7 +131,7 @@ async function main() {
     ]);
   });
 
-  await t("worker falls back to direct ready-step claim when rpc returns no rows", async () => {
+  await t("worker does not bypass the rpc when it returns no rows", async () => {
     const db = mockMissionDb(
       {
         missions: [{ id: "mission_fallback", user_id: userId(), state: "ready" }],
@@ -152,11 +152,12 @@ async function main() {
     });
 
     assert.equal(result.ok, true);
-    assert.equal(result.counts.claimed, 2);
-    assert.equal(result.counts.succeeded, 2);
-    assert.equal(result.counts.mission_completed, 1);
-    assert.deepEqual(db.tables.steps.map((row) => row.status), ["succeeded", "succeeded"]);
-    assert.equal(db.tables.missions[0].state, "completed");
+    assert.equal(result.counts.claimed, 0);
+    assert.equal(result.counts.succeeded, 0);
+    assert.equal(result.counts.mission_completed, 0);
+    assert.deepEqual(db.tables.steps.map((row) => row.status), ["ready", "ready"]);
+    assert.equal(db.tables.missions[0].state, "ready");
+    assert.deepEqual(db.tables.events, []);
   });
 
   await t("worker fails the mission on a non-retryable step failure", async () => {
