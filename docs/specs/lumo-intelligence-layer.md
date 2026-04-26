@@ -628,6 +628,16 @@ can be built against a real schema.
   account-creation steps are `irreversible`. D2 only persists these labels.
   D3-D5 will enforce confirmation cards, execute steps, and run rollback or
   compensation.
+- D3 links confirmation cards back to mission steps before any execution worker
+  exists. Migration 024 adds `awaiting_confirmation` and `ready` as explicit
+  step states, and updates the executor RPC to claim only `ready` steps. When a
+  side-effect summary card is emitted, Core stores the card hash on the matching
+  `mission_steps` row, moves that step to `awaiting_confirmation`, and moves the
+  mission to `awaiting_confirmation`. User approval resolves the step to
+  `ready`; dismissal resolves to `skipped`; expiry resolves to `failed`. When
+  every step in an `awaiting_confirmation` mission is `ready`, `succeeded`, or
+  `skipped`, the mission transitions to `ready`. D4 owns the execution worker
+  that will claim and run `ready` steps.
 - Rollback is explicit per agent. Agents must declare whether a side effect is
   reversible, compensating-only, or irreversible before Lumo lets the mission
   planner batch it with other steps.
@@ -691,3 +701,4 @@ can be built against a real schema.
 | 2026-04-26 | Land Sprint-2 schema (proactive moments + anomaly findings + time-series metrics) before the cron and UI |
 | 2026-04-26 | Start Sprint 3 with durable mission tables and executor RPC before orchestration wiring |
 | 2026-04-27 | Persist mission plans durably as best-effort planning side effects before step execution wiring |
+| 2026-04-27 | Link confirmation-card outcomes to durable mission steps before the execution worker |

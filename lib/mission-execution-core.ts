@@ -19,6 +19,8 @@ export type Reversibility = "reversible" | "compensating" | "irreversible";
 
 export type MissionStepStatus =
   | "pending"
+  | "awaiting_confirmation"
+  | "ready"
   | "running"
   | "succeeded"
   | "failed"
@@ -47,6 +49,22 @@ export interface MissionStepInsertRow {
 export interface MissionRows {
   mission: MissionInsertRow;
   steps: MissionStepInsertRow[];
+}
+
+export interface MissionStepForConfirmation {
+  id?: string;
+  mission_id?: string;
+  status: MissionStepStatus;
+  confirmation_card_id?: string | null;
+  error_text?: string | null;
+}
+
+export type ConfirmationCardOutcome = "approved" | "dismissed" | "expired";
+
+export interface ConfirmationStepUpdate {
+  confirmation_card_id?: string;
+  status?: MissionStepStatus;
+  error_text?: string | null;
 }
 
 const STATE_TRANSITIONS: Record<MissionState, MissionState[]> = {
@@ -104,6 +122,57 @@ export function planToMissionRows(
       plan,
     },
     steps,
+  };
+}
+
+export function linkConfirmationCardToStep(
+  missionStep: MissionStepForConfirmation,
+  confirmationCardId: string,
+): { ok: boolean; update?: ConfirmationStepUpdate; reason?: string } {
+  const cardId = confirmationCardId.trim();
+  if (!cardId) return { ok: false, reason: "missing_confirmation_card_id" };
+  if (
+    missionStep.status !== "pending" &&
+    missionStep.status !== "awaiting_confirmation"
+  ) {
+    return {
+      ok: false,
+      reason: `step_not_linkable:${missionStep.status}`,
+    };
+  }
+  return {
+    ok: true,
+    update: {
+      confirmation_card_id: cardId,
+      status: "awaiting_confirmation",
+      error_text: null,
+    },
+  };
+}
+
+export function applyCardOutcome(
+  missionStep: MissionStepForConfirmation,
+  outcome: ConfirmationCardOutcome,
+): { ok: boolean; update?: ConfirmationStepUpdate; reason?: string } {
+  if (missionStep.status !== "awaiting_confirmation") {
+    return {
+      ok: false,
+      reason: `step_not_awaiting_confirmation:${missionStep.status}`,
+    };
+  }
+
+  if (outcome === "approved") {
+    return { ok: true, update: { status: "ready", error_text: null } };
+  }
+  if (outcome === "dismissed") {
+    return {
+      ok: true,
+      update: { status: "skipped", error_text: "confirmation dismissed" },
+    };
+  }
+  return {
+    ok: true,
+    update: { status: "failed", error_text: "confirmation expired" },
   };
 }
 

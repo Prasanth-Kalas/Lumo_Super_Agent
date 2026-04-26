@@ -51,6 +51,7 @@ import {
 } from "@/lib/orchestrator";
 import { recordEvent, type EventFrameType } from "@/lib/events";
 import { getServerUser } from "@/lib/auth";
+import { resolveCardOutcome } from "@/lib/mission-execution";
 
 export const runtime = "nodejs"; // orchestrator uses Anthropic SDK + node:crypto
 export const dynamic = "force-dynamic";
@@ -186,6 +187,13 @@ export async function POST(req: NextRequest): Promise<Response> {
         const draft = await getTripBySession(body.session_id);
         if (draft && draft.status === "draft" && isAffirmative(lastUserMessage)) {
           activeTripId = draft.trip_id;
+          await resolveCardOutcome(draft.hash, "approved").catch((err) => {
+            console.warn("[/api/chat] mission card outcome resolution failed", {
+              confirmation_card_id: draft.hash,
+              outcome: "approved",
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
           // Promote draft → confirmed. Hash is canonical on the trip
           // record; passing it back is the equality check (payload
           // mutation would change the hash and trip-state would reject).
@@ -212,6 +220,18 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
 
         // ─── Normal turn ─────────────────────────────────────────────
+        const priorCardHash = findPriorSummaryHash(body.messages);
+        const cardOutcome = resolveUserCardOutcome(lastUserMessage);
+        if (priorCardHash && cardOutcome) {
+          await resolveCardOutcome(priorCardHash, cardOutcome).catch((err) => {
+            console.warn("[/api/chat] mission card outcome resolution failed", {
+              confirmation_card_id: priorCardHash,
+              outcome: cardOutcome,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
+
         const turn = await runTurn(
           {
             session_id: body.session_id,
@@ -311,6 +331,29 @@ function extractTripIdFromSummary(summary: unknown): string | null {
     ) {
       return (payload as { trip_id: string }).trip_id;
     }
+  }
+  return null;
+}
+
+function findPriorSummaryHash(messages: ChatMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg?.role !== "assistant") continue;
+    const hash = msg.summary?.hash;
+    if (typeof hash === "string" && hash.trim()) return hash.trim();
+  }
+  return null;
+}
+
+function resolveUserCardOutcome(
+  text: string,
+): "approved" | "dismissed" | null {
+  if (isAffirmative(text)) return "approved";
+  if (
+    /^\s*(cancel|no|nope|don't|do not|stop|skip|dismiss|never mind|nevermind)\b/i
+      .test(text)
+  ) {
+    return "dismissed";
   }
   return null;
 }

@@ -51,6 +51,10 @@ import {
   shouldRunMetricInsight,
 } from "./metric-insights.js";
 import { optimizeMissionTrip } from "./trip-optimization.js";
+import {
+  linkConfirmationCardForLatestMissionStep,
+  linkConfirmationCardForLatestMissionSteps,
+} from "./mission-execution.ts";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
 import { dispatchMcpTool, isMcpToolName } from "./mcp/dispatch.js";
@@ -749,6 +753,20 @@ export async function runTurn(
             turn_id,
             rendered_at: new Date().toISOString(),
           };
+          if (routing?.agent_id && input.user_id !== "anon") {
+            await linkConfirmationCardForLatestMissionStep({
+              user_id: input.user_id,
+              session_id: input.session_id,
+              agent_id: routing.agent_id,
+              confirmation_card_id: env.hash,
+            }).catch((err) => {
+              console.warn("[orchestrator] mission card link failed", {
+                agent_id: routing.agent_id,
+                confirmation_card_id: env.hash,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+          }
           // Stash as a trip-leg candidate — we may fold ≥2 of these into
           // a compound TripSummary after the loop exits. The `result_body`
           // is stripped of the envelope so we can safely spread it into a
@@ -832,6 +850,20 @@ export async function runTurn(
         };
         renderedSummary = tripSummary;
         draft_trip_id = record.trip_id;
+        if (input.user_id !== "anon") {
+          await linkConfirmationCardForLatestMissionSteps({
+            user_id: input.user_id,
+            session_id: input.session_id,
+            agent_ids: legs.map((leg) => leg.agent_id),
+            confirmation_card_id: record.hash,
+          }).catch((err) => {
+            console.warn("[orchestrator] compound mission card link failed", {
+              trip_id: record.trip_id,
+              confirmation_card_id: record.hash,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
         emit({ type: "summary", value: tripSummary });
       } catch (err) {
         if (err instanceof TripAssemblyError) {
