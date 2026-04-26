@@ -34,6 +34,7 @@ import {
   buildLumoMissionPlan,
   type LumoMissionPlan,
 } from "./lumo-mission.js";
+import { selectMissionPlanningRequest } from "./mission-context.js";
 import {
   describeRegistryAgents,
   evaluateRiskBadgesForAgents,
@@ -274,6 +275,7 @@ export async function runTurn(
 
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
+  const missionRequest = selectMissionPlanningRequest(input.messages);
   if (
     input.user_id !== "anon" &&
     shouldRunArchiveRecall(lastUserForMission)
@@ -314,7 +316,7 @@ export async function runTurn(
     };
   }
   const useMarketplaceIntelligence =
-    input.user_id !== "anon" && shouldRunMarketplaceIntelligence(lastUserForMission);
+    input.user_id !== "anon" && shouldRunMarketplaceIntelligence(missionRequest);
   const agentDescriptors = useMarketplaceIntelligence
     ? describeRegistryAgents(registry, installedAgentIds)
     : [];
@@ -322,7 +324,7 @@ export async function runTurn(
     ? await Promise.all([
         rankAgentsForIntent({
           user_id: input.user_id,
-          user_intent: lastUserForMission,
+          user_intent: missionRequest,
           agents: agentDescriptors,
           installed_agent_ids: Array.from(installedAgentIds),
           limit: 10,
@@ -334,7 +336,7 @@ export async function runTurn(
       ])
     : [null, new Map()];
   const missionPlan = buildLumoMissionPlan({
-    request: lastUserForMission,
+    request: missionRequest,
     registry,
     connections,
     installs,

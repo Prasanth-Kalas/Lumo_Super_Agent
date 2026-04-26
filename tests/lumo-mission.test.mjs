@@ -39,6 +39,12 @@ const registry = {
     maps: entry("open-maps", "Open Maps", "maps", "Plan routes and distances.", ["maps_route"], {
       model: "none",
     }, [], false),
+    events: entry("open-events", "Open Events", "events", "Find concerts and local events.", ["events_search"], {
+      model: "none",
+    }, [], false),
+    attractions: entry("open-attractions", "Open Attractions", "attractions", "Find things to do and tours.", ["attractions_search"], {
+      model: "none",
+    }, [], false),
   },
   bridge: {
     tools: [
@@ -46,12 +52,16 @@ const registry = {
       { name: "hotel_search", description: "Search hotels and rooms." },
       { name: "food_order", description: "Order food delivery." },
       { name: "maps_route", description: "Plan routes and distance." },
+      { name: "events_search", description: "Find concerts, shows, and events." },
+      { name: "attractions_search", description: "Find attractions and things to do." },
     ],
     routing: {
       flight_search: { agent_id: "flight" },
       hotel_search: { agent_id: "hotel" },
       food_order: { agent_id: "food" },
       maps_route: { agent_id: "open-maps" },
+      events_search: { agent_id: "open-events" },
+      attractions_search: { agent_id: "open-attractions" },
     },
   },
 };
@@ -68,6 +78,26 @@ t("trip request proposes missing flight, hotel, and map apps", () => {
   assert.deepEqual(ids, ["flight", "hotel", "open-maps"]);
   assert.equal(plan.should_pause_for_permission, true);
   assert.equal(plan.unavailable_capabilities[0]?.capability, "ride_hailing_booking");
+});
+
+t("broad Vegas trip request expands to travel planning apps", () => {
+  const plan = buildLumoMissionPlan({
+    request: "hey can you plan a trip for me to vegas from california from next day for a week",
+    registry,
+    user_id: "00000000-0000-0000-0000-000000000001",
+  });
+  const ids = plan.install_proposals.map((p) => p.agent_id).sort();
+  assert.deepEqual(ids, [
+    "flight",
+    "hotel",
+    "open-attractions",
+    "open-events",
+    "open-maps",
+  ]);
+  assert.equal(plan.mission_title, "your Vegas trip");
+  assert.ok(
+    plan.user_questions.includes("Which California city or airport should I use for departure?"),
+  );
 });
 
 t("installed apps do not produce proposals", () => {

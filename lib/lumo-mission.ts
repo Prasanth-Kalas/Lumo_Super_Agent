@@ -389,14 +389,38 @@ export function buildLumoMissionPlan(
 function detectCapabilities(request: string): CapabilityDefinition[] {
   const normalized = normalizeText(request);
   if (!normalized) return [];
-  return CAPABILITIES.filter((capability) =>
+  const detected = CAPABILITIES.filter((capability) =>
     capability.keywords.some((keyword) => includesPhrase(normalized, keyword)),
+  );
+  if (!isBroadTripPlanningRequest(normalized)) return detected;
+
+  const ids = new Set(detected.map((capability) => capability.id));
+  for (const id of ["flights", "hotels", "attractions", "events"]) ids.add(id);
+  if (/\b(from|drive|driving|route|routes|cab|taxi|airport transfer)\b/.test(normalized)) {
+    ids.add("maps");
+  }
+  return CAPABILITIES.filter((capability) => ids.has(capability.id));
+}
+
+function isBroadTripPlanningRequest(normalized: string): boolean {
+  return (
+    includesPhrase(normalized, "plan a trip") ||
+    includesPhrase(normalized, "plan my trip") ||
+    includesPhrase(normalized, "trip to") ||
+    includesPhrase(normalized, "travel to") ||
+    includesPhrase(normalized, "vacation") ||
+    includesPhrase(normalized, "getaway") ||
+    includesPhrase(normalized, "visit vegas") ||
+    includesPhrase(normalized, "going to vegas") ||
+    includesPhrase(normalized, "going to las vegas")
   );
 }
 
 function isMissionContinueApproval(request: string): boolean {
   const normalized = normalizeText(request);
   return (
+    includesPhrase(normalized, "continue planning this mission with approved apps") ||
+    includesPhrase(normalized, "continue planning this trip with approved apps") ||
     includesPhrase(normalized, "continue with available approved apps") ||
     includesPhrase(normalized, "skip unavailable marketplace capabilities") ||
     includesPhrase(normalized, "continue with the parts")
@@ -637,11 +661,18 @@ function questionsForMission(
 ): string[] {
   const normalized = normalizeText(request);
   const questions: string[] = [];
+  const hasDeparture = /\b(from|departing from|leaving from)\b/.test(normalized);
+  const hasBroadDepartureOnly =
+    /\b(from|departing from|leaving from)\s+(california|ca)\b/.test(normalized);
   if (
     agents.some((agent) => agent.capability === "flights") &&
-    !/\b(from|departing from|leaving from)\b/.test(normalized)
+    (!hasDeparture || hasBroadDepartureOnly)
   ) {
-    questions.push("What departure city or airport should I use?");
+    questions.push(
+      hasBroadDepartureOnly
+        ? "Which California city or airport should I use for departure?"
+        : "What departure city or airport should I use?",
+    );
   }
   if (agents.some((agent) => agent.capability === "flights" || agent.capability === "hotels")) {
     questions.push("How many travelers should I plan for?");

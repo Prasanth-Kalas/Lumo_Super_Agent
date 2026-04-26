@@ -191,9 +191,7 @@ export function LumoMissionCard({
   }
 
   function continueMission() {
-    onContinue(
-      `Yes, continue with available approved apps and skip unavailable marketplace capabilities for now: ${plan.original_request}`,
-    );
+    onContinue(`Continue planning this mission with approved apps: ${plan.original_request}`);
   }
 
   return (

@@ -12,6 +12,7 @@ import { getServerUser } from "@/lib/auth";
 import { listConnectionsForUser } from "@/lib/connections";
 import { listInstalledAgentsForUser } from "@/lib/app-installs";
 import { buildLumoMissionPlan } from "@/lib/lumo-mission";
+import { selectMissionPlanningRequest } from "@/lib/mission-context";
 import {
   describeRegistryAgents,
   evaluateRiskBadgesForAgents,
@@ -101,10 +102,15 @@ export async function POST(req: NextRequest): Promise<Response> {
 
 function readMessage(body: Body): string {
   if (typeof body.message === "string") return body.message.trim();
-  const lastUser = body.messages
-    ?.filter((m) => m.role === "user" && typeof m.content === "string")
-    .at(-1)?.content;
-  return typeof lastUser === "string" ? lastUser.trim() : "";
+  const messages =
+    body.messages
+      ?.filter(
+        (m): m is { role: "user" | "assistant"; content: string } =>
+          (m.role === "user" || m.role === "assistant") &&
+          typeof m.content === "string",
+      )
+      .map((m) => ({ role: m.role, content: m.content })) ?? [];
+  return selectMissionPlanningRequest(messages).trim();
 }
 
 function json(body: unknown, status = 200): Response {
