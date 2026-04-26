@@ -22,10 +22,12 @@ import { ensureRegistry } from "@/lib/agent-registry";
 import {
   consumeOAuthState,
   exchangeAuthorizationCode,
+  listConnectionsForUser,
   saveConnection,
 } from "@/lib/connections";
 import { constantTimeEqual } from "@/lib/crypto";
 import { permissionSnapshotForManifest } from "@/lib/app-installs";
+import { hasRecentActiveOAuthConnection } from "@/lib/oauth-callback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,6 +59,10 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const stateRow = await consumeOAuthState(state);
   if (!stateRow) {
+    const recentConnections = await listConnectionsForUser(user.id);
+    if (hasRecentActiveOAuthConnection(recentConnections)) {
+      return redirectBack(url, "/connections?connected=1");
+    }
     return redirectBack(url, "/connections?error=invalid_or_expired_state");
   }
 
