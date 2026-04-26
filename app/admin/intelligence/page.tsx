@@ -259,6 +259,54 @@ function IntelligenceContent({ stats }: { stats: AdminIntelligenceStats }) {
 
       <section className="rounded-xl border border-lumo-hair bg-lumo-surface p-5 space-y-3">
         <SectionHeader
+          title="Recent missions"
+          sub="20 newest rows from missions, with step-status breakdown. Intent is truncated at 80 chars."
+        />
+        {!stats.recent_missions || stats.recent_missions.length === 0 ? (
+          <Empty label="No durable missions yet." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead className="text-[10.5px] uppercase tracking-[0.14em] text-lumo-fg-low">
+                <tr className="border-b border-lumo-hair">
+                  <th className="text-left p-2 font-normal">State</th>
+                  <th className="text-left p-2 font-normal">Steps</th>
+                  <th className="text-left p-2 font-normal">Intent</th>
+                  <th className="text-right p-2 font-normal">Age</th>
+                  <th className="text-left p-2 font-normal">Mission</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.recent_missions.map((m) => (
+                  <tr
+                    key={m.id}
+                    className="border-b border-lumo-hair last:border-0"
+                  >
+                    <td className="p-2 align-top">
+                      <MissionStateBadge state={m.state} />
+                    </td>
+                    <td className="p-2 align-top text-[11.5px] text-lumo-fg-mid max-w-[260px] truncate">
+                      {m.step_status_summary || `${m.step_count} step${m.step_count === 1 ? "" : "s"}`}
+                    </td>
+                    <td className="p-2 align-top text-lumo-fg max-w-[360px] truncate">
+                      {m.intent_excerpt || "—"}
+                    </td>
+                    <td className="p-2 align-top text-right text-[11.5px] text-lumo-fg-low num">
+                      {formatAge(m.age_seconds)}
+                    </td>
+                    <td className="p-2 align-top text-[11.5px] text-lumo-fg-low num">
+                      {m.id.slice(0, 8)}…
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-lumo-hair bg-lumo-surface p-5 space-y-3">
+        <SectionHeader
           title="Recent anomaly findings"
           sub="20 newest rows from anomaly_findings."
         />
@@ -440,6 +488,38 @@ function UrgencyBadge({ urgency }: { urgency: string }) {
       }
     >
       {urgency}
+    </span>
+  );
+}
+
+function MissionStateBadge({ state }: { state: string }) {
+  // Colour buckets follow the lifecycle in
+  // db/migrations/023_durable_missions.sql:
+  //   - terminal-success: completed → emerald
+  //   - in-flight (executing / ready): blue
+  //   - waiting on a human or external system: amber
+  //   - failed / rolled_back: red
+  //   - draft / unknown: hairline neutral
+  const tone =
+    state === "completed"
+      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+      : state === "executing" || state === "ready"
+        ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+        : state === "awaiting_confirmation" ||
+            state === "awaiting_permissions" ||
+            state === "awaiting_user_input"
+          ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+          : state === "failed" || state === "rolled_back"
+            ? "bg-red-500/10 text-red-400 border-red-500/20"
+            : "bg-lumo-elevated text-lumo-fg-low border-lumo-hair";
+  return (
+    <span
+      className={
+        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] border whitespace-nowrap " +
+        tone
+      }
+    >
+      {state}
     </span>
   );
 }

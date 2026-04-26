@@ -63,6 +63,18 @@ export interface AnomalyFindingRow {
   age_seconds: number;
 }
 
+export interface MissionRow {
+  id: string;
+  user_id: string;
+  session_id: string | null;
+  state: string;
+  step_count: number;
+  step_status_summary: string;
+  intent_excerpt: string;
+  created_at: string;
+  age_seconds: number;
+}
+
 export interface BrainHealthSnapshot {
   status: "ok" | "degraded" | "unreachable";
   service_jwt: "ok" | "missing" | "invalid";
@@ -79,6 +91,7 @@ export interface AdminIntelligenceStats {
   brain_tool_stats: BrainToolStats[];
   recent_proactive_moments: ProactiveMomentRow[];
   recent_anomaly_findings: AnomalyFindingRow[];
+  recent_missions: MissionRow[];
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -287,6 +300,108 @@ export function formatAnomalyFinding(
       ? Number(r.confidence)
       : null,
     detected_at,
+    age_seconds,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Mission row formatting (Sprint 3 observability)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Order in which step statuses are rendered in `step_status_summary`. We
+ * keep the ordering stable so the dashboard string is deterministic and
+ * easy to scan: terminal-success first, then in-flight, then pending,
+ * then terminal-failure-ish buckets last. Anything not in this list is
+ * appended in insertion order at the tail.
+ */
+const STEP_STATUS_ORDER: readonly string[] = [
+  "succeeded",
+  "running",
+  "ready",
+  "awaiting_confirmation",
+  "pending",
+  "skipped",
+  "failed",
+  "rolled_back",
+];
+
+/**
+ * Group `mission_steps` rows by their `status` and produce a short human
+ * string like `"3 succeeded · 1 ready · 2 pending"`. Buckets follow
+ * `STEP_STATUS_ORDER`; unknown statuses appear at the tail.
+ *
+ * Returns the empty string for an empty / missing input — callers can
+ * decide to show "—" or hide the column entirely.
+ */
+export function summarizeStepStatuses(steps: unknown): string {
+  if (!Array.isArray(steps) || steps.length === 0) return "";
+
+  const counts = new Map<string, number>();
+  for (const s of steps) {
+    if (!s || typeof s !== "object") continue;
+    const status = typeof (s as Record<string, unknown>).status === "string"
+      ? ((s as Record<string, unknown>).status as string)
+      : "unknown";
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  if (counts.size === 0) return "";
+
+  const parts: string[] = [];
+  for (const status of STEP_STATUS_ORDER) {
+    const n = counts.get(status);
+    if (n && n > 0) {
+      parts.push(`${n} ${status}`);
+      counts.delete(status);
+    }
+  }
+  // Tail: any unknown statuses, alphabetised so the string is deterministic.
+  const tail = Array.from(counts.entries()).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  for (const [status, n] of tail) {
+    parts.push(`${n} ${status}`);
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * Flatten a `missions` row (+ its `mission_steps` children) into a
+ * UI-shaped dashboard record. Truncates `intent_text` to 80 chars
+ * (no ellipsis — the UI decides). Returns null on missing required
+ * fields (`id`, `user_id`, `created_at`).
+ *
+ * `steps` should be the rows for this mission only; the helper does
+ * not filter by mission_id itself.
+ */
+export function formatMissionRow(
+  mission: unknown,
+  steps: unknown,
+  nowMs: number,
+): MissionRow | null {
+  if (!mission || typeof mission !== "object") return null;
+  const m = mission as Record<string, unknown>;
+  const id = typeof m.id === "string" ? m.id : null;
+  const user_id = typeof m.user_id === "string" ? m.user_id : null;
+  const created_at = typeof m.created_at === "string" ? m.created_at : null;
+  if (!id || !user_id || !created_at) return null;
+
+  const stepArr = Array.isArray(steps) ? steps : [];
+  const intent_text = typeof m.intent_text === "string" ? m.intent_text : "";
+  const created_ms = Date.parse(created_at);
+  const age_seconds = Number.isFinite(created_ms)
+    ? Math.max(0, Math.floor((nowMs - created_ms) / 1000))
+    : 0;
+
+  return {
+    id,
+    user_id,
+    session_id: typeof m.session_id === "string" ? m.session_id : null,
+    state: typeof m.state === "string" ? m.state : "unknown",
+    step_count: stepArr.length,
+    step_status_summary: summarizeStepStatuses(stepArr),
+    intent_excerpt: intent_text.slice(0, 80),
+    created_at,
     age_seconds,
   };
 }

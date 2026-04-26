@@ -21,6 +21,7 @@
 import { getSupabase } from "./db.js";
 import {
   formatAnomalyFinding,
+  formatMissionRow,
   formatProactiveMoment,
   interpretBrainHealth,
   summarizeBrainToolUsage,
@@ -30,6 +31,7 @@ import {
   type BrainHealthSnapshot,
   type BrainToolStats,
   type CronHealthRow,
+  type MissionRow,
   type ProactiveMomentRow,
 } from "./admin-stats-core.js";
 
@@ -41,6 +43,7 @@ export type {
   BrainHealthSnapshot,
   BrainToolStats,
   CronHealthRow,
+  MissionRow,
   ProactiveMomentRow,
 };
 
@@ -64,12 +67,14 @@ export async function fetchAdminIntelligenceStats(opts?: {
     brain_tool_stats,
     recent_proactive_moments,
     recent_anomaly_findings,
+    recent_missions,
     brain_health,
   ] = await Promise.all([
     fetchCronHealth(sb, since24h),
     fetchBrainToolStats(sb, since24h),
     fetchRecentProactiveMoments(sb, nowMs),
     fetchRecentAnomalyFindings(sb, nowMs),
+    fetchRecentMissions(sb, nowMs),
     fetchBrainHealth(fetchImpl, nowMs),
   ]);
 
@@ -80,6 +85,7 @@ export async function fetchAdminIntelligenceStats(opts?: {
     brain_tool_stats,
     recent_proactive_moments,
     recent_anomaly_findings,
+    recent_missions,
   };
 }
 
@@ -197,6 +203,81 @@ async function fetchRecentAnomalyFindings(
       "[admin-stats] anomaly_findings read threw:",
       errString(err),
     );
+    return [];
+  }
+}
+
+async function fetchRecentMissions(
+  sb: ReturnType<typeof getSupabase>,
+  nowMs: number,
+): Promise<MissionRow[]> {
+  if (!sb) return [];
+  try {
+    // Pull the 20 most recently-touched missions plus their steps. We do
+    // a second query for steps rather than a Supabase nested-select so
+    // the surface stays portable across PostgREST versions and easy to
+    // mock in tests. 20 missions × ~10 steps each is fine for one round
+    // trip.
+    const { data: missionRows, error: missionErr } = await sb
+      .from("missions")
+      .select("id, user_id, session_id, state, intent_text, created_at, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(20);
+    if (missionErr) {
+      console.warn("[admin-stats] missions read failed:", missionErr.message);
+      return [];
+    }
+    const missions = missionRows ?? [];
+    if (missions.length === 0) return [];
+
+    const ids = missions
+      .map((m) => (typeof m?.id === "string" ? m.id : null))
+      .filter((id): id is string => !!id);
+
+    type StepRow = { mission_id?: string | null; status?: string | null };
+    let steps: StepRow[] = [];
+    if (ids.length > 0) {
+      const { data: stepRows, error: stepErr } = await sb
+        .from("mission_steps")
+        .select("mission_id, status")
+        .in("mission_id", ids);
+      if (stepErr) {
+        console.warn(
+          "[admin-stats] mission_steps read failed:",
+          stepErr.message,
+        );
+      } else {
+        steps = (stepRows ?? []) as StepRow[];
+      }
+    }
+
+    const stepsByMission = new Map<string, StepRow[]>();
+    for (const s of steps) {
+      const mid = typeof s?.mission_id === "string" ? s.mission_id : null;
+      if (!mid) continue;
+      let bucket = stepsByMission.get(mid);
+      if (!bucket) {
+        bucket = [];
+        stepsByMission.set(mid, bucket);
+      }
+      bucket.push(s);
+    }
+
+    const out: MissionRow[] = [];
+    for (const m of missions) {
+      const id = typeof (m as { id?: unknown })?.id === "string"
+        ? ((m as { id: string }).id)
+        : null;
+      const formatted = formatMissionRow(
+        m,
+        id ? (stepsByMission.get(id) ?? []) : [],
+        nowMs,
+      );
+      if (formatted) out.push(formatted);
+    }
+    return out;
+  } catch (err) {
+    console.warn("[admin-stats] missions read threw:", errString(err));
     return [];
   }
 }

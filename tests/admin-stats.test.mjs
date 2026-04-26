@@ -7,11 +7,13 @@
 import assert from "node:assert/strict";
 import {
   formatAnomalyFinding,
+  formatMissionRow,
   formatProactiveMoment,
   interpretBrainHealth,
   percentile,
   summarizeBrainToolUsage,
   summarizeCronRuns,
+  summarizeStepStatuses,
 } from "../lib/admin-stats-core.ts";
 
 let pass = 0;
@@ -200,6 +202,99 @@ await t("percentile handles empty / single / interpolated cases", () => {
   assert.equal(percentile([42], 0.5), 42);
   assert.equal(percentile([10, 20, 30, 40], 0.5), 25);
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// Sprint 3 mission observability — additions for K6
+// ──────────────────────────────────────────────────────────────────────────
+
+await t(
+  "summarizeStepStatuses with mixed statuses returns ordered string",
+  () => {
+    // Mix of 3 succeeded, 1 ready, 2 pending, 1 failed plus an unknown
+    // bucket. Expected ordering follows STEP_STATUS_ORDER:
+    // succeeded → running → ready → awaiting_confirmation → pending →
+    // skipped → failed → rolled_back, then unknown buckets alphabetised.
+    const steps = [
+      { status: "succeeded" },
+      { status: "succeeded" },
+      { status: "succeeded" },
+      { status: "ready" },
+      { status: "pending" },
+      { status: "pending" },
+      { status: "failed" },
+      { status: "weirdo" },
+    ];
+    const summary = summarizeStepStatuses(steps);
+    assert.equal(
+      summary,
+      "3 succeeded · 1 ready · 2 pending · 1 failed · 1 weirdo",
+    );
+
+    // Empty input produces empty string so the UI can render "—".
+    assert.equal(summarizeStepStatuses([]), "");
+    assert.equal(summarizeStepStatuses(/** @type {any} */ (null)), "");
+
+    // Single-status mission still renders sanely.
+    assert.equal(
+      summarizeStepStatuses([{ status: "running" }, { status: "running" }]),
+      "2 running",
+    );
+  },
+);
+
+await t(
+  "formatMissionRow truncates intent_excerpt at 80 chars and computes age",
+  () => {
+    const longIntent = "a".repeat(500);
+    const mission = {
+      id: "mis_abc123",
+      user_id: "u_42",
+      session_id: "sess_99",
+      state: "executing",
+      intent_text: longIntent,
+      created_at: "2026-04-26T10:00:00.000Z",
+      updated_at: "2026-04-26T10:00:30.000Z",
+    };
+    const steps = [
+      { status: "succeeded" },
+      { status: "succeeded" },
+      { status: "running" },
+      { status: "pending" },
+    ];
+    // 2 minutes after created_at.
+    const nowMs = Date.parse("2026-04-26T10:02:00.000Z");
+    const out = formatMissionRow(mission, steps, nowMs);
+    assert.ok(out, "expected a non-null formatted row");
+    assert.equal(out.id, "mis_abc123");
+    assert.equal(out.user_id, "u_42");
+    assert.equal(out.session_id, "sess_99");
+    assert.equal(out.state, "executing");
+    assert.equal(out.step_count, 4);
+    assert.equal(
+      out.step_status_summary,
+      "2 succeeded · 1 running · 1 pending",
+    );
+    // intent_excerpt is exactly 80 chars (no ellipsis appended).
+    assert.equal(out.intent_excerpt.length, 80);
+    assert.equal(out.intent_excerpt, "a".repeat(80));
+    // Age = 120s.
+    assert.equal(out.age_seconds, 120);
+
+    // Defensive: missing required fields → null.
+    assert.equal(formatMissionRow(null, [], nowMs), null);
+    assert.equal(
+      formatMissionRow({ id: "x", user_id: "u" }, [], nowMs),
+      null,
+      "missing created_at should yield null",
+    );
+
+    // Empty step list → step_count 0 and empty summary.
+    const emptySteps = formatMissionRow(mission, [], nowMs);
+    assert.ok(emptySteps);
+    assert.equal(emptySteps.step_count, 0);
+    assert.equal(emptySteps.step_status_summary, "");
+  },
+);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
