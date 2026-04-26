@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
+    "lint:commits": "node scripts/check-commit-shape.mjs",
     "lint:registry": "node scripts/validate-registry.mjs",
     "typecheck": "tsc --noEmit",
     "eval:phase1": "node --experimental-strip-types scripts/eval-phase1.mjs",

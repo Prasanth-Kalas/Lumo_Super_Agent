@@ -17,6 +17,12 @@ Do not bundle broad UI redesigns with registry, routing, security, or
 orchestrator changes. If a rollback is needed, the revert should not also
 remove an unrelated platform capability.
 
+CI runs `npm run lint:commits` on PRs and pushes to main. The check flags
+commits that mix brand/global UI assets such as `public/*`, `BrandMark`, or
+`app/globals.css` with runtime files such as `lib/*`, `app/api/*`, registry
+config, middleware, or migrations. If a rare exception is intentional, split
+the work first if possible; otherwise document the exception in the commit body.
+
 ## Commit messages
 
 Use the title to name the behavior, not only the files touched:

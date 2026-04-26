@@ -1,0 +1,36 @@
+name: Commit Hygiene
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  commit-shape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check commit shape
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -n "$PR_BASE_SHA" ] && [ -n "$PR_HEAD_SHA" ]; then
+            RANGE="$PR_BASE_SHA..$PR_HEAD_SHA"
+          elif [ -n "$BEFORE_SHA" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            RANGE="$BEFORE_SHA..$CURRENT_SHA"
+          else
+            RANGE="$CURRENT_SHA^..$CURRENT_SHA"
+          fi
+          node scripts/check-commit-shape.mjs "$RANGE"
