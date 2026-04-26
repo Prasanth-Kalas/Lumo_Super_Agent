@@ -40,6 +40,11 @@ import {
   rankAgentsForIntent,
 } from "./marketplace-intelligence.js";
 import { shouldRunMarketplaceIntelligence } from "./marketplace-intelligence-core.js";
+import {
+  formatArchiveRecallAnswer,
+  recallFromArchive,
+  shouldRunArchiveRecall,
+} from "./archive-recall.js";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
 import { dispatchMcpTool, isMcpToolName } from "./mcp/dispatch.js";
@@ -268,6 +273,45 @@ export async function runTurn(
 
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
+  if (
+    input.user_id !== "anon" &&
+    shouldRunArchiveRecall(lastUserForMission)
+  ) {
+    const recallResult = await recallFromArchive({
+      user_id: input.user_id,
+      query: lastUserForMission,
+    });
+    emit({
+      type: "internal",
+      value: {
+        kind: "lumo_recall",
+        detail: {
+          source: recallResult.source,
+          status: recallResult.status,
+          latency_ms: recallResult.latency_ms,
+          error: recallResult.error,
+          hit_count: recallResult.hits.length,
+          hits: recallResult.hits.slice(0, 5).map((hit) => ({
+            id: hit.id,
+            score: hit.score,
+            source: hit.source,
+            endpoint:
+              typeof hit.metadata.endpoint === "string"
+                ? hit.metadata.endpoint
+                : null,
+          })),
+        },
+      },
+    });
+    const answer = formatArchiveRecallAnswer(lastUserForMission, recallResult);
+    emit({ type: "text", value: answer });
+    return {
+      assistant_text: answer,
+      tool_calls: [],
+      summary: null,
+      selections: [],
+    };
+  }
   const useMarketplaceIntelligence =
     input.user_id !== "anon" && shouldRunMarketplaceIntelligence(lastUserForMission);
   const agentDescriptors = useMarketplaceIntelligence

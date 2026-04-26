@@ -47,6 +47,8 @@ interface MarketplaceAgent {
   health_score: number;
   /** "lumo" for native agents, "mcp" for MCP-backed, "coming_soon" for placeholders. */
   source: "lumo" | "mcp" | "coming_soon";
+  pii_scope?: AgentManifest["pii_scope"];
+  requires_payment?: boolean;
   /** Set on coming_soon entries — explains current status to the UI. */
   coming_soon?: {
     status: "in_review" | "planned";
@@ -298,6 +300,8 @@ export async function GET(_req: NextRequest): Promise<Response> {
         required_scopes,
         health_score: e.health_score,
         source: "lumo",
+        pii_scope: m.pii_scope,
+        requires_payment: m.requires_payment,
         risk_badge: fallbackRiskBadgeForAgent(describeMarketplaceAgentForRisk({
           agent_id: m.agent_id,
           display_name: m.display_name,
@@ -310,6 +314,8 @@ export async function GET(_req: NextRequest): Promise<Response> {
           required_scopes,
           health_score: e.health_score,
           source: "lumo",
+          pii_scope: m.pii_scope,
+          requires_payment: m.requires_payment,
           connection: conn
             ? {
                 id: conn.id,
@@ -465,8 +471,8 @@ function describeMarketplaceAgentForRisk(
     installed:
       agent.connection?.status === "active" || agent.install?.status === "installed",
     connect_model: agent.connect_model,
-    requires_payment: false,
-    pii_scope: [],
+    requires_payment: agent.requires_payment ?? false,
+    pii_scope: agent.pii_scope ?? [],
     health_score: agent.health_score,
     source: agent.source,
   };

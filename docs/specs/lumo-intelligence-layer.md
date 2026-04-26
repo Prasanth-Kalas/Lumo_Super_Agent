@@ -184,6 +184,18 @@ Day-5 Core wiring uses a pure-core/thin-glue pattern:
 - `/api/marketplace`, `/api/lumo/mission`, and the chat orchestrator all use
   the same client and fallback logic, so the app-store surfaces do not drift.
 
+Day-6 recall wiring keeps the same shape:
+
+- Lumo Core owns pgvector lookup because it owns Supabase access and the
+  redacted `content_embeddings` table. The brain receives only a bounded set
+  of redacted candidate documents for `/api/tools/recall`.
+- `match_content_embeddings` returns the top 384-dim vector matches for a user;
+  Core falls back to recent indexed chunks if query embedding is unavailable.
+- The chat orchestrator detects explicit archive-recall questions and emits a
+  `lumo_recall` internal frame plus a cited text answer. This keeps recall
+  visible in chat without giving the sandbox or ML service direct database
+  access.
+
 ## 6. Data and storage
 
 ### Existing state
@@ -364,7 +376,8 @@ Fallback rules:
 - If `evaluate_agent_risk` misses budget, show conservative "review required"
   copy instead of a green badge.
 - If `recall` misses budget, return a partial result with a "still indexing" or
-  "search delayed" status.
+  "search delayed" status. Core preserves a local term-overlap fallback over
+  the bounded candidate set so recall can still answer during ML brownouts.
 
 No workspace card should block page rendering on a slow ML call.
 

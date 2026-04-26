@@ -386,6 +386,8 @@ function toBrainAgentDescriptor(agent: IntelligenceAgentDescriptor) {
     scopes: agent.scopes,
     installed: agent.installed,
     connect_model: agent.connect_model ?? undefined,
+    requires_payment: agent.requires_payment ?? false,
+    pii_scope: agent.pii_scope ?? [],
   };
 }
 

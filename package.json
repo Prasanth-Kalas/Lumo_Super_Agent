@@ -10,7 +10,7 @@
     "lint": "next lint",
     "lint:registry": "node scripts/validate-registry.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "npm run lint:registry && node --experimental-strip-types tests/voice.test.mjs && node --experimental-strip-types tests/lumo-mission.test.mjs && node --experimental-strip-types tests/registry-config.test.mjs && node --experimental-strip-types tests/agent-bridge-scope.test.mjs && node --experimental-strip-types tests/content-indexing.test.mjs && node --experimental-strip-types tests/workspace-lead-classifier.test.mjs && node --experimental-strip-types tests/marketplace-intelligence.test.mjs",
+    "test": "npm run lint:registry && node --experimental-strip-types tests/voice.test.mjs && node --experimental-strip-types tests/lumo-mission.test.mjs && node --experimental-strip-types tests/registry-config.test.mjs && node --experimental-strip-types tests/agent-bridge-scope.test.mjs && node --experimental-strip-types tests/content-indexing.test.mjs && node --experimental-strip-types tests/workspace-lead-classifier.test.mjs && node --experimental-strip-types tests/marketplace-intelligence.test.mjs && node --experimental-strip-types tests/archive-recall.test.mjs",
     "clean": "rm -rf .next *.tsbuildinfo"
   },
   "dependencies": {
