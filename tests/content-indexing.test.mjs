@@ -38,6 +38,48 @@ t("redacts common PII before embedding", () => {
   assert.equal(redacted.counts.credit_card, 1);
 });
 
+t("redacts French contact and bank identifiers before embedding", () => {
+  const redacted = redactForEmbedding(
+    "Bonjour, contactez elise.dupont@example.fr ou +33 6 12 34 56 78. IBAN FR76 3000 6000 0112 3456 7890 189.",
+  );
+  assert.match(redacted.text, /\[EMAIL\]/);
+  assert.match(redacted.text, /\[PHONE\]/);
+  assert.match(redacted.text, /\[SECRET\]/);
+  assert.doesNotMatch(redacted.text, /example\.fr/);
+  assert.doesNotMatch(redacted.text, /FR76/);
+  assert.equal(redacted.counts.email, 1);
+  assert.equal(redacted.counts.phone, 1);
+  assert.equal(redacted.counts.secret, 1);
+});
+
+t("redacts Spanish contact and passport identifiers before embedding", () => {
+  const redacted = redactForEmbedding(
+    "Telefono +34 612 345 678, correo ana.garcia@example.es, pasaporte X1234567.",
+  );
+  assert.match(redacted.text, /\[EMAIL\]/);
+  assert.match(redacted.text, /\[PHONE\]/);
+  assert.match(redacted.text, /\[SECRET\]/);
+  assert.doesNotMatch(redacted.text, /example\.es/);
+  assert.doesNotMatch(redacted.text, /X1234567/);
+  assert.equal(redacted.counts.email, 1);
+  assert.equal(redacted.counts.phone, 1);
+  assert.equal(redacted.counts.secret, 1);
+});
+
+t("redacts Hindi contact and Aadhaar identifiers before embedding", () => {
+  const redacted = redactForEmbedding(
+    "ईमेल ravi.kumar@example.in और फोन +91 98765 43210. आधार 1234 5678 9012.",
+  );
+  assert.match(redacted.text, /\[EMAIL\]/);
+  assert.match(redacted.text, /\[PHONE\]/);
+  assert.match(redacted.text, /\[SECRET\]/);
+  assert.doesNotMatch(redacted.text, /example\.in/);
+  assert.doesNotMatch(redacted.text, /1234 5678 9012/);
+  assert.equal(redacted.counts.email, 1);
+  assert.equal(redacted.counts.phone, 1);
+  assert.equal(redacted.counts.secret, 1);
+});
+
 t("extracts useful text and excludes token-shaped fields", () => {
   const chunks = buildArchiveTextChunks({
     id: 42,

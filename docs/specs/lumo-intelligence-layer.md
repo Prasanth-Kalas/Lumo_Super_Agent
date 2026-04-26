@@ -463,6 +463,13 @@ Open acceptance items:
 
 ## 12. Later phases
 
+### Phase 2 Sprint 0 - Privacy hardening
+
+- Presidio-backed redaction runs inside `Lumo_ML_Service` as a lazy second pass
+  before any text is embedded, classified, or reranked. Lumo Core keeps the
+  synchronous regex fast path for archive indexing, so every future Whisper,
+  CLIP, and PDF ingestion path inherits redaction before data reaches the brain.
+
 ### Phase 2 - Marketplace brain
 
 - Personalized marketplace ranking
@@ -524,3 +531,4 @@ Open acceptance items:
 | 2026-04-26 | Keep `system: true` registry-owned and ignore any partner attempt to self-declare it |
 | 2026-04-26 | Make the Vegas trip flow the Phase 1 acceptance demo |
 | 2026-04-26 | Keep confirmation cards as the only path to side effects |
+| 2026-04-26 | Add Presidio-backed second-pass redaction before Phase 2 multimodal ingestion |

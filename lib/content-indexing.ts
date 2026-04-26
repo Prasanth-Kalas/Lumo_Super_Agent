@@ -111,6 +111,27 @@ export function redactForEmbedding(input: string): RedactionResult {
     },
   );
 
+  text = text.replace(
+    /(^|[^\p{L}\p{N}_])((?:aadhaar|आधार)\s*[:：#-]?\s*\d{4}\s?\d{4}\s?\d{4})(?!\p{L}|\p{N}|_)/giu,
+    (_match, prefix) => {
+      counts.secret += 1;
+      return `${prefix}[SECRET]`;
+    },
+  );
+
+  text = text.replace(
+    /(^|[^\p{L}\p{N}_])((?:passport|passeport|pasaporte|पासपोर्ट)\s*[:：#-]?\s*[A-Z0-9][A-Z0-9 -]{5,14}[A-Z0-9])(?!\p{L}|\p{N}|_)/giu,
+    (_match, prefix) => {
+      counts.secret += 1;
+      return `${prefix}[SECRET]`;
+    },
+  );
+
+  text = text.replace(/\b[A-Z]{2}\d{2}(?:[ -]?[A-Z0-9]){11,30}\b/g, () => {
+    counts.secret += 1;
+    return "[SECRET]";
+  });
+
   text = text.replace(/\b\d{3}-\d{2}-\d{4}\b/g, () => {
     counts.ssn += 1;
     return "[SSN]";
@@ -126,7 +147,7 @@ export function redactForEmbedding(input: string): RedactionResult {
   );
 
   text = text.replace(
-    /\b(?:github_pat|ghp|sk|pk|xox[baprs])[_A-Za-z0-9-]{16,}\b/g,
+    /\b(?:github_pat|ghp|xox[baprs])[_A-Za-z0-9-]{16,}\b|\b(?:sk|pk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g,
     () => {
       counts.secret += 1;
       return "[SECRET]";
