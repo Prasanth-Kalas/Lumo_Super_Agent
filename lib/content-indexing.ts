@@ -59,6 +59,21 @@ export interface PdfDocumentContentRow {
   created_at: string;
 }
 
+export interface ImageEmbeddingContentRow {
+  id: string | number;
+  user_id: string;
+  image_asset_id: string;
+  storage_path: string;
+  filename: string;
+  mime_type: string;
+  model: string;
+  dimensions: number;
+  labels: unknown;
+  summary_text: string;
+  content_hash: string;
+  created_at: string;
+}
+
 const INCLUDE_KEY_RE =
   /(^|[_-])(text|title|body|description|summary|snippet|subject|message|name|comment|comments|caption|transcript|content|note|notes|location)([_-]|$)/i;
 const EXCLUDE_KEY_RE =
@@ -190,6 +205,49 @@ export function buildPdfDocumentTextChunks(
   return out;
 }
 
+export function buildImageEmbeddingTextChunks(
+  row: ImageEmbeddingContentRow,
+  options: { chunkChars?: number; maxChunks?: number } = {},
+): ArchiveTextChunk[] {
+  const labelText = normalizeImageLabels(row.labels)
+    .map((label) => `${label.label} (${Math.round(label.score * 100)}%)`)
+    .join(", ");
+  const joined = [row.summary_text, labelText ? `Labels: ${labelText}` : ""]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, MAX_TEXT_PER_ROW);
+  const redacted = redactForEmbedding(joined);
+  const normalized = normalizeText(redacted.text);
+  if (normalized.length < 24) return [];
+
+  const source_etag = imageEmbeddingSourceEtag(row);
+  const chunkChars = clampInt(options.chunkChars, 400, 4000, DEFAULT_CHUNK_CHARS);
+  const maxChunks = clampInt(options.maxChunks, 1, 8, DEFAULT_MAX_CHUNKS);
+  return splitIntoChunks(normalized, chunkChars)
+    .slice(0, maxChunks)
+    .map((text, chunk_index) => ({
+      source_row_id: String(row.id),
+      source_etag,
+      chunk_index,
+      text,
+      content_hash: sha256(text),
+      metadata: {
+        source: "image_embeddings",
+        image_asset_id: row.image_asset_id,
+        filename: row.filename,
+        mime_type: row.mime_type,
+        storage_path_hash: sha256(row.storage_path),
+        labels: normalizeImageLabels(row.labels),
+        model: row.model,
+        dimensions: row.dimensions,
+        image_content_hash: row.content_hash,
+        created_at: row.created_at,
+        redacted: true,
+        redaction_counts: redacted.counts,
+      },
+    }));
+}
+
 export function sourceEtag(row: ArchiveContentRow): string {
   return sha256(
     stableJson({
@@ -223,6 +281,19 @@ export function pdfDocumentSourceEtag(row: PdfDocumentContentRow): string {
       pages: row.pages,
       total_pages: row.total_pages ?? null,
       language: row.language ?? null,
+    }),
+  );
+}
+
+export function imageEmbeddingSourceEtag(row: ImageEmbeddingContentRow): string {
+  return sha256(
+    stableJson({
+      image_asset_id: row.image_asset_id,
+      labels: row.labels,
+      summary_text: row.summary_text,
+      content_hash: row.content_hash,
+      model: row.model,
+      dimensions: row.dimensions,
     }),
   );
 }
@@ -307,6 +378,23 @@ export function redactForEmbedding(input: string): RedactionResult {
   );
 
   return { text, counts };
+}
+
+function normalizeImageLabels(value: unknown): Array<{ label: string; score: number }> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<{ label: string; score: number }> = [];
+  for (const raw of value.slice(0, 12)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const item = raw as Record<string, unknown>;
+    const label = typeof item.label === "string" ? item.label.trim() : "";
+    if (!label) continue;
+    const score = Number(item.score);
+    out.push({
+      label: label.slice(0, 120),
+      score: Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0,
+    });
+  }
+  return out;
 }
 
 function normalizePdfPages(value: unknown): Array<{

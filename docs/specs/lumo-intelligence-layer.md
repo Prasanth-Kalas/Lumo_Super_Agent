@@ -514,6 +514,20 @@ Open acceptance items:
   `content_embeddings` table. PDF chunk metadata preserves `page_number` so
   recall can cite "from page N" without a new retrieval path.
 
+### Phase 2 Sprint 1 - Image recall
+
+- `lumo_embed_image` runs CLIP on Modal and returns a 512-dim image vector,
+  bounded zero-shot labels, and a short summary. The native CLIP vector is kept
+  in `image_embeddings`; it is not forced into the 384-dim text table.
+- `/api/images/upload` mirrors the audio/PDF upload shape with a private
+  `images` bucket and `image_assets` state machine. Lumo Core signs a short
+  read URL for the brain and stores the CLIP result after the user finalizes the
+  upload.
+- The CLIP label summary is redacted and indexed into existing
+  `content_embeddings` as `source_table='image_embeddings'`, so text recall can
+  find "receipt", "hotel room", or "EV charger" images without adding a second
+  retrieval path to chat.
+
 ### Phase 2 - Marketplace brain
 
 - Personalized marketplace ranking
@@ -594,3 +608,4 @@ Open acceptance items:
 | 2026-04-26 | Add preference-event logging substrate before personalization models |
 | 2026-04-26 | Add layout-aware PDF extraction feeding page-cited pgvector recall |
 | 2026-04-26 | Lock Phase 3 around durable mission state, rollback policy, and execution audit |
+| 2026-04-26 | Add CLIP image embeddings with text-recall summaries and native 512-dim vector storage |

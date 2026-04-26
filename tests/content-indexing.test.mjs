@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import {
   buildAudioTranscriptTextChunks,
   buildArchiveTextChunks,
+  buildImageEmbeddingTextChunks,
   buildPdfDocumentTextChunks,
   redactForEmbedding,
   sourceEtag,
@@ -181,6 +182,34 @@ t("pdf document chunks preserve page metadata for recall citations", () => {
   assert.equal(chunks[1].metadata.filename, "contract.pdf");
   assert.match(chunks[1].text, /Payment Terms/);
   assert.match(chunks[1].text, /\[EMAIL\]/);
+});
+
+t("image embedding chunks make CLIP labels searchable through recall", () => {
+  const chunks = buildImageEmbeddingTextChunks({
+    id: 22,
+    user_id: "user_1",
+    image_asset_id: "img_1",
+    storage_path: "users/user_1/img_1.jpg",
+    filename: "receipt.jpg",
+    mime_type: "image/jpeg",
+    model: "openai/clip-vit-base-patch32",
+    dimensions: 512,
+    labels: [
+      { label: "receipt", score: 0.81 },
+      { label: "restaurant food", score: 0.12 },
+    ],
+    summary_text:
+      "Image appears to contain: receipt, restaurant food. Contact alex@example.com was visible.",
+    content_hash: "hash_1",
+    created_at: "2026-04-26T00:00:00.000Z",
+  });
+
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].metadata.source, "image_embeddings");
+  assert.equal(chunks[0].metadata.filename, "receipt.jpg");
+  assert.equal(chunks[0].metadata.dimensions, 512);
+  assert.match(chunks[0].text, /restaurant food/);
+  assert.match(chunks[0].text, /\[EMAIL\]/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

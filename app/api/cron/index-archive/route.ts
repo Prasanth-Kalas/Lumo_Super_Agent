@@ -9,6 +9,7 @@
 
 import { type NextRequest, NextResponse } from "next/server";
 import {
+  indexImageEmbeddings,
   indexAudioTranscripts,
   indexConnectorArchive,
   indexPdfDocuments,
@@ -58,7 +59,7 @@ export async function GET(req: NextRequest) {
   const embedBatchSize = intFromEnv("LUMO_ARCHIVE_INDEXER_BATCH_SIZE", 32);
   const concurrency = intFromEnv("LUMO_ARCHIVE_INDEXER_CONCURRENCY", 8);
 
-  const [archiveResult, audioResult, pdfResult] = await Promise.all([
+  const [archiveResult, audioResult, pdfResult, imageResult] = await Promise.all([
     indexConnectorArchive({
       rowLimit,
       embedBatchSize,
@@ -77,22 +78,35 @@ export async function GET(req: NextRequest) {
       concurrency: Math.min(concurrency, 2),
       dryRun,
     }),
+    indexImageEmbeddings({
+      rowLimit,
+      embedBatchSize,
+      concurrency: Math.min(concurrency, 2),
+      dryRun,
+    }),
   ]);
 
   const result = {
-    ok: archiveResult.ok && audioResult.ok && pdfResult.ok,
+    ok: archiveResult.ok && audioResult.ok && pdfResult.ok && imageResult.ok,
     skipped:
       archiveResult.skipped === "no_rows" &&
       audioResult.skipped === "no_rows" &&
-      pdfResult.skipped === "no_rows"
+      pdfResult.skipped === "no_rows" &&
+      imageResult.skipped === "no_rows"
         ? "no_rows"
         : undefined,
     counts: {
       ...prefixCounts("archive", archiveResult.counts),
       ...prefixCounts("audio_transcripts", audioResult.counts),
       ...prefixCounts("pdf_documents", pdfResult.counts),
+      ...prefixCounts("image_embeddings", imageResult.counts),
     },
-    errors: [...archiveResult.errors, ...audioResult.errors, ...pdfResult.errors].slice(0, 20),
+    errors: [
+      ...archiveResult.errors,
+      ...audioResult.errors,
+      ...pdfResult.errors,
+      ...imageResult.errors,
+    ].slice(0, 20),
   };
 
   await recordCronRun({
