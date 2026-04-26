@@ -60,7 +60,7 @@ async function main() {
     );
   }
 
-  await fs.writeFile(outFile, parts.join(""));
+  await fs.writeFile(outFile, `${parts.join("").trimEnd()}\n`);
   console.log(`[run-all] wrote ${outFile} (${sqlFiles.length} migrations: ${lo}..${hi})`);
 }
 

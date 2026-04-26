@@ -546,6 +546,10 @@ forecasting, and proactive-moment surfacing layer will write to.
   findings, forecasts, calendar context, or pattern recognition.
   Service-role RPC `next_proactive_moment_for_user` returns the next
   batch of pending, urgency-ordered moments.
+- Migration 022 hardens the cron write path with database-backed dedupe:
+  anomaly findings are unique per `(user_id, metric_key, finding_type,
+  anomaly_ts)`, and active proactive moments are unique per
+  `(user_id, moment_type, evidence.dedup_key)`.
 
 The tables stay empty until Codex's `anomaly-detection-core`,
 `forecasting-core`, and the `proactive-scan` cron land in subsequent
@@ -571,7 +575,9 @@ can be built against a real schema.
   per user/metric, high-confidence anomalies write `anomaly_findings`, and at
   most three `proactive_moments` are created per user per run. The cron also
   checks trip-like calendar events 7-14 days out against travel price forecasts
-  for `time_to_act` moments.
+  for `time_to_act` moments. Moment budget is consumed only after a new moment
+  is actually inserted, so duplicate or non-actionable forecasts do not starve
+  later opportunities in the same run.
 
 ### Phase 2 - Marketplace brain
 

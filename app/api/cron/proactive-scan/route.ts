@@ -134,14 +134,14 @@ export async function GET(req: NextRequest) {
       });
 
       for (const finding of result.findings) {
-        const findingId = await persistAnomalyFinding(db, {
+        const findingResult = await persistAnomalyFinding(db, {
           user_id,
           metric_key,
           finding,
           model_version: result.model,
         });
-        if (findingId) counts.anomaly_findings++;
-        if (finding.confidence < 0.8 || !takeMomentBudget(momentBudget, user_id)) continue;
+        if (findingResult.created) counts.anomaly_findings++;
+        if (finding.confidence < 0.8 || !hasMomentBudget(momentBudget, user_id)) continue;
         const created = await createProactiveMoment(db, {
           user_id,
           moment_type: "anomaly_alert",
@@ -150,12 +150,15 @@ export async function GET(req: NextRequest) {
           urgency: urgencyForZ(finding.z_score),
           evidence: {
             dedup_key: `anomaly:${user_id}:${metric_key}:${finding.finding_type}:${finding.anomaly_ts}`,
-            finding_id: findingId,
+            finding_id: findingResult.id,
             metric_key,
             finding,
           },
         });
-        if (created) counts.proactive_moments++;
+        if (created) {
+          recordMomentBudget(momentBudget, user_id);
+          counts.proactive_moments++;
+        }
       }
     }
   } catch (err) {
@@ -171,7 +174,7 @@ export async function GET(req: NextRequest) {
     );
     for (const event of tripEvents) {
       const rows = bookingPriceGroups.get(event.user_id);
-      if (!rows || rows.length < 14 || !takeMomentBudget(momentBudget, event.user_id)) continue;
+      if (!rows || rows.length < 14) continue;
       counts.forecast_groups++;
       const points = rowsToPoints(rows);
       const forecast = await forecastMetricForUser({
@@ -187,6 +190,7 @@ export async function GET(req: NextRequest) {
       const current = rows.at(-1)?.value ?? 0;
       const peak = Math.max(...forecast.forecast.map((point) => point.predicted_value), current);
       if (current <= 0 || peak < current * 1.05) continue;
+      if (!hasMomentBudget(momentBudget, event.user_id)) continue;
       const created = await createProactiveMoment(db, {
         user_id: event.user_id,
         moment_type: "time_to_act",
@@ -203,6 +207,7 @@ export async function GET(req: NextRequest) {
         },
       });
       if (created) {
+        recordMomentBudget(momentBudget, event.user_id);
         counts.proactive_moments++;
         counts.trip_time_to_act_moments++;
       }
@@ -317,17 +322,7 @@ async function persistAnomalyFinding(
     };
     model_version: string;
   },
-): Promise<string | null> {
-  const { data: existing } = await db
-    .from("anomaly_findings")
-    .select("id")
-    .eq("user_id", args.user_id)
-    .eq("metric_key", args.metric_key)
-    .eq("finding_type", args.finding.finding_type)
-    .eq("anomaly_ts", args.finding.anomaly_ts)
-    .maybeSingle();
-  if (existing?.id) return String(existing.id);
-
+): Promise<{ id: string | null; created: boolean }> {
   const { data, error } = await db
     .from("anomaly_findings")
     .insert({
@@ -344,8 +339,19 @@ async function persistAnomalyFinding(
     })
     .select("id")
     .single();
-  if (error) throw error;
-  return data?.id ? String(data.id) : null;
+  if (!error) return { id: data?.id ? String(data.id) : null, created: true };
+  if (!isUniqueViolation(error)) throw error;
+
+  const { data: existing, error: lookupError } = await db
+    .from("anomaly_findings")
+    .select("id")
+    .eq("user_id", args.user_id)
+    .eq("metric_key", args.metric_key)
+    .eq("finding_type", args.finding.finding_type)
+    .eq("anomaly_ts", args.finding.anomaly_ts)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+  return { id: existing?.id ? String(existing.id) : null, created: false };
 }
 
 async function createProactiveMoment(
@@ -359,19 +365,6 @@ async function createProactiveMoment(
     evidence: Record<string, unknown>;
   },
 ): Promise<boolean> {
-  const dedup_key = String(args.evidence.dedup_key ?? "");
-  if (dedup_key) {
-    const { data: existing } = await db
-      .from("proactive_moments")
-      .select("id")
-      .eq("user_id", args.user_id)
-      .eq("moment_type", args.moment_type)
-      .contains("evidence", { dedup_key })
-      .in("status", ["pending", "surfaced"])
-      .limit(1)
-      .maybeSingle();
-    if (existing?.id) return false;
-  }
   const { error } = await db.from("proactive_moments").insert({
     user_id: args.user_id,
     moment_type: args.moment_type,
@@ -381,15 +374,27 @@ async function createProactiveMoment(
     evidence: args.evidence,
     valid_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
   });
+  if (error && isUniqueViolation(error)) return false;
   if (error) throw error;
   return true;
 }
 
-function takeMomentBudget(budget: Map<string, number>, user_id: string): boolean {
+function hasMomentBudget(budget: Map<string, number>, user_id: string): boolean {
   const used = budget.get(user_id) ?? 0;
-  if (used >= USER_MOMENT_CAP) return false;
-  budget.set(user_id, used + 1);
-  return true;
+  return used < USER_MOMENT_CAP;
+}
+
+function recordMomentBudget(budget: Map<string, number>, user_id: string): void {
+  budget.set(user_id, (budget.get(user_id) ?? 0) + 1);
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "23505"
+  );
 }
 
 async function loadTripCalendarEvents(

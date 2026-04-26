@@ -1,5 +1,12 @@
 export type AnomalySource = "ml" | "fallback";
-export type AnomalyModel = "prophet" | "isolation_forest" | "hybrid" | "not_configured";
+export type AnomalyModel =
+  | "prophet"
+  | "isolation_forest"
+  | "hybrid"
+  | "seasonal_robust"
+  | "dimension_pattern"
+  | "hybrid_fallback"
+  | "not_configured";
 export type AnomalyFindingType = "spike" | "drop" | "level_shift" | "pattern_change";
 
 export interface MetricPointInput {
@@ -39,6 +46,7 @@ export interface AnomalyDetectionResult {
 interface DetectAnomalyResponseBody {
   findings?: unknown;
   model?: unknown;
+  model_detail?: unknown;
   points_analyzed?: unknown;
 }
 
@@ -163,8 +171,8 @@ export function detectAnomalyFallback(
   return {
     findings: findings.slice(0, 12).sort((a, b) => Date.parse(a.anomaly_ts) - Date.parse(b.anomaly_ts)),
     model: input.points.some((point) => point.dimensions && Object.keys(point.dimensions).length > 0)
-      ? "hybrid"
-      : "prophet",
+      ? "hybrid_fallback"
+      : "seasonal_robust",
     points_analyzed: points.length,
     source: "fallback",
     latency_ms,
@@ -197,6 +205,9 @@ function normalizeModel(value: unknown): AnomalyModel | null {
   return value === "prophet" ||
     value === "isolation_forest" ||
     value === "hybrid" ||
+    value === "seasonal_robust" ||
+    value === "dimension_pattern" ||
+    value === "hybrid_fallback" ||
     value === "not_configured"
     ? value
     : null;
