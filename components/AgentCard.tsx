@@ -10,7 +10,6 @@
  */
 
 import Link from "next/link";
-import { BrandMark } from "./BrandMark";
 
 export interface AgentCardProps {
   agent_id: string;
@@ -156,6 +155,16 @@ function RiskBadge({
   );
 }
 
+/**
+ * Logo for an agent card — partner-supplied bitmap when present,
+ * otherwise a deterministic colored-initial tile so each agent
+ * still has a distinct visual identity in the marketplace grid.
+ *
+ * The tile color is hashed off the display name so the same agent
+ * always gets the same color across renders. Tailwind's JIT can't
+ * see dynamic class names, so the four-color rotation is hardcoded
+ * as full class strings rather than templated.
+ */
 function Logo({
   logo_url,
   alt,
@@ -169,13 +178,40 @@ function Logo({
       <img
         src={logo_url}
         alt={alt}
-        className="h-10 w-10 rounded-lg border border-lumo-hair bg-lumo-elevated object-cover"
+        className="h-10 w-10 rounded-lg border border-lumo-hair bg-lumo-bg object-cover shrink-0"
+        loading="lazy"
+        onError={(e) => {
+          // If the URL 404s or CORS errors, hide the broken image —
+          // the parent already renders the fallback tile underneath
+          // for any agent whose logo_url is absent, but here we just
+          // silently drop the broken pixel rather than show a glyph.
+          (e.currentTarget as HTMLImageElement).style.display = "none";
+        }}
       />
     );
   }
+  const initial = (alt || "?").trim().charAt(0).toUpperCase();
+  const tones = [
+    "bg-g-blue",
+    "bg-g-red",
+    "bg-g-yellow",
+    "bg-g-green",
+  ] as const;
+  const tone = tones[hashName(alt) % tones.length] ?? "bg-g-blue";
   return (
-    <div className="h-10 w-10 rounded-lg border border-lumo-hair bg-lumo-elevated flex items-center justify-center text-lumo-fg-mid">
-      <BrandMark size={18} />
+    <div
+      className={`h-10 w-10 rounded-lg border border-lumo-hair flex items-center justify-center text-[16px] font-semibold text-white shrink-0 ${tone}`}
+      aria-hidden
+    >
+      {initial}
     </div>
   );
+}
+
+function hashName(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
 }
