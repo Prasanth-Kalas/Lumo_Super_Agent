@@ -111,20 +111,25 @@ export function BrandMark({
 // ─── Full LUMO wordmark ───────────────────────────────────────
 
 /**
- * "LUMO" wordmark — chunky geometric letters in bright cyan with
- * crisp polygon fold-bands that cross U, M, and the right side
- * of O. L stays clean (its silhouette already carries the weight).
+ * "LUMO" wordmark — renders the canonical brand bitmap from
+ * /public/lumo-wordmark.png via an <img> tag. The PNG is generated
+ * by `scripts/build-wordmark.py` from the reference artwork
+ * (bright sky-cyan body + darker same-hue paper-fold creases) at
+ * 1600×384 — that's the source of truth for the visual.
  *
- * Each fold is a hard-edged parallelogram filled with a darker
- * shade of the same hue — no soft gradient, because the source
- * artwork uses crisp paper-fold creases, not glow halos.
+ * Why <img> instead of inline SVG: SVG path approximations of a
+ * specific bitmap kept producing visible drift (letter spacing,
+ * O proportions, fold band geometry). Sourcing from the bitmap
+ * itself eliminates that whole class of issue and means the only
+ * way the wordmark changes is if someone regenerates the asset.
  *
- * Colors are hardcoded (NOT CSS variables). The wordmark is a
- * brand asset and shouldn't follow theme drift if the rest of
- * the UI's accent token changes.
- *
- * Drawn at viewBox 100×24; width auto-scales to preserve aspect.
+ * The asset has a 1600:384 aspect ratio (~4.17:1). We scale by
+ * height; width auto-derives from the aspect to stay crisp at any
+ * size.
  */
+const WORDMARK_W = 1600;
+const WORDMARK_H = 384;
+
 export function LumoWordmark({
   height = 22,
   className = "",
@@ -132,69 +137,16 @@ export function LumoWordmark({
   height?: number;
   className?: string;
 }) {
-  const w = (height * 100) / 24;
-  // Sampled directly from the source artwork — bright cyan body
-  // with a darker same-hue fold/crease. Not the navy --g-blue
-  // accent the rest of the UI uses.
-  const BASE = "#1FB8E8";
-  const FOLD = "#0F7FAE";
+  const width = Math.round((height * WORDMARK_W) / WORDMARK_H);
   return (
-    <svg
-      width={w}
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/lumo-wordmark.png"
+      alt="Lumo"
+      width={width}
       height={height}
-      viewBox="0 0 100 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
       className={className}
-      aria-label="Lumo"
-      role="img"
-    >
-      <defs>
-        {/* Per-letter clip paths so each glyph's base rect and
-            fold polygons stay inside the silhouette. */}
-        <clipPath id="lw3-clip-l">
-          <path d="M0 1 H6 V18 H17 V23 H0 Z" />
-        </clipPath>
-        <clipPath id="lw3-clip-u">
-          <path d="M22 1 H28 V15.5 a4 4 0 0 0 8 0 V1 H42 V16 a10 10 0 0 1 -20 0 Z" />
-        </clipPath>
-        <clipPath id="lw3-clip-m">
-          <path d="M48 23 V1 H54 L60 11 L66 1 H72 V23 H66 V11 L62 17 H58 L54 11 V23 Z" />
-        </clipPath>
-        <clipPath id="lw3-clip-o">
-          <path d="M88 12 a10 10 0 1 1 -20 0 a10 10 0 0 1 20 0 Z M82 12 a4 4 0 1 0 -8 0 a4 4 0 0 0 8 0 Z" />
-        </clipPath>
-      </defs>
-
-      {/* L — solid, no fold */}
-      <g clipPath="url(#lw3-clip-l)">
-        <rect x="0" y="0" width="22" height="24" fill={BASE} />
-      </g>
-
-      {/* U — single diagonal fold parallelogram sweeping from
-          the upper-left corner of the bowl down to the lower-
-          right exit. Hard edges (no gradient). */}
-      <g clipPath="url(#lw3-clip-u)">
-        <rect x="22" y="0" width="22" height="24" fill={BASE} />
-        <polygon points="24,1 31,1 42,23 35,23" fill={FOLD} />
-      </g>
-
-      {/* M — single diagonal fold across the whole letter. The
-          M's V notch naturally splits the band into two visible
-          pieces (left arm, right arm + foot), which mimics how
-          a real fold disappears into a crease. */}
-      <g clipPath="url(#lw3-clip-m)">
-        <rect x="48" y="0" width="24" height="24" fill={BASE} />
-        <polygon points="52,1 59,1 70,23 63,23" fill={FOLD} />
-      </g>
-
-      {/* O — fold is a vertical slice on the right side, inset
-          slightly from the edge so it reads as a paper fold,
-          not a hard right-edge stroke. */}
-      <g clipPath="url(#lw3-clip-o)">
-        <rect x="68" y="2" width="20" height="20" fill={BASE} />
-        <rect x="83" y="2" width="5" height="20" fill={FOLD} />
-      </g>
-    </svg>
+      style={{ display: "block" }}
+    />
   );
 }
