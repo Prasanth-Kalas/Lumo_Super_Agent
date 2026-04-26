@@ -39,12 +39,13 @@
   --lumo-fg-mid:        #7C8290;
   --lumo-fg-low:        #4A4F5B;
 
-  /* Primary accent — Google blue. Used for CTAs, focus rings, the
-     voice-on chip, "tap to talk" buttons, link colors, the
-     Connected pill. Replaces the prior mint accent so the entire
-     shell picks up the brand tone instead of just the logo. */
-  --lumo-accent:        #4285F4;
-  --lumo-accent-dim:    #2C68C9;  /* hover state on accent fills      */
+  /* Primary accent — Lumo brand cyan, sampled from the wordmark.
+     Used for CTAs, focus rings, the voice-on chip, "tap to talk"
+     buttons, link colors, the Connected pill. The whole shell now
+     picks up the brand tone so the logo and the UI feel like one
+     thing, not two. */
+  --lumo-accent:        #1FB8E8;
+  --lumo-accent-dim:    #0F7FAE;  /* hover state — wordmark fold hue   */
   --lumo-accent-ink:    #FFFFFF;  /* text on accent fills              */
 
   /* Semantic — Google green / yellow / red, used sparingly. */
@@ -53,23 +54,22 @@
   --lumo-err:           #EA4335;
 
   /* Selection highlight in the composer / markdown — accent at low alpha. */
-  --lumo-selection:     #4285F433;
-  --lumo-ring:          #4285F466;
+  --lumo-selection:     #1FB8E833;
+  --lumo-ring:          #1FB8E866;
 
   /* Single shadow token. Anything deeper than this reads gratuitous. */
   --lumo-shadow:        0 1px 0 0 #00000066, 0 24px 48px -24px #00000099;
 
-  /* Google-inspired multi-accent palette. The shell is monochrome
-     by default (mint accent above) — these four colors are reserved
-     for things that benefit from being immediately distinguishable:
-     the brand mark, category badges, voice state dots, agent source
-     chips, and the occasional notification pill. Used sparingly so
-     the chat itself doesn't look like a kindergarten poster.
-       g-blue   = primary "do this" / Lumo identity
+  /* Multi-accent palette for things that benefit from being
+     immediately distinguishable: brand mark, category badges,
+     voice state dots, agent source chips, notification pills.
+     Used sparingly so the chat itself doesn't look like a
+     kindergarten poster.
+       g-blue   = primary "do this" / Lumo identity (brand cyan)
        g-red    = errors / destructive
        g-yellow = thinking / pending
        g-green  = success / committed */
-  --g-blue:             #4285F4;
+  --g-blue:             #1FB8E8;
   --g-red:              #EA4335;
   --g-yellow:           #FBBC04;
   --g-green:            #34A853;
@@ -89,24 +89,28 @@
   --lumo-fg-mid:        #6A6F7A;
   --lumo-fg-low:        #A2A6AF;
 
-  /* Same Google-blue accent in light mode — slightly darker hex
-     so it still reads as "instrument" against the white canvas. */
-  --lumo-accent:        #1A73E8;
-  --lumo-accent-dim:    #1557B0;
+  /* Brand cyan in light mode — the wordmark's darker fold hue
+     (#0F7FAE) instead of the body cyan, because cyan-on-white
+     button fills with white text need a higher-contrast tone to
+     stay readable (4.4:1 vs 2.2:1 for the body cyan). The result
+     still reads as "the brand color", just calibrated for paper. */
+  --lumo-accent:        #0F7FAE;
+  --lumo-accent-dim:    #0A6189;
   --lumo-accent-ink:    #FFFFFF;
 
   --lumo-ok:            #1E8E3E;
   --lumo-warn:          #F9AB00;
   --lumo-err:           #D93025;
 
-  --lumo-selection:     #1A73E822;
-  --lumo-ring:          #1A73E844;
+  --lumo-selection:     #1FB8E822;
+  --lumo-ring:          #1FB8E844;
 
   --lumo-shadow:        0 1px 0 0 #0B0E1408, 0 24px 48px -24px #0B0E1418;
 
-  /* Same Google palette in light mode. The hex values are visible
-     enough on white without de-saturating. */
-  --g-blue:             #1A73E8;
+  /* g-blue is the brand identity color (matches the wordmark body)
+     and stays #1FB8E8 in both modes so the brand mark reads the
+     same regardless of theme. */
+  --g-blue:             #1FB8E8;
   --g-red:              #D93025;
   --g-yellow:           #F9AB00;
   --g-green:            #1E8E3E;
