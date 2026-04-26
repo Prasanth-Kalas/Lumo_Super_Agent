@@ -524,11 +524,24 @@ Open acceptance items:
 
 ### Phase 3 - Mission planner and cortex
 
-- Full mission artifact from `plan_task`
-- Required agents, missing permissions, questions, confirmations, rollback
-- Whisper-on-Modal transcript pipeline
-- Audio recall across meetings and uploads
-- Best-time-to-post forecasting
+- `plan_task` becomes the durable mission artifact for multi-agent work:
+  required agents, installed-agent coverage, missing permissions, user questions,
+  confirmation points, rollback plan, and an execution graph.
+- Lumo Core owns mission state. The brain may propose plans and optimize steps,
+  but it cannot bypass connection checks, confirmation cards, or side-effect
+  policy. Mission states are `draft`, `awaiting_permissions`,
+  `awaiting_user_input`, `ready`, `executing`, `awaiting_confirmation`,
+  `completed`, `failed`, and `rolled_back`.
+- Every tool call writes an execution event with `mission_id`, `agent_id`,
+  `tool_name`, `status`, `latency_ms`, and the confirmation card id when a
+  booking, payment, message-send, calendar-write, or account-creation action is
+  proposed.
+- Rollback is explicit per agent. Agents must declare whether a side effect is
+  reversible, compensating-only, or irreversible before Lumo lets the mission
+  planner batch it with other steps.
+- Phase 3 acceptance is a deployed Vegas trip mission that can pause for missing
+  apps, connect an app, resume the same mission, ask remaining slot questions,
+  surface all confirmations, and show a complete execution/audit timeline.
 
 ### Phase 4 - Personal model
 
@@ -580,3 +593,4 @@ Open acceptance items:
 | 2026-04-26 | Add Whisper-on-Modal audio transcription feeding pgvector recall |
 | 2026-04-26 | Add preference-event logging substrate before personalization models |
 | 2026-04-26 | Add layout-aware PDF extraction feeding page-cited pgvector recall |
+| 2026-04-26 | Lock Phase 3 around durable mission state, rollback policy, and execution audit |
