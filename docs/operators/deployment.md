@@ -88,7 +88,7 @@ gcloud run deploy lumo-ml-service \
   --source . \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars LUMO_ML_SERVICE_JWT_SECRET=<same-secret-as-super-agent>
+  --set-env-vars LUMO_ML_SERVICE_JWT_SECRET=<same-secret-as-super-agent>,MODAL_TOKEN_ID=<modal-token-id>,MODAL_TOKEN_SECRET=<modal-token-secret>
 ```
 
 For production, prefer Secret Manager-backed values instead of inline
@@ -98,6 +98,11 @@ proving when the secret is rotated afterward.
 `LUMO_ML_PUBLIC_BASE_URL` is optional on the brain. Leave it unset for the first
 Cloud Run deploy so the service derives its manifest URLs from the incoming
 request; set it later only if you put the service behind a custom domain.
+
+Whisper transcription uses Modal from inside `Lumo_ML_Service`. If
+`MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` are not set, `/api/tools/transcribe`
+returns `status: "not_configured"` and Super Agent marks audio uploads failed
+without crashing recall.
 
 After deploy, copy the Cloud Run HTTPS URL and verify the public contract:
 

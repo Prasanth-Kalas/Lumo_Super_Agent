@@ -98,7 +98,7 @@ openssl rand -hex 32
 
 **Type:** Not sensitive
 **Required:** No
-**Purpose:** Operational kill switch for `/api/cron/index-archive`. Set to `true` to let the cron embed redacted `connector_responses_archive` rows. Any other value makes the cron report `skipped: "disabled"` without calling `Lumo_ML_Service`.
+**Purpose:** Operational kill switch for `/api/cron/index-archive`. Set to `true` to let the cron embed redacted `connector_responses_archive` rows and `audio_transcripts`. Any other value makes the cron report `skipped: "disabled"` without calling `Lumo_ML_Service`.
 **Default:** disabled
 
 ### `LUMO_ARCHIVE_INDEXER_ROW_LIMIT`

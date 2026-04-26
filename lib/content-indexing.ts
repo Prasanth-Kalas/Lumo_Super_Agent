@@ -34,6 +34,19 @@ export interface ArchiveTextChunk {
   metadata: Record<string, unknown>;
 }
 
+export interface AudioTranscriptContentRow {
+  id: string | number;
+  user_id: string;
+  audio_upload_id: string;
+  storage_path: string;
+  transcript: string;
+  segments: unknown;
+  language?: string | null;
+  duration_s?: number | null;
+  model?: string | null;
+  created_at: string;
+}
+
 const INCLUDE_KEY_RE =
   /(^|[_-])(text|title|body|description|summary|snippet|subject|message|name|comment|comments|caption|transcript|content|note|notes|location)([_-]|$)/i;
 const EXCLUDE_KEY_RE =
@@ -82,6 +95,40 @@ export function buildArchiveTextChunks(
     }));
 }
 
+export function buildAudioTranscriptTextChunks(
+  row: AudioTranscriptContentRow,
+  options: { chunkChars?: number; maxChunks?: number } = {},
+): ArchiveTextChunk[] {
+  const redacted = redactForEmbedding(row.transcript);
+  const normalized = normalizeText(redacted.text).slice(0, MAX_TEXT_PER_ROW);
+  if (normalized.length < 24) return [];
+
+  const source_etag = audioTranscriptSourceEtag(row);
+  const chunkChars = clampInt(options.chunkChars, 400, 4000, DEFAULT_CHUNK_CHARS);
+  const maxChunks = clampInt(options.maxChunks, 1, 24, DEFAULT_MAX_CHUNKS);
+  return splitIntoChunks(normalized, chunkChars)
+    .slice(0, maxChunks)
+    .map((text, chunk_index) => ({
+      source_row_id: String(row.id),
+      source_etag,
+      chunk_index,
+      text,
+      content_hash: sha256(text),
+      metadata: {
+        source: "audio_transcripts",
+        audio_upload_id: row.audio_upload_id,
+        storage_path_hash: sha256(row.storage_path),
+        language: row.language ?? null,
+        duration_s: row.duration_s ?? null,
+        model: row.model ?? null,
+        segment_count: Array.isArray(row.segments) ? row.segments.length : null,
+        created_at: row.created_at,
+        redacted: true,
+        redaction_counts: redacted.counts,
+      },
+    }));
+}
+
 export function sourceEtag(row: ArchiveContentRow): string {
   return sha256(
     stableJson({
@@ -90,6 +137,19 @@ export function sourceEtag(row: ArchiveContentRow): string {
       request_hash: row.request_hash,
       response_status: row.response_status,
       response_body: row.response_body,
+    }),
+  );
+}
+
+export function audioTranscriptSourceEtag(row: AudioTranscriptContentRow): string {
+  return sha256(
+    stableJson({
+      audio_upload_id: row.audio_upload_id,
+      transcript: row.transcript,
+      segments: row.segments,
+      language: row.language ?? null,
+      duration_s: row.duration_s ?? null,
+      model: row.model ?? null,
     }),
   );
 }

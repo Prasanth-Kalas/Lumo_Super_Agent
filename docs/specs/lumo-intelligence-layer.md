@@ -478,6 +478,17 @@ Open acceptance items:
   prompt to this tool; it derives a bounded stop graph from the mission plan and
   falls back locally if the optimizer is slow, unavailable, or malformed.
 
+### Phase 2 Sprint 0 - Audio recall
+
+- `lumo_transcribe` runs Whisper large-v3 through a Modal GPU job. Browser audio
+  uploads land in the private Supabase `audio` bucket, Lumo Core signs a short
+  read URL for the brain, then stores transcripts in `audio_transcripts`.
+- Transcript text is redacted through the same `redactForEmbedding` path before
+  it enters `content_embeddings`; `/api/cron/index-archive` now indexes both
+  `connector_responses_archive` rows and `audio_transcripts`.
+- Speaker diarization is response-shape compatible in Sprint 0 (`speaker:
+  null`); pyannote-backed speakers remain Sprint 1.
+
 ### Phase 2 - Marketplace brain
 
 - Personalized marketplace ranking
@@ -541,3 +552,4 @@ Open acceptance items:
 | 2026-04-26 | Keep confirmation cards as the only path to side effects |
 | 2026-04-26 | Add Presidio-backed second-pass redaction before Phase 2 multimodal ingestion |
 | 2026-04-26 | Add OR-Tools trip optimization as a bounded computation tool with Core fallback |
+| 2026-04-26 | Add Whisper-on-Modal audio transcription feeding pgvector recall |

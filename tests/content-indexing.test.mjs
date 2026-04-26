@@ -6,6 +6,7 @@
 
 import assert from "node:assert/strict";
 import {
+  buildAudioTranscriptTextChunks,
   buildArchiveTextChunks,
   redactForEmbedding,
   sourceEtag,
@@ -119,6 +120,28 @@ t("source etag is stable across object key order", () => {
   const a = sourceEtag({ ...base, response_body: { b: 2, a: 1 } });
   const b = sourceEtag({ ...base, response_body: { a: 1, b: 2 } });
   assert.equal(a, b);
+});
+
+t("audio transcript chunks redact before recall indexing", () => {
+  const chunks = buildAudioTranscriptTextChunks({
+    id: 7,
+    user_id: "user_1",
+    audio_upload_id: "audio_1",
+    storage_path: "users/user_1/audio_1.mp3",
+    transcript:
+      "Meeting note: Alex asked about Vegas hotels. Contact alex@example.com after the call.",
+    segments: [{ start: 0, end: 5, text: "Meeting note" }],
+    language: "en",
+    duration_s: 8,
+    model: "whisper-large-v3",
+    created_at: "2026-04-26T00:00:00.000Z",
+  });
+
+  assert.equal(chunks.length, 1);
+  assert.match(chunks[0].text, /Vegas hotels/);
+  assert.match(chunks[0].text, /\[EMAIL\]/);
+  assert.equal(chunks[0].metadata.source, "audio_transcripts");
+  assert.equal(chunks[0].metadata.model, "whisper-large-v3");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

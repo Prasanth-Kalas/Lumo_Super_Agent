@@ -64,6 +64,7 @@ const PROTECTED_API_PREFIXES = [
   "/api/intents",
   "/api/notifications",
   "/api/autonomy",
+  "/api/audio",
   "/api/ops",
   // Must be gated — listSessionsForUser / listTripsForUser only know
   // about the user_id you pass them; if we let unauth'd requests

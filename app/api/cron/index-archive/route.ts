@@ -8,7 +8,7 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
-import { indexConnectorArchive } from "@/lib/content-indexer";
+import { indexAudioTranscripts, indexConnectorArchive } from "@/lib/content-indexer";
 import { recordCronRun } from "@/lib/ops";
 
 export const runtime = "nodejs";
@@ -54,12 +54,33 @@ export async function GET(req: NextRequest) {
   const embedBatchSize = intFromEnv("LUMO_ARCHIVE_INDEXER_BATCH_SIZE", 32);
   const concurrency = intFromEnv("LUMO_ARCHIVE_INDEXER_CONCURRENCY", 8);
 
-  const result = await indexConnectorArchive({
-    rowLimit,
-    embedBatchSize,
-    concurrency,
-    dryRun,
-  });
+  const [archiveResult, audioResult] = await Promise.all([
+    indexConnectorArchive({
+      rowLimit,
+      embedBatchSize,
+      concurrency,
+      dryRun,
+    }),
+    indexAudioTranscripts({
+      rowLimit,
+      embedBatchSize,
+      concurrency: Math.min(concurrency, 2),
+      dryRun,
+    }),
+  ]);
+
+  const result = {
+    ok: archiveResult.ok && audioResult.ok,
+    skipped:
+      archiveResult.skipped === "no_rows" && audioResult.skipped === "no_rows"
+        ? "no_rows"
+        : undefined,
+    counts: {
+      ...prefixCounts("archive", archiveResult.counts),
+      ...prefixCounts("audio_transcripts", audioResult.counts),
+    },
+    errors: [...archiveResult.errors, ...audioResult.errors].slice(0, 20),
+  };
 
   await recordCronRun({
     endpoint: ENDPOINT,
@@ -93,4 +114,13 @@ function intFromEnv(name: string, fallback: number): number {
   if (!raw) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+}
+
+function prefixCounts(
+  prefix: string,
+  counts: Record<string, number>,
+): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(counts).map(([key, value]) => [`${prefix}_${key}`, value]),
+  );
 }
