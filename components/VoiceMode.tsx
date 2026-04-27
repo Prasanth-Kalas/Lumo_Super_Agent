@@ -849,6 +849,30 @@ export default function VoiceMode(props: VoiceModeProps) {
         setState("idle");
         return;
       }
+      if (code === "network") {
+        // Chrome/Safari Web Speech can fail when the browser's remote
+        // speech service is unreachable. Treat it as voice-input
+        // unavailable for this attempt, not as a fatal app error.
+        const buffered = finalBufferRef.current.trim();
+        finalBufferRef.current = "";
+        setInterim("");
+        userStoppedListeningRef.current = true;
+        if (recognitionRef.current === rec) {
+          recognitionRef.current = null;
+        }
+        if (buffered) {
+          try {
+            onUserUtterance(buffered);
+          } catch {
+            /* ignore */
+          }
+        }
+        setErrorMessage(
+          "speech input is unavailable in this browser session; typed chat and speaker still work",
+        );
+        setState("idle");
+        return;
+      }
       const buffered = finalBufferRef.current.trim();
       finalBufferRef.current = "";
       setInterim("");
@@ -1378,6 +1402,12 @@ export default function VoiceMode(props: VoiceModeProps) {
         <div className="rounded-xl border border-lumo-hair bg-lumo-elevated/50 px-3 py-2 text-[13.5px]">
           <span className="text-lumo-fg-low">Heard: </span>
           <span className="text-lumo-fg">{interim}</span>
+        </div>
+      ) : null}
+
+      {state === "idle" && errorMessage ? (
+        <div className="rounded-xl border border-lumo-warn/35 bg-lumo-warn/5 px-3 py-2 text-[13px] text-lumo-warn">
+          Voice note: {errorMessage}. Use text or tap to retry.
         </div>
       ) : null}
 

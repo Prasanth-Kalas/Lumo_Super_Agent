@@ -101,6 +101,7 @@ export interface BuildMissionPlanInput {
   installs?: AppInstall[];
   user_id?: string | null;
   session_id?: string | null;
+  continue_approved?: boolean;
   ranked_agents?: RankedAgentResult[];
   risk_badges?: Record<string, RiskBadge> | Map<string, RiskBadge>;
   trip_optimization?: TripOptimizationResult | null;
@@ -350,14 +351,20 @@ export function buildLumoMissionPlan(
   }
 
   const dedupedAgents = dedupeByAgentAndCapability(required_agents);
-  const ready_agents = dedupedAgents.filter((a) => a.state === "ready");
-  const install_proposals = dedupedAgents
-    .filter((a) => a.state !== "ready" && a.state !== "unavailable")
-    .map(toInstallProposal);
+  const continueApproved =
+    input.continue_approved === true || isMissionContinueApproval(request);
+  const missionAgents = continueApproved
+    ? dedupedAgents.filter((a) => a.state === "ready")
+    : dedupedAgents;
+  const ready_agents = missionAgents.filter((a) => a.state === "ready");
+  const install_proposals = continueApproved
+    ? []
+    : missionAgents
+        .filter((a) => a.state !== "ready" && a.state !== "unavailable")
+        .map(toInstallProposal);
 
   const mission_id = stableMissionId(request, dedupedAgents, unavailable_capabilities);
   const mission_title = inferMissionTitle(request, dedupedAgents);
-  const continueApproved = isMissionContinueApproval(request);
   const should_pause_for_permission =
     install_proposals.length > 0 ||
     (unavailable_capabilities.length > 0 && !continueApproved);
@@ -381,7 +388,7 @@ export function buildLumoMissionPlan(
     original_request: request,
     mission_title,
     message,
-    required_agents: dedupedAgents,
+    required_agents: missionAgents,
     ready_agents,
     install_proposals,
     ranked_recommendations,

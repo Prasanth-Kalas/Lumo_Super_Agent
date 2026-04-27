@@ -34,7 +34,10 @@ import {
   buildLumoMissionPlan,
   type LumoMissionPlan,
 } from "./lumo-mission.js";
-import { selectMissionPlanningRequest } from "./mission-context.js";
+import {
+  isMissionContinueApproval,
+  selectMissionPlanningRequest,
+} from "./mission-context.js";
 import {
   describeRegistryAgents,
   evaluateRiskBadgesForAgents,
@@ -284,6 +287,7 @@ export async function runTurn(
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
   const missionRequest = selectMissionPlanningRequest(input.messages);
+  const missionContinueApproved = isMissionContinueApproval(lastUserForMission);
   if (
     input.user_id !== "anon" &&
     shouldRunArchiveRecall(lastUserForMission)
@@ -381,6 +385,7 @@ export async function runTurn(
     installs,
     user_id: input.user_id,
     session_id: input.session_id,
+    continue_approved: missionContinueApproved,
     ranked_agents: rankResult?.ranked_agents,
     risk_badges: riskBadges,
   });

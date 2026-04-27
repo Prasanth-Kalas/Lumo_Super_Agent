@@ -154,6 +154,39 @@ t("continue approval does not re-open unavailable-only mission gate", () => {
   assert.equal(plan.can_continue_now, true);
 });
 
+t("continue approval skips unapproved marketplace proposals", () => {
+  const plan = buildLumoMissionPlan({
+    request:
+      "Continue planning this mission with approved apps: Plan a quick weekend trip to Las Vegas next month — flights, hotel, two restaurant reservations.",
+    registry,
+    user_id: "00000000-0000-0000-0000-000000000001",
+    continue_approved: true,
+  });
+  assert.equal(plan.install_proposals.length, 0);
+  assert.equal(plan.ready_agents.length, 0);
+  assert.equal(plan.should_pause_for_permission, false);
+  assert.equal(plan.can_continue_now, true);
+});
+
+t("continue approval carries already-approved apps forward", () => {
+  const plan = buildLumoMissionPlan({
+    request:
+      "Continue planning this mission with approved apps: Plan a quick weekend trip to Las Vegas next month — flights, hotel, two restaurant reservations.",
+    registry,
+    user_id: "00000000-0000-0000-0000-000000000001",
+    continue_approved: true,
+    installs: [install("flight"), install("hotel")],
+    connections: [connection("food")],
+  });
+  assert.equal(plan.install_proposals.length, 0);
+  assert.deepEqual(
+    plan.ready_agents.map((agent) => agent.agent_id).sort(),
+    ["flight", "hotel"],
+  );
+  assert.equal(plan.should_pause_for_permission, false);
+  assert.equal(plan.can_continue_now, true);
+});
+
 t("rank and risk enrichment lands on Vegas mission proposals", () => {
   const plan = buildLumoMissionPlan({
     request: "Book flights, hotels and cabs to Vegas next Saturday.",
@@ -246,6 +279,17 @@ function install(agent_id) {
     installed_at: new Date().toISOString(),
     revoked_at: null,
     last_used_at: null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function connection(agent_id) {
+  return {
+    user_id: "00000000-0000-0000-0000-000000000001",
+    agent_id,
+    status: "active",
+    scopes: [],
+    expires_at: null,
     updated_at: new Date().toISOString(),
   };
 }
