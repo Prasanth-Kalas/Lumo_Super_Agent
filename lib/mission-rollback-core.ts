@@ -25,6 +25,7 @@ export interface RollbackMissionRow {
   id: string;
   user_id?: string | null;
   state: MissionState;
+  updated_at?: string | null;
 }
 
 export interface RollbackStepRow {
@@ -76,6 +77,14 @@ const TERMINAL_ROLLBACK_EVENTS = new Set([
   "rollback_step_succeeded",
   "rollback_step_failed",
   "rollback_step_skipped",
+]);
+
+const NEVER_EXECUTED_STEP_STATUSES = new Set([
+  "pending",
+  "awaiting_confirmation",
+  "ready",
+  "skipped",
+  "rolled_back",
 ]);
 
 export function rollbackTransition(
@@ -177,6 +186,12 @@ export function rollbackCompleteFromSteps(
     skipped: 0,
     failed: 0,
   };
+  if (
+    forwardSucceeded.length === 0 &&
+    steps.some((step) => !NEVER_EXECUTED_STEP_STATUSES.has(String(step.status)))
+  ) {
+    return { complete: false, failed: false, counts };
+  }
   for (const step of forwardSucceeded) {
     const terminal = events.find(
       (event) =>

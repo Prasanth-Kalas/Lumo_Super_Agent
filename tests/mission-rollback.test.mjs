@@ -210,9 +210,42 @@ async function main() {
     });
   });
 
+  await t("initiating rollback does not complete while a step is running", async () => {
+    const db = mockRollbackDb({
+      missions: [{ id: "mission_running", user_id: userId(), state: "executing" }],
+      steps: [
+        step("step_running", "mission_running", 0, "reversible", {
+          status: "running",
+          finished_at: null,
+        }),
+      ],
+    });
+
+    const result = await initiateMissionRollback({
+      mission_id: "mission_running",
+      trigger: "user",
+      reason: "workspace_cancel",
+      actor_user_id: userId(),
+      user_id: userId(),
+      db,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.state, "rolling_back");
+    assert.equal(db.tables.missions[0].state, "rolling_back");
+    assert.deepEqual(db.tables.events.map((row) => row.event_type), [
+      "rollback_initiated",
+    ]);
+  });
+
   await t("rollback tick finishes already-initiated missions with no claimable steps", async () => {
     const db = mockRollbackDb({
-      missions: [{ id: "mission_stuck", user_id: userId(), state: "rolling_back" }],
+      missions: [{
+        id: "mission_stuck",
+        user_id: userId(),
+        state: "rolling_back",
+        updated_at: "2026-04-27T00:00:00Z",
+      }],
       steps: [
         step("step_stuck", "mission_stuck", 0, "reversible", {
           status: "pending",
@@ -241,6 +274,41 @@ async function main() {
     ]);
   });
 
+  await t("rollback tick leaves fresh rolling_back missions alone", async () => {
+    const db = mockRollbackDb({
+      missions: [{
+        id: "mission_fresh",
+        user_id: userId(),
+        state: "rolling_back",
+        updated_at: new Date().toISOString(),
+      }],
+      steps: [
+        step("step_fresh", "mission_fresh", 0, "reversible", {
+          status: "pending",
+          finished_at: null,
+        }),
+      ],
+      events: [
+        {
+          mission_id: "mission_fresh",
+          step_id: null,
+          event_type: "rollback_initiated",
+          payload: { reason: "workspace_cancel" },
+        },
+      ],
+    });
+
+    const result = await runMissionRollbackTick({ db });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.counts.claimed, 0);
+    assert.equal(result.counts.rollback_completed, 0);
+    assert.equal(db.tables.missions[0].state, "rolling_back");
+    assert.deepEqual(db.tables.events.map((row) => row.event_type), [
+      "rollback_initiated",
+    ]);
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);
 }
@@ -264,7 +332,10 @@ function step(id, mission_id, step_order, reversibility, overrides = {}) {
 
 function mockRollbackDb(seed) {
   const tables = {
-    missions: seed.missions.map((row) => ({ ...row })),
+    missions: seed.missions.map((row) => ({
+      updated_at: "2026-04-27T00:00:00Z",
+      ...row,
+    })),
     steps: seed.steps.map((row) => ({ ...row })),
     events: (seed.events ?? []).map((row) => ({ ...row })),
     attempts: [],

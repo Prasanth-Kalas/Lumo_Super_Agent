@@ -16,6 +16,8 @@ import { hashPayload } from "./mission-executor-core.ts";
 import type { AgentError } from "@lumo/agent-sdk";
 import type { MissionState } from "./mission-execution-core.ts";
 
+const ROLLBACK_IDLE_SWEEP_MIN_AGE_MS = 60_000;
+
 interface SupabaseLike {
   from(table: string): any;
   rpc?(fn: string, args?: Record<string, unknown>): any;
@@ -246,10 +248,21 @@ async function finishIdleRollingBackMissions(
 ): Promise<number> {
   const missions = await readRollingBackMissions(db, limit);
   let completed = 0;
+  const now = Date.now();
   for (const mission of missions) {
+    if (!isRollbackIdleSweepEligible(mission, now)) continue;
     if (await finishMissionRollbackIfComplete(db, mission.id)) completed += 1;
   }
   return completed;
+}
+
+function isRollbackIdleSweepEligible(
+  mission: RollbackMissionRow,
+  nowMs: number,
+): boolean {
+  const updatedAt = mission.updated_at ? Date.parse(mission.updated_at) : NaN;
+  if (!Number.isFinite(updatedAt)) return false;
+  return nowMs - updatedAt >= ROLLBACK_IDLE_SWEEP_MIN_AGE_MS;
 }
 
 async function dispatchRollbackTool(
@@ -288,7 +301,7 @@ async function claimRollbackSteps(
 async function readMission(db: SupabaseLike, mission_id: string): Promise<RollbackMissionRow | null> {
   const { data, error } = await db
     .from("missions")
-    .select("id, user_id, state")
+    .select("id, user_id, state, updated_at")
     .eq("id", mission_id)
     .limit(1);
   if (error) throw new Error(`mission_read_failed:${error.message ?? "unknown"}`);
@@ -301,7 +314,7 @@ async function readRollingBackMissions(
 ): Promise<RollbackMissionRow[]> {
   const { data, error } = await db
     .from("missions")
-    .select("id, user_id, state")
+    .select("id, user_id, state, updated_at")
     .eq("state", "rolling_back")
     .limit(Math.max(1, Math.min(10, Math.trunc(limit))));
   if (error) throw new Error(`rolling_back_missions_read_failed:${error.message ?? "unknown"}`);
@@ -438,6 +451,7 @@ function normalizeMissionRow(row: unknown): RollbackMissionRow | null {
     id,
     user_id: stringOrNull(row.user_id),
     state,
+    updated_at: stringOrNull(row.updated_at),
   };
 }
 
