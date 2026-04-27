@@ -1,4 +1,5 @@
 import type { ToolRoutingEntry } from "@lumo/agent-sdk";
+import { createBrainSdkFetch } from "./brain-sdk/index.js";
 import { recordRuntimeUsage } from "./runtime-policy.js";
 import { signLumoServiceJwt } from "./service-jwt.js";
 import {
@@ -27,12 +28,20 @@ export async function transcribeAudio(args: {
     user_id: args.user_id,
     scope: LUMO_TRANSCRIBE_TOOL,
   });
+  const timeoutMs = clampInt(args.timeoutMs, 1_000, 300_000, TRANSCRIBE_TIMEOUT_MS);
   return transcribeAudioCore({
     input: args.input,
     baseUrl,
     authorizationHeader,
-    fetchImpl: args.fetchImpl ?? fetch,
-    timeoutMs: clampInt(args.timeoutMs, 1_000, 300_000, TRANSCRIBE_TIMEOUT_MS),
+    fetchImpl:
+      args.fetchImpl ??
+      createBrainSdkFetch({
+        user_id: args.user_id,
+        baseUrl,
+        timeoutMs,
+        callerSurface: "audio-transcription",
+      }),
+    timeoutMs,
     recordUsage: (ok, error_code, latency_ms) =>
       recordTranscriptionUsage({
         user_id: args.user_id,

@@ -1,4 +1,5 @@
 import type { ToolRoutingEntry } from "@lumo/agent-sdk";
+import { createBrainSdkFetch } from "./brain-sdk/index.js";
 import { recordRuntimeUsage } from "./runtime-policy.js";
 import { signLumoServiceJwt } from "./service-jwt.js";
 import {
@@ -27,12 +28,20 @@ export async function detectMetricAnomalies(args: {
     user_id: args.user_id,
     scope: LUMO_ANOMALY_TOOL,
   });
+  const timeoutMs = clampInt(args.timeoutMs, 50, 5000, ANOMALY_TIMEOUT_MS);
   return detectAnomalyCore({
     input: args.input,
     baseUrl,
     authorizationHeader,
-    fetchImpl: args.fetchImpl ?? fetch,
-    timeoutMs: clampInt(args.timeoutMs, 50, 5000, ANOMALY_TIMEOUT_MS),
+    fetchImpl:
+      args.fetchImpl ??
+      createBrainSdkFetch({
+        user_id: args.user_id,
+        baseUrl,
+        timeoutMs,
+        callerSurface: "anomaly-detection",
+      }),
+    timeoutMs,
     recordUsage: (ok, error_code, latency_ms) =>
       recordAnomalyUsage({
         user_id: args.user_id,

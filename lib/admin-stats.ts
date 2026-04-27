@@ -19,6 +19,7 @@
  */
 
 import { getSupabase } from "./db.js";
+import { createBrainSdkFetch } from "./brain-sdk/index.js";
 import {
   formatAnomalyFinding,
   formatMissionRow,
@@ -55,7 +56,15 @@ export type {
 export async function fetchAdminIntelligenceStats(opts?: {
   fetchImpl?: typeof fetch;
 }): Promise<AdminIntelligenceStats> {
-  const fetchImpl = opts?.fetchImpl ?? fetch;
+  const fetchImpl =
+    opts?.fetchImpl ??
+    createBrainSdkFetch({
+      user_id: "admin",
+      baseUrl: resolveBrainBaseUrl(),
+      timeoutMs: BRAIN_HEALTH_TIMEOUT_MS,
+      maxAttempts: 1,
+      callerSurface: "admin-intelligence-health",
+    });
   const generated_at = new Date().toISOString();
   const nowMs = Date.now();
   const since24h = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();

@@ -3,6 +3,7 @@ import { getSupabase } from "./db.js";
 import { redactForEmbedding } from "./content-indexing.js";
 import { recordRuntimeUsage } from "./runtime-policy.js";
 import { signLumoServiceJwt } from "./service-jwt.js";
+import { createBrainSdkFetch } from "./brain-sdk/index.js";
 import {
   recallArchiveCore,
   recallArchiveFallback,
@@ -98,7 +99,14 @@ export async function recallFromArchive(args: {
   const topK = clampInt(args.topK, 1, 20, DEFAULT_TOP_K);
   const candidateLimit = clampInt(args.candidateLimit, topK, 50, DEFAULT_CANDIDATE_LIMIT);
   const baseUrl = resolveMlBaseUrl(args.mlBaseUrl);
-  const fetchImpl = args.fetchImpl ?? fetch;
+  const fetchImpl =
+    args.fetchImpl ??
+    createBrainSdkFetch({
+      user_id: args.user_id,
+      baseUrl,
+      timeoutMs: Math.max(RECALL_TIMEOUT_MS, EMBED_TIMEOUT_MS),
+      callerSurface: "archive-recall",
+    });
   const queryEmbedding = await embedRecallQuery({
     user_id: args.user_id,
     query,

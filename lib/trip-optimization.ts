@@ -1,4 +1,5 @@
 import type { ToolRoutingEntry } from "@lumo/agent-sdk";
+import { createBrainSdkFetch } from "./brain-sdk/index.js";
 import { recordRuntimeUsage } from "./runtime-policy.js";
 import { signLumoServiceJwt } from "./service-jwt.js";
 import {
@@ -30,13 +31,21 @@ export async function optimizeMissionTrip(args: {
     user_id: args.user_id,
     scope: LUMO_OPTIMIZE_TOOL,
   });
+  const timeoutMs = clampInt(args.timeoutMs, 50, 5000, TRIP_OPTIMIZATION_TIMEOUT_MS);
   return optimizeTripCore({
     user_id: args.user_id,
     input,
     baseUrl,
     authorizationHeader,
-    fetchImpl: args.fetchImpl ?? fetch,
-    timeoutMs: clampInt(args.timeoutMs, 50, 5000, TRIP_OPTIMIZATION_TIMEOUT_MS),
+    fetchImpl:
+      args.fetchImpl ??
+      createBrainSdkFetch({
+        user_id: args.user_id,
+        baseUrl,
+        timeoutMs,
+        callerSurface: "trip-optimization",
+      }),
+    timeoutMs,
     recordUsage: (ok, error_code, latency_ms) =>
       recordOptimizationUsage({
         user_id: args.user_id,

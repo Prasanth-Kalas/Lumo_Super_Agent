@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getSupabase } from "./db.js";
 import { signLumoServiceJwt } from "./service-jwt.js";
+import { createBrainSdkFetch } from "./brain-sdk/index.js";
 import {
   buildAudioTranscriptTextChunks,
   buildArchiveTextChunks,
@@ -655,7 +656,15 @@ async function embedBatch(
   const baseUrl = (options.mlBaseUrl ?? process.env.LUMO_ML_AGENT_URL ?? "http://localhost:3010")
     .replace(/\/+$/, "");
   const url = `${baseUrl}/api/tools/embed`;
-  const fetcher = options.fetchImpl ?? fetch;
+  const fetcher =
+    options.fetchImpl ??
+    createBrainSdkFetch({
+      user_id,
+      baseUrl,
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+      maxAttempts: 1,
+      callerSurface: "content-indexer",
+    });
   const token = signLumoServiceJwt({
     audience: LUMO_ML_AGENT_ID,
     user_id,

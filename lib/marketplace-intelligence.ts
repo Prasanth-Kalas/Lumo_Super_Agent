@@ -4,6 +4,7 @@ import type { ToolRoutingEntry } from "@lumo/agent-sdk";
 import { redactForEmbedding } from "./content-indexing.js";
 import { recordRuntimeUsage } from "./runtime-policy.js";
 import { signLumoServiceJwt } from "./service-jwt.js";
+import { createBrainSdkFetch } from "./brain-sdk/index.js";
 import {
   evaluateAgentRiskCore,
   rankAgentsCore,
@@ -72,6 +73,7 @@ export async function rankAgentsForIntent(args: {
     user_id: args.user_id,
     scope: LUMO_RANK_TOOL,
   });
+  const timeoutMs = clampInt(args.timeoutMs, 50, 2000, MARKETPLACE_INTELLIGENCE_TIMEOUT_MS);
   return rankAgentsCore({
     user_id: args.user_id,
     user_intent: redactForEmbedding(args.user_intent).text,
@@ -79,8 +81,15 @@ export async function rankAgentsForIntent(args: {
     installed_agent_ids: args.installed_agent_ids,
     baseUrl,
     authorizationHeader,
-    fetchImpl: args.fetchImpl ?? fetch,
-    timeoutMs: clampInt(args.timeoutMs, 50, 2000, MARKETPLACE_INTELLIGENCE_TIMEOUT_MS),
+    fetchImpl:
+      args.fetchImpl ??
+      createBrainSdkFetch({
+        user_id: args.user_id,
+        baseUrl,
+        timeoutMs,
+        callerSurface: "marketplace-rank",
+      }),
+    timeoutMs,
     limit: clampInt(args.limit, 1, 25, 8),
     recordUsage: (ok, error_code, latency_ms) =>
       recordIntelligenceUsage({
@@ -108,6 +117,15 @@ export async function evaluateRiskBadgesForAgents(args: {
     user_id: args.user_id,
     scope: LUMO_RISK_TOOL,
   });
+  const timeoutMs = clampInt(args.timeoutMs, 50, 2000, MARKETPLACE_INTELLIGENCE_TIMEOUT_MS);
+  const fetchImpl =
+    args.fetchImpl ??
+    createBrainSdkFetch({
+      user_id: args.user_id,
+      baseUrl,
+      timeoutMs,
+      callerSurface: "marketplace-risk",
+    });
   const peerScopes = buildPeerScopes(args.agents);
   const out = new Map<string, RiskBadge>();
   let next = 0;
@@ -124,8 +142,8 @@ export async function evaluateRiskBadgesForAgents(args: {
         category_peer_scopes: peerScopes.get(peerKey(agent)) ?? [],
         baseUrl,
         authorizationHeader,
-        fetchImpl: args.fetchImpl ?? fetch,
-        timeoutMs: clampInt(args.timeoutMs, 50, 2000, MARKETPLACE_INTELLIGENCE_TIMEOUT_MS),
+        fetchImpl,
+        timeoutMs,
         recordUsage: (ok, error_code, latency_ms) =>
           recordIntelligenceUsage({
             user_id: args.user_id,

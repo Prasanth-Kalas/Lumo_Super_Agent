@@ -1,6 +1,7 @@
 import { signLumoServiceJwt } from "./service-jwt.js";
 import { recordRuntimeUsage } from "./runtime-policy.js";
 import { redactForEmbedding } from "./content-indexing.js";
+import { createBrainSdkFetch } from "./brain-sdk/index.js";
 import { classifyLeadItemsCore } from "./workspace-lead-classifier-core.js";
 import {
   LEAD_SCORE_THRESHOLD,
@@ -60,7 +61,14 @@ export async function classifyLeadItems(
     fallbackScores: fallback,
     baseUrl,
     authorizationHeader: authHeader,
-    fetchImpl: options.fetchImpl ?? fetch,
+    fetchImpl:
+      options.fetchImpl ??
+      createBrainSdkFetch({
+        user_id,
+        baseUrl,
+        timeoutMs,
+        callerSurface: "workspace-lead-classifier",
+      }),
     timeoutMs,
     threshold: LEAD_SCORE_THRESHOLD,
     itemCap: CLASSIFY_ITEM_CAP,
