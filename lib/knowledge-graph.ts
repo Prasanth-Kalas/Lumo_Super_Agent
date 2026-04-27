@@ -309,13 +309,15 @@ export function prepareGraphEdgeSeedRows(
   fixture: KnowledgeGraphFixture,
   nodeIdByFixtureId: Map<string, string>,
 ): GraphEdgeSeedRow[] {
-  return fixture.edges.map((edge) => {
+  const rows: GraphEdgeSeedRow[] = [];
+  const seen = new Set<string>();
+  for (const edge of fixture.edges) {
     const source_id = nodeIdByFixtureId.get(edge.source_id);
     const target_id = nodeIdByFixtureId.get(edge.target_id);
     if (!source_id || !target_id) {
       throw new Error(`graph_seed_edge_endpoint_missing:${edge.id}`);
     }
-    return {
+    const row = {
       user_id,
       source_id,
       target_id,
@@ -327,7 +329,12 @@ export function prepareGraphEdgeSeedRows(
       source_url: edge.source_url ?? null,
       asserted_at: edge.asserted_at ?? new Date().toISOString(),
     };
-  });
+    const key = edgeSeedKey(row.user_id, row.source_id, row.target_id, row.edge_type);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(row);
+  }
+  return rows;
 }
 
 export async function traverseKnowledgeGraph(
@@ -551,6 +558,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nodeSeedKey(label: string, external_key: string): string {
   return `${label.toLowerCase()}::${external_key}`;
+}
+
+function edgeSeedKey(user_id: string, source_id: string, target_id: string, edge_type: string): string {
+  return `${user_id}::${source_id}::${target_id}::${edge_type.toUpperCase()}`;
 }
 
 function resolveMlBaseUrl(): string {

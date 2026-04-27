@@ -200,9 +200,11 @@ t("scopes synthetic DB seed rows per tenant without fixture id collisions", () =
   const mapB = buildGraphSeedNodeIdMap(tenantB, synthetic, dbNodesB);
   const edgesA = prepareGraphEdgeSeedRows(tenantA, synthetic, mapA);
   const edgesB = prepareGraphEdgeSeedRows(tenantB, synthetic, mapB);
+  const edgeKeysA = new Set(edgesA.map((row) => `${row.user_id}:${row.source_id}:${row.target_id}:${row.edge_type}`));
+  const edgeKeysB = new Set(edgesB.map((row) => `${row.user_id}:${row.source_id}:${row.target_id}:${row.edge_type}`));
 
-  assert.equal(edgesA.length, 313);
-  assert.equal(edgesB.length, 313);
+  assert.equal(edgesA.length, edgeKeysA.size);
+  assert.equal(edgesB.length, edgeKeysB.size);
   assert.equal(edgesA.some((row) => "id" in row), false);
   assert.equal(edgesB.some((row) => "id" in row), false);
 
