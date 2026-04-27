@@ -32,6 +32,7 @@ const t = (name, fn) => {
 const USER_A = "00000000-0000-0000-0000-000000000aaa";
 const USER_B = "00000000-0000-0000-0000-000000000bbb";
 const synthetic = JSON.parse(fs.readFileSync("tests/fixtures/vegas-kg-synthetic.json", "utf8"));
+const migration035 = fs.readFileSync("db/migrations/035_kg_embedding_seed_rpc.sql", "utf8");
 
 function node(id, user_id = USER_A, extra = {}) {
   return {
@@ -218,6 +219,18 @@ t("node seed rows can carry optional 384-dim embeddings without fixture ids", ()
   assert.equal(rows[0].embedding.length, 384);
   assert.equal(rows[1].embedding, null);
   assert.equal("id" in rows[0], false);
+});
+
+t("KG embedding RPCs rely on GRANT boundary, not auth.role predicates", () => {
+  const executableSql = migration035
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("--"))
+    .join("\n");
+  assert.match(migration035, /Authorization is enforced exclusively by the GRANT EXECUTE boundary/);
+  assert.equal(/auth\.role\(\)/i.test(executableSql), false);
+  assert.match(migration035, /grant execute on function public\.lumo_kg_upsert_node/);
+  assert.match(migration035, /grant execute on function public\.lumo_kg_seed_by_embedding/);
+  assert.match(migration035, /revoke all on function public\.lumo_kg_seed_by_embedding/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

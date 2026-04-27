@@ -5,6 +5,10 @@
 -- lumo_kg_upsert_node with an optional embedding argument so synthetic and
 -- future ETL rebuilds can idempotently backfill graph node embeddings.
 --
+-- Authorization is enforced exclusively by the GRANT EXECUTE boundary;
+-- auth.role() is intentionally NOT used in-body. See migration 026's
+-- mission-executor RPC post-mortem for the pooler/JWT-claim failure mode.
+--
 -- Rollback:
 --   drop function if exists public.lumo_kg_seed_by_embedding(uuid, vector, integer);
 --   drop function if exists public.lumo_kg_upsert_node(uuid, text, text, jsonb, jsonb, vector);
@@ -31,10 +35,6 @@ declare
   source_row_id text := nullif(p_source ->> 'source_row_id', '');
   source_url text := nullif(p_source ->> 'source_url', '');
 begin
-  if auth.role() <> 'service_role' then
-    raise exception 'service_role required';
-  end if;
-
   insert into public.graph_nodes (
     user_id,
     label,
@@ -101,8 +101,7 @@ as $$
     n.asserted_at
   from public.graph_nodes n
   where
-    auth.role() = 'service_role'
-    and n.user_id = p_user_id
+    n.user_id = p_user_id
     and n.embedding is not null
     and n.source_table is not null
     and n.source_row_id is not null
