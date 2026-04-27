@@ -24,8 +24,32 @@ export async function POST(req: NextRequest): Promise<Response> {
     return json({ error: "invalid_json" }, 400);
   }
 
-  const result = await recordPreferenceEvents(user_id, body);
-  return json(result, result.ok ? 200 : 500);
+  try {
+    const result = await recordPreferenceEvents(user_id, body);
+    // Preference logging is optional telemetry. If Supabase is degraded,
+    // preserve app UX and expose the persistence result in-band instead of
+    // letting a 500 cascade into client retry storms.
+    return json(
+      {
+        ...result,
+        ok: true,
+        persisted: result.ok && !result.error && result.inserted > 0,
+      },
+      200,
+    );
+  } catch (err) {
+    console.warn("[preferences/events] telemetry write failed:", err);
+    return json(
+      {
+        ok: true,
+        persisted: false,
+        inserted: 0,
+        skipped: 0,
+        error: "telemetry_unavailable",
+      },
+      200,
+    );
+  }
 }
 
 function json(body: unknown, status: number): Response {
