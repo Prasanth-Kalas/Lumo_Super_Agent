@@ -79,6 +79,11 @@ export interface KnowledgeGraphRecallResult {
   latency_ms: number;
 }
 
+export interface KnowledgeGraphSynthesis {
+  answer: string;
+  citations?: KnowledgeGraphCitation[];
+}
+
 export interface TraverseGraphArgs {
   fixture: KnowledgeGraphFixture;
   user_id: string;
@@ -203,20 +208,14 @@ export function recallGraphFromFixture(
 ): KnowledgeGraphRecallResult {
   const started = Date.now();
   const userId = options.user_id ?? fixture.user?.id ?? fixture.nodes[0]?.user_id ?? "";
-  const normalized = normalizeText(question);
-  const tahoeVegas = normalized.includes("vegas") && normalized.includes("tahoe");
-  if (tahoeVegas && (normalized.includes("why") || normalized.includes("pick") || normalized.includes("over"))) {
-    const narrative = tahoeVegasNarrative(fixture, userId, started);
-    if (narrative.evidence_mode === "graph_cited") return narrative;
-  }
-
-  const tokens = tokenize(question);
+  const queryEmbedding = hashTextEmbedding(question);
+  const edgeFilter = inferKnowledgeGraphEdgeFilter(question);
   const scored = fixture.nodes
     .filter((node) => node.user_id === userId && hasNodeProvenance(node))
-    .map((node) => ({ node, score: nodeSearchScore(node, tokens) }))
-    .filter((row) => row.score > 0)
+    .map((node) => ({ node, score: cosineSimilarity(queryEmbedding, hashTextEmbedding(nodeSearchText(node))) }))
+    .filter((row) => row.score > 0.24)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    .slice(0, 10);
 
   const traversals = scored.flatMap(({ node }) =>
     traverseGraphInMemory({
@@ -225,26 +224,43 @@ export function recallGraphFromFixture(
       start_node_id: node.id,
       max_hops: options.max_hops ?? 3,
       max_results: 10,
+      edge_filter: edgeFilter.length > 0 ? edgeFilter : null,
     }),
   );
-  const best = traversals.sort((a, b) => b.score - a.score || a.depth - b.depth)[0];
-  if (!best) return vectorOnly(started);
-  const citations = citationsFromEvidence(best.evidence).slice(0, Math.max(2, Math.min(5, best.evidence.length)));
+  return recallFromTraversalRows(question, traversals, started, "fixture", options.max_results);
+}
+
+export function recallFromTraversalRows(
+  question: string,
+  traversals: KnowledgeGraphTraversalRow[],
+  started: number,
+  source: "graph" | "fixture",
+  maxResults = 5,
+  synthesis?: KnowledgeGraphSynthesis | null,
+): KnowledgeGraphRecallResult {
+  const selectedRows = selectTraversalRows(question, traversals, maxResults);
+  if (selectedRows.length === 0) return vectorOnly(started);
+  const evidence = dedupeEvidence(selectedRows.flatMap((row) => row.evidence)).slice(0, 30);
+  const citations = (synthesis?.citations?.length ? synthesis.citations : citationsFromEvidence(evidence)).slice(0, 8);
   if (citations.length < 2) return vectorOnly(started);
+  const paths = selectedRows.map((row) => row.path);
+  const confidence = selectedRows.length > 1
+    ? roundScore(selectedRows.reduce((product, row) => product * row.score, 1))
+    : selectedRows[0]?.score ?? 0;
   return {
-    answer: summarizeEvidence(question, citations),
+    answer: synthesis?.answer?.trim() || summarizeEvidence(question, citations),
     citations,
-    traversal_path: [best.path],
-    candidates: traversals.slice(0, options.max_results ?? 5).map((row) => ({
+    traversal_path: paths,
+    candidates: selectedRows.slice(0, maxResults).map((row) => ({
       node_id: row.node_id,
       label: row.label,
       score: row.score,
     })),
-    evidence: best.evidence,
-    path: best.path,
-    confidence: best.score,
+    evidence,
+    path: paths[0] ?? [],
+    confidence,
     evidence_mode: "graph_cited",
-    source: "fixture",
+    source,
     latency_ms: Date.now() - started,
   };
 }
@@ -264,70 +280,6 @@ export function assertGraphCitedHasProvenance(result: KnowledgeGraphRecallResult
       throw new Error("graph_cited citation missing provenance");
     }
   }
-}
-
-function tahoeVegasNarrative(
-  fixture: KnowledgeGraphFixture,
-  userId: string,
-  started: number,
-): KnowledgeGraphRecallResult {
-  const tahoeMission = fixture.nodes.find(
-    (node) =>
-      node.user_id === userId &&
-      node.label === "mission" &&
-      `${node.external_key} ${summaryText(node)}`.toLowerCase().includes("tahoe") &&
-      `${node.properties?.state ?? ""}`.toLowerCase().includes("cancel"),
-  );
-  if (!tahoeMission) return vectorOnly(started);
-  const blockers = fixture.edges
-    .filter(
-      (edge) =>
-        edge.user_id === userId &&
-        edge.source_id === tahoeMission.id &&
-        edge.edge_type.toLowerCase() === "blocked_by" &&
-        hasEdgeProvenance(edge),
-    )
-    .map((edge) => ({ edge, target: fixture.nodes.find((node) => node.id === edge.target_id) }))
-    .filter((row): row is { edge: KnowledgeGraphEdge; target: KnowledgeGraphNode } =>
-      Boolean(row.target && hasNodeProvenance(row.target)),
-    );
-  if (blockers.length < 2) return vectorOnly(started);
-  const vegasMission = fixture.nodes.find(
-    (node) =>
-      node.user_id === userId &&
-      node.label === "mission" &&
-      `${node.external_key} ${summaryText(node)}`.toLowerCase().includes("vegas") &&
-      `${node.properties?.state ?? ""}`.toLowerCase().includes("completed"),
-  );
-  const blockerEvidence = [nodeEvidence(tahoeMission)];
-  const traversalPath: string[][] = [];
-  let confidence = 1;
-  for (const { edge, target } of blockers.slice(0, 4)) {
-    blockerEvidence.push(edgeEvidence(edge), nodeEvidence(target));
-    traversalPath.push([tahoeMission.id, target.id]);
-    confidence *= safeWeight(edge.weight);
-  }
-  if (vegasMission && hasNodeProvenance(vegasMission)) {
-    blockerEvidence.push(nodeEvidence(vegasMission));
-  }
-  const citations = citationsFromEvidence(blockerEvidence).slice(0, 5);
-  return {
-    answer:
-      "Sam pivoted from Tahoe to Vegas because the Tahoe mission was blocked by the Q4 board meeting moving to Dec 14 and a Lake Tahoe storm forecast for Dec 13-15. Vegas also matched the existing warm-weather, food, and entertainment preferences in the graph.",
-    citations,
-    traversal_path: traversalPath,
-    candidates: citations.map((citation, index) => ({
-      node_id: citation.node_id,
-      label: citation.label,
-      score: roundScore(confidence / (index + 1)),
-    })),
-    evidence: blockerEvidence,
-    path: traversalPath[0] ?? [tahoeMission.id],
-    confidence: roundScore(confidence),
-    evidence_mode: "graph_cited",
-    source: "fixture",
-    latency_ms: Date.now() - started,
-  };
 }
 
 function citationsFromEvidence(evidence: KnowledgeGraphEvidence[]): KnowledgeGraphCitation[] {
@@ -394,7 +346,7 @@ function hasEdgeProvenance(edge: KnowledgeGraphEdge): edge is KnowledgeGraphEdge
 
 function summarizeEvidence(question: string, citations: KnowledgeGraphCitation[]): string {
   const cited = citations
-    .slice(0, 3)
+    .slice(0, 4)
     .map((citation) => citation.text)
     .filter(Boolean)
     .join("; ");
@@ -403,16 +355,41 @@ function summarizeEvidence(question: string, citations: KnowledgeGraphCitation[]
     : `I found graph evidence for "${question}".`;
 }
 
-function nodeSearchScore(node: KnowledgeGraphNode, tokens: string[]): number {
-  const haystack = normalizeText(`${node.label} ${node.external_key} ${summaryText(node)} ${JSON.stringify(node.properties ?? {})}`);
-  let score = 0;
-  for (const token of tokens) {
-    if (haystack.includes(token)) score += token.length;
+export function inferKnowledgeGraphEdgeFilter(question: string): string[] {
+  const tokens = new Set(normalizeText(question).split(/\s+/).filter(Boolean));
+  if (
+    tokens.has("why") ||
+    tokens.has("made") ||
+    tokens.has("over") ||
+    tokens.has("blocked") ||
+    tokens.has("block") ||
+    tokens.has("cancelled") ||
+    tokens.has("canceled")
+  ) {
+    return ["BLOCKED_BY", "LED_TO", "RELATED_TO"];
   }
-  return score;
+  if (tokens.has("where") || tokens.has("place") || tokens.has("location")) {
+    return ["OCCURS_AT", "RELATED_TO", "MENTIONS"];
+  }
+  if (tokens.has("prefer") || tokens.has("preference") || tokens.has("picked") || tokens.has("pick")) {
+    return ["PREFERS", "LED_TO", "RELATED_TO"];
+  }
+  return [];
 }
 
-function summaryText(node: KnowledgeGraphNode): string {
+export function hashTextEmbedding(text: string, dimensions = 384): number[] {
+  const values = Array.from({ length: dimensions }, () => 0);
+  for (const token of tokenize(text)) {
+    const hash = fnv1a(token);
+    const index = hash % dimensions;
+    const sign = (hash & 1) === 0 ? 1 : -1;
+    values[index] = (values[index] ?? 0) + sign * Math.max(1, Math.min(3, token.length / 4));
+  }
+  const norm = Math.sqrt(values.reduce((sum, value) => sum + value * value, 0)) || 1;
+  return values.map((value) => Math.round((value / norm) * 1_000_000) / 1_000_000);
+}
+
+export function summaryText(node: KnowledgeGraphNode): string {
   const props = node.properties ?? {};
   for (const key of ["summary", "title", "name", "subject", "text", "description"]) {
     const value = props[key];
@@ -421,7 +398,7 @@ function summaryText(node: KnowledgeGraphNode): string {
   return node.external_key;
 }
 
-function vectorOnly(started: number): KnowledgeGraphRecallResult {
+export function vectorOnly(started: number): KnowledgeGraphRecallResult {
   return {
     answer: "I could not find graph-cited evidence yet, so this should fall back to regular recall.",
     citations: [],
@@ -440,6 +417,83 @@ function tokenize(input: string): string[] {
   return normalizeText(input)
     .split(/\s+/)
     .filter((token) => token.length > 2 && !STOP_WORDS.has(token));
+}
+
+function selectTraversalRows(
+  question: string,
+  traversals: KnowledgeGraphTraversalRow[],
+  maxResults: number,
+): KnowledgeGraphTraversalRow[] {
+  const edgeFilter = inferKnowledgeGraphEdgeFilter(question);
+  const causal = traversals
+    .filter((row) => row.edge_types.some((edge) => edge.toUpperCase() === "BLOCKED_BY"))
+    .sort((a, b) => a.depth - b.depth || b.score - a.score);
+  if (causal.length >= 2) {
+    const sourceKey = (row: KnowledgeGraphTraversalRow) => row.path[0] ?? "";
+    const counts = new Map<string, number>();
+    for (const row of causal) counts.set(sourceKey(row), (counts.get(sourceKey(row)) ?? 0) + 1);
+    const bestSource = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+    if (bestSource) return causal.filter((row) => sourceKey(row) === bestSource).slice(0, Math.max(2, maxResults));
+  }
+  const hinted = traversals
+    .filter((row) => row.edge_types.some((edge) => edgeFilter.includes(edge.toUpperCase())))
+    .sort((a, b) => a.depth - b.depth || b.score - a.score);
+  if (hinted.length >= 2) {
+    const sourceKey = (row: KnowledgeGraphTraversalRow) => row.path[0] ?? "";
+    const counts = new Map<string, number>();
+    for (const row of hinted) counts.set(sourceKey(row), (counts.get(sourceKey(row)) ?? 0) + 1);
+    const bestSource = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0];
+    if (bestSource) return hinted.filter((row) => sourceKey(row) === bestSource).slice(0, Math.max(2, maxResults));
+  }
+  return traversals
+    .slice()
+    .sort((a, b) => b.score - a.score || a.depth - b.depth || a.node_id.localeCompare(b.node_id))
+    .slice(0, Math.max(1, maxResults));
+}
+
+function dedupeEvidence(evidence: KnowledgeGraphEvidence[]): KnowledgeGraphEvidence[] {
+  const seen = new Set<string>();
+  const out: KnowledgeGraphEvidence[] = [];
+  for (const item of evidence) {
+    const key = `${item.kind}:${item.node_id ?? item.edge_id ?? item.source_table}:${item.source_row_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function searchText(node: KnowledgeGraphNode): string {
+  return `${node.label} ${node.external_key} ${summaryText(node)} ${JSON.stringify(node.properties ?? {})}`;
+}
+
+function nodeSearchText(node: KnowledgeGraphNode): string {
+  return searchText(node);
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length);
+  let dot = 0;
+  let an = 0;
+  let bn = 0;
+  for (let i = 0; i < n; i++) {
+    const av = a[i] ?? 0;
+    const bv = b[i] ?? 0;
+    dot += av * bv;
+    an += av * av;
+    bn += bv * bv;
+  }
+  if (an <= 0 || bn <= 0) return 0;
+  return roundScore(dot / (Math.sqrt(an) * Math.sqrt(bn)));
+}
+
+function fnv1a(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
 }
 
 function normalizeText(input: string): string {

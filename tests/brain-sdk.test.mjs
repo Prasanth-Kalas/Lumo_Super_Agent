@@ -99,6 +99,22 @@ await t("propagates trace headers without leaking request body", async () => {
   assert.equal("texts" in rows[0].payload_redacted, false);
 });
 
+await t("maps knowledge-graph synthesis endpoint into telemetry", async () => {
+  __resetBrainSdkForTesting();
+  const rows = [];
+  const sdkFetch = createBrainSdkFetch({
+    fetchImpl: async () => Response.json({ answer: "ok" }),
+    telemetrySink: (row) => rows.push(row),
+    maxAttempts: 1,
+    timeoutMs: 100,
+  });
+  await sdkFetch("https://brain.test/api/kg/synthesize", {
+    method: "POST",
+    body: JSON.stringify({ question: "why", traversal: [] }),
+  });
+  assert.equal(rows[0].endpoint, "lumo_kg_synthesize");
+});
+
 await t("feature flag can return the legacy fetch implementation", async () => {
   __resetBrainSdkForTesting();
   const previous = process.env.LUMO_BRAIN_SDK_ENABLED;

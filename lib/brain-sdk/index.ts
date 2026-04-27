@@ -24,6 +24,7 @@ export type BrainEndpointName =
   | "lumo_embed_image"
   | "lumo_detect_anomaly"
   | "lumo_forecast_metric"
+  | "lumo_kg_synthesize"
   | "lumo_unknown";
 
 export interface BrainCallTelemetry {
@@ -99,6 +100,7 @@ const ENDPOINT_BY_PATH: Record<string, BrainEndpointName> = {
   "/api/tools/embed_image": "lumo_embed_image",
   "/api/tools/detect_anomaly": "lumo_detect_anomaly",
   "/api/tools/forecast_metric": "lumo_forecast_metric",
+  "/api/kg/synthesize": "lumo_kg_synthesize",
 };
 
 export function isBrainSdkEnabled(): boolean {
@@ -182,6 +184,14 @@ export class BrainSdk {
       ...options,
       endpoint: "lumo_forecast_metric",
       path: "/api/tools/forecast_metric",
+    }, payload);
+  }
+
+  kgSynthesize(payload: unknown, options: Partial<BrainJsonCallOptions> = {}) {
+    return this.callJson({
+      ...options,
+      endpoint: "lumo_kg_synthesize",
+      path: "/api/kg/synthesize",
     }, payload);
   }
 

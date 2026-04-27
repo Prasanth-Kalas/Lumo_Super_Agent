@@ -231,7 +231,7 @@ await t("acceptance: no unhandled throws when brain returns malformed for every 
     fetchFn,
     onFallback: () => "deterministic-fallback",
   });
-  const tools = ["lumo_recall", "lumo_kg_traverse", "lumo_personalize_rank", "lumo_recall_unified"];
+  const tools = ["lumo_recall", "lumo_kg_traverse", "lumo_kg_synthesize", "lumo_personalize_rank", "lumo_recall_unified"];
   for (const tool of tools) {
     const r = await sdk.call({ tool, payload: {}, budgetMs: 100, maxRetries: 1 });
     assert.equal(r.fallback, true);

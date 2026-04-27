@@ -111,10 +111,6 @@ create index if not exists graph_edges_edge_type
 create index if not exists graph_edges_properties_gin
   on public.graph_edges using gin (properties);
 
--- Cross-user edge guard (ADR-008 §9): forbid edges that span two users.
-alter table public.graph_edges
-  drop constraint if exists graph_edges_no_cross_user;
-
 -- Provenance trigger (ADR-008 §4 "non-negotiable"): a node without
 -- source_table is a bug, except when the label is 'fact' (user-asserted
 -- facts get source_table='user_assertion'). The same trigger also blocks

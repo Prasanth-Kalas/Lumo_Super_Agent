@@ -1,11 +1,21 @@
+import { randomUUID } from "node:crypto";
 import { getSupabase } from "./db.ts";
+import { createBrainSdk } from "./brain-sdk/index.ts";
+import { signLumoServiceJwt } from "./service-jwt.ts";
 import {
+  inferKnowledgeGraphEdgeFilter,
   recallGraphFromFixture,
+  recallFromTraversalRows,
+  summaryText,
   validateKnowledgeGraphFixture,
+  vectorOnly,
   type KnowledgeGraphEdge,
   type KnowledgeGraphFixture,
   type KnowledgeGraphNode,
+  type KnowledgeGraphCitation,
+  type KnowledgeGraphEvidence,
   type KnowledgeGraphRecallResult,
+  type KnowledgeGraphSynthesis,
   type KnowledgeGraphTraversalRow,
 } from "./knowledge-graph-core.ts";
 
@@ -21,6 +31,7 @@ export interface RebuildKnowledgeGraphResult {
   applied: boolean;
   node_count: number;
   edge_count: number;
+  embedding_count?: number;
   errors: string[];
 }
 
@@ -33,6 +44,7 @@ export interface GraphNodeSeedRow {
   source_row_id: string | null;
   source_url: string | null;
   asserted_at: string;
+  embedding?: number[] | null;
 }
 
 export interface GraphEdgeSeedRow {
@@ -55,9 +67,38 @@ export interface GraphNodeIdentityRow {
   external_key: string;
 }
 
+interface KgSeedRow {
+  node_id: string;
+  label: string;
+  properties: Record<string, unknown> | null;
+  score: number;
+  source_table: string | null;
+  source_row_id: string | null;
+  source_url: string | null;
+  asserted_at: string | null;
+}
+
+interface EmbedResponse {
+  dimensions?: number;
+  embeddings?: number[][];
+}
+
+interface KgSynthesizeResponse {
+  answer?: string;
+  citations?: KnowledgeGraphCitation[];
+}
+
+const LUMO_ML_AGENT_ID = "lumo-ml";
+const LUMO_EMBED_TOOL = "lumo_embed";
+const LUMO_KG_SYNTHESIZE_TOOL = "lumo_kg_synthesize";
+const KG_EMBED_TIMEOUT_MS = 8_000;
+const KG_SYNTHESIZE_TIMEOUT_MS = 8_000;
+const DEFAULT_SEED_COUNT = 5;
+
 export async function recallKnowledgeGraph(
   args: RecallKnowledgeGraphArgs,
 ): Promise<KnowledgeGraphRecallResult> {
+  const started = Date.now();
   const db = getSupabase();
   if (!db) {
     return recallGraphFromFixture(args.question, emptyFixture(args.user_id), {
@@ -67,48 +108,70 @@ export async function recallKnowledgeGraph(
     });
   }
 
-  const [nodesResult, edgesResult] = await Promise.all([
-    db
-      .from("graph_nodes")
-      .select("id,user_id,label,external_key,properties,source_table,source_row_id,source_url,asserted_at")
-      .eq("user_id", args.user_id)
-      .limit(2_000),
-    db
-      .from("graph_edges")
-      .select("id,user_id,source_id,target_id,edge_type,weight,properties,source_table,source_row_id,source_url,asserted_at")
-      .eq("user_id", args.user_id)
-      .limit(5_000),
-  ]);
+  const queryEmbedding = await embedKgText(args.user_id, args.question);
+  if (!queryEmbedding) return vectorOnly(started);
 
-  if (nodesResult.error || edgesResult.error) {
-    console.warn("[knowledge-graph] recall read failed", {
-      nodes_error: nodesResult.error?.message,
-      edges_error: edgesResult.error?.message,
-    });
-    return recallGraphFromFixture(args.question, emptyFixture(args.user_id), {
-      user_id: args.user_id,
-      max_hops: args.max_hops,
-      max_results: args.max_results,
-    });
+  const seeds = await seedNodesByEmbedding(args.user_id, queryEmbedding, DEFAULT_SEED_COUNT);
+  if (seeds.length === 0) return vectorOnly(started);
+
+  const edgeFilter = inferKnowledgeGraphEdgeFilter(args.question);
+  const traversalGroups = await Promise.all(
+    seeds.map((seed) =>
+      traverseKnowledgeGraph(args.user_id, seed.node_id, {
+        edge_filter: edgeFilter.length > 0 ? edgeFilter : undefined,
+        max_hops: args.max_hops ?? 3,
+        max_results: 20,
+      }),
+    ),
+  );
+  const traversals = traversalGroups
+    .flat()
+    .sort((a, b) => b.score - a.score || a.depth - b.depth)
+    .slice(0, 30);
+  if (traversals.length === 0) return vectorOnly(started);
+  const synthesis = await synthesizeGraphAnswer(args.user_id, args.question, traversals);
+  const result = recallFromTraversalRows(
+    args.question,
+    traversals,
+    started,
+    "graph",
+    args.max_results ?? 5,
+    synthesis,
+  );
+  return result;
+}
+
+export async function embedKnowledgeGraphFixtureNodes(
+  user_id: string,
+  fixture: KnowledgeGraphFixture,
+): Promise<{ embeddingsByFixtureId: Map<string, number[]>; errors: string[] }> {
+  const errors: string[] = [];
+  const embeddingsByFixtureId = new Map<string, number[]>();
+  const nodes = fixture.nodes.filter((node) => node.user_id === (fixture.user?.id ?? node.user_id));
+  for (let index = 0; index < nodes.length; index += 64) {
+    const batch = nodes.slice(index, index + 64);
+    const embeddings = await embedKgTexts(
+      user_id,
+      batch.map((node) => summaryText(node)),
+      { surface: "kg-fixture-reembed" },
+    );
+    if (!embeddings || embeddings.length !== batch.length) {
+      errors.push(`embedding_batch_failed:${index}`);
+      continue;
+    }
+    for (let i = 0; i < batch.length; i++) {
+      const node = batch[i];
+      const embedding = embeddings[i];
+      if (node && embedding) embeddingsByFixtureId.set(node.id, embedding);
+    }
   }
-
-  const fixture: KnowledgeGraphFixture = {
-    user: { id: args.user_id },
-    nodes: normalizeNodeRows(nodesResult.data ?? []),
-    edges: normalizeEdgeRows(edgesResult.data ?? []),
-  };
-  const result = recallGraphFromFixture(args.question, fixture, {
-    user_id: args.user_id,
-    max_hops: args.max_hops,
-    max_results: args.max_results,
-  });
-  return { ...result, source: result.evidence_mode === "graph_cited" ? "graph" : result.source };
+  return { embeddingsByFixtureId, errors };
 }
 
 export async function seedKnowledgeGraphFixture(
   user_id: string,
   fixture: KnowledgeGraphFixture,
-  options: { apply?: boolean } = {},
+  options: { apply?: boolean; embeddingsByFixtureId?: Map<string, number[]> } = {},
 ): Promise<RebuildKnowledgeGraphResult> {
   const validation = validateKnowledgeGraphFixture(fixture);
   if (!validation.ok) {
@@ -117,6 +180,7 @@ export async function seedKnowledgeGraphFixture(
       applied: false,
       node_count: validation.node_count,
       edge_count: validation.edge_count,
+      embedding_count: 0,
       errors: validation.errors,
     };
   }
@@ -126,6 +190,7 @@ export async function seedKnowledgeGraphFixture(
       applied: false,
       node_count: validation.node_count,
       edge_count: validation.edge_count,
+      embedding_count: 0,
       errors: [],
     };
   }
@@ -137,11 +202,12 @@ export async function seedKnowledgeGraphFixture(
       applied: false,
       node_count: validation.node_count,
       edge_count: validation.edge_count,
+      embedding_count: 0,
       errors: ["persistence_not_configured"],
     };
   }
 
-  const nodeRows = prepareGraphNodeSeedRows(user_id, fixture);
+  const nodeRows = prepareGraphNodeSeedRows(user_id, fixture, options.embeddingsByFixtureId);
   const nodeResult = await db
     .from("graph_nodes")
     .upsert(nodeRows, { onConflict: "user_id,label,external_key" })
@@ -152,6 +218,7 @@ export async function seedKnowledgeGraphFixture(
       applied: false,
       node_count: validation.node_count,
       edge_count: validation.edge_count,
+      embedding_count: 0,
       errors: [nodeResult.error.message],
     };
   }
@@ -170,6 +237,7 @@ export async function seedKnowledgeGraphFixture(
       applied: false,
       node_count: validation.node_count,
       edge_count: validation.edge_count,
+      embedding_count: 0,
       errors: [err instanceof Error ? err.message : String(err)],
     };
   }
@@ -182,6 +250,7 @@ export async function seedKnowledgeGraphFixture(
       applied: false,
       node_count: validation.node_count,
       edge_count: validation.edge_count,
+      embedding_count: options.embeddingsByFixtureId?.size ?? 0,
       errors: [edgeResult.error.message],
     };
   }
@@ -191,6 +260,7 @@ export async function seedKnowledgeGraphFixture(
     applied: true,
     node_count: validation.node_count,
     edge_count: validation.edge_count,
+    embedding_count: options.embeddingsByFixtureId?.size ?? 0,
     errors: [],
   };
 }
@@ -198,6 +268,7 @@ export async function seedKnowledgeGraphFixture(
 export function prepareGraphNodeSeedRows(
   user_id: string,
   fixture: KnowledgeGraphFixture,
+  embeddingsByFixtureId?: Map<string, number[]>,
 ): GraphNodeSeedRow[] {
   return fixture.nodes.map((node) => ({
     user_id,
@@ -208,6 +279,7 @@ export function prepareGraphNodeSeedRows(
     source_row_id: node.source_row_id,
     source_url: node.source_url ?? null,
     asserted_at: node.asserted_at ?? new Date().toISOString(),
+    embedding: embeddingsByFixtureId?.get(node.id) ?? null,
   }));
 }
 
@@ -276,7 +348,149 @@ export async function traverseKnowledgeGraph(
     console.warn("[knowledge-graph] traverse rpc failed", error.message);
     return [];
   }
-  return (data ?? []) as KnowledgeGraphTraversalRow[];
+  return normalizeTraversalRows(data ?? []);
+}
+
+async function seedNodesByEmbedding(
+  user_id: string,
+  queryEmbedding: number[],
+  k: number,
+): Promise<KgSeedRow[]> {
+  const db = getSupabase();
+  if (!db) return [];
+  const { data, error } = await db.rpc("lumo_kg_seed_by_embedding", {
+    p_user_id: user_id,
+    p_query_embedding: queryEmbedding,
+    p_k: k,
+  });
+  if (error) {
+    console.warn("[knowledge-graph] seed embedding rpc failed", error.message);
+    return [];
+  }
+  return ((data ?? []) as unknown[]).map((row) => {
+    const r = row as Record<string, unknown>;
+    return {
+      node_id: String(r.node_id),
+      label: String(r.label),
+      properties: isRecord(r.properties) ? r.properties : {},
+      score: typeof r.score === "number" ? r.score : Number(r.score ?? 0),
+      source_table: typeof r.source_table === "string" ? r.source_table : null,
+      source_row_id: typeof r.source_row_id === "string" ? r.source_row_id : null,
+      source_url: typeof r.source_url === "string" ? r.source_url : null,
+      asserted_at: typeof r.asserted_at === "string" ? r.asserted_at : null,
+    };
+  });
+}
+
+async function embedKgText(user_id: string, text: string): Promise<number[] | null> {
+  const embeddings = await embedKgTexts(user_id, [text], { surface: "kg-recall" });
+  return embeddings?.[0] ?? null;
+}
+
+async function embedKgTexts(
+  user_id: string,
+  texts: string[],
+  source_metadata: Record<string, unknown>,
+): Promise<number[][] | null> {
+  const baseUrl = resolveMlBaseUrl();
+  const authorizationHeader = serviceAuthorizationHeader(user_id, LUMO_EMBED_TOOL);
+  if (!baseUrl || !authorizationHeader || texts.length === 0) return null;
+  try {
+    const sdk = createBrainSdk({
+      user_id,
+      baseUrl,
+      timeoutMs: KG_EMBED_TIMEOUT_MS,
+      callerSurface: "knowledge-graph",
+    });
+    const body = await sdk.embed(
+      { texts, source_metadata },
+      { authorizationHeader, timeoutMs: KG_EMBED_TIMEOUT_MS },
+    ) as EmbedResponse;
+    if (body.dimensions !== 384 || !Array.isArray(body.embeddings)) return null;
+    return body.embeddings;
+  } catch (err) {
+    console.warn("[knowledge-graph] embed failed", err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+async function synthesizeGraphAnswer(
+  user_id: string,
+  question: string,
+  traversals: KnowledgeGraphTraversalRow[],
+): Promise<KnowledgeGraphSynthesis | null> {
+  const baseUrl = resolveMlBaseUrl();
+  const authorizationHeader = serviceAuthorizationHeader(user_id, LUMO_KG_SYNTHESIZE_TOOL);
+  if (!baseUrl || !authorizationHeader || traversals.length === 0) return null;
+  try {
+    const sdk = createBrainSdk({
+      user_id,
+      baseUrl,
+      timeoutMs: KG_SYNTHESIZE_TIMEOUT_MS,
+      callerSurface: "knowledge-graph",
+    });
+    const body = await sdk.kgSynthesize(
+      { question, traversal: traversals.slice(0, 30) },
+      { authorizationHeader, timeoutMs: KG_SYNTHESIZE_TIMEOUT_MS },
+    ) as KgSynthesizeResponse;
+    if (!body || typeof body.answer !== "string") return null;
+    return {
+      answer: body.answer,
+      citations: Array.isArray(body.citations) ? normalizeCitations(body.citations) : undefined,
+    };
+  } catch (err) {
+    console.warn("[knowledge-graph] synthesize failed", err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+function normalizeTraversalRows(rows: unknown[]): KnowledgeGraphTraversalRow[] {
+  return rows.map((row) => {
+    const r = row as Record<string, unknown>;
+    return {
+      node_id: String(r.node_id),
+      label: String(r.label),
+      properties: isRecord(r.properties) ? r.properties : {},
+      depth: typeof r.depth === "number" ? r.depth : Number(r.depth ?? 0),
+      score: typeof r.score === "number" ? r.score : Number(r.score ?? 0),
+      path: Array.isArray(r.path) ? r.path.map(String) : [],
+      edge_types: Array.isArray(r.edge_types) ? r.edge_types.map(String) : [],
+      evidence: Array.isArray(r.evidence) ? normalizeEvidenceRows(r.evidence) : [],
+    };
+  });
+}
+
+function normalizeEvidenceRows(rows: unknown[]): KnowledgeGraphEvidence[] {
+  return rows.map((row) => {
+    const r = row as Record<string, unknown>;
+    const kind = r.kind === "edge" ? "edge" : "node";
+    return {
+      kind,
+      node_id: typeof r.node_id === "string" ? r.node_id : r.node_id ? String(r.node_id) : undefined,
+      edge_id: typeof r.edge_id === "string" ? r.edge_id : r.edge_id ? String(r.edge_id) : undefined,
+      label: typeof r.label === "string" ? r.label : undefined,
+      edge_type: typeof r.edge_type === "string" ? r.edge_type : undefined,
+      source_table: String(r.source_table ?? ""),
+      source_row_id: String(r.source_row_id ?? ""),
+      source_url: typeof r.source_url === "string" ? r.source_url : null,
+      asserted_at: typeof r.asserted_at === "string" ? r.asserted_at : null,
+      text: typeof r.text === "string" ? r.text : undefined,
+    };
+  });
+}
+
+function normalizeCitations(citations: KnowledgeGraphCitation[]): KnowledgeGraphCitation[] {
+  return citations
+    .filter((citation) => citation && citation.node_id && citation.source_table && citation.source_row_id)
+    .map((citation) => ({
+      node_id: String(citation.node_id),
+      label: String(citation.label),
+      source_table: String(citation.source_table),
+      source_row_id: String(citation.source_row_id),
+      source_url: citation.source_url ?? null,
+      asserted_at: citation.asserted_at ?? null,
+      text: String(citation.text ?? citation.label),
+    }));
 }
 
 function normalizeNodeIdentityRows(rows: unknown[]): GraphNodeIdentityRow[] {
@@ -337,4 +551,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function nodeSeedKey(label: string, external_key: string): string {
   return `${label.toLowerCase()}::${external_key}`;
+}
+
+function resolveMlBaseUrl(): string {
+  return (process.env.LUMO_ML_AGENT_URL ?? "").replace(/\/+$/, "");
+}
+
+function serviceAuthorizationHeader(user_id: string, scope: string): string | null {
+  try {
+    return `Bearer ${signLumoServiceJwt({
+      audience: LUMO_ML_AGENT_ID,
+      user_id,
+      scope,
+      request_id: `kg:${randomUUID()}`,
+      ttl_seconds: 120,
+    })}`;
+  } catch {
+    return null;
+  }
 }

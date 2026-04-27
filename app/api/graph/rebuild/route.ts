@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { type NextRequest, NextResponse } from "next/server";
 import { requireServerUser } from "@/lib/auth";
-import { seedKnowledgeGraphFixture } from "@/lib/knowledge-graph";
+import { embedKnowledgeGraphFixtureNodes, seedKnowledgeGraphFixture } from "@/lib/knowledge-graph";
 import type { KnowledgeGraphFixture } from "@/lib/knowledge-graph-core";
 
 export const runtime = "nodejs";
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const useSynthetic = searchParams.get("synthetic") === "1";
   const apply = searchParams.get("apply") === "1";
+  const reembed = searchParams.get("reembed") === "1";
   if (!useSynthetic) {
     return NextResponse.json(
       {
@@ -31,7 +32,19 @@ export async function POST(req: NextRequest) {
   }
 
   const fixture = await loadSyntheticFixture();
-  const result = await seedKnowledgeGraphFixture(user.id, fixture, { apply });
+  const embeddings = apply && reembed
+    ? await embedKnowledgeGraphFixtureNodes(user.id, fixture)
+    : { embeddingsByFixtureId: undefined, errors: [] };
+  const result = await seedKnowledgeGraphFixture(user.id, fixture, {
+    apply,
+    embeddingsByFixtureId: embeddings.embeddingsByFixtureId,
+  });
+  if (embeddings.errors.length > 0) {
+    return NextResponse.json(
+      { ...result, ok: false, errors: [...result.errors, ...embeddings.errors] },
+      { status: 400 },
+    );
+  }
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }
 

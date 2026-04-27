@@ -212,5 +212,13 @@ t("scopes synthetic DB seed rows per tenant without fixture id collisions", () =
   assert.equal(edgesB.every((row) => idsB.has(row.source_id) && idsB.has(row.target_id)), true);
 });
 
+t("node seed rows can carry optional 384-dim embeddings without fixture ids", () => {
+  const embeddingsByFixtureId = new Map([[synthetic.nodes[0].id, Array.from({ length: 384 }, () => 0.01)]]);
+  const rows = prepareGraphNodeSeedRows(USER_A, synthetic, embeddingsByFixtureId);
+  assert.equal(rows[0].embedding.length, 384);
+  assert.equal(rows[1].embedding, null);
+  assert.equal("id" in rows[0], false);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
