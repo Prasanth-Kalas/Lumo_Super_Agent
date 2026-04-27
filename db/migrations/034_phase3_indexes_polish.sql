@@ -1,0 +1,31 @@
+-- Migration 034 — Phase 3 composite-index polish (reserved for late W4).
+--
+-- Codex fills the body for the Phase 3 ship-gate week. This file is the
+-- scaffold: a deliberate empty migration reserved for the index tuning we
+-- can only do once we observe production query patterns from KG-1, BANDIT-1,
+-- VOICE-1, WAKE-1, MMRAG-1, and RUNTIME-1 running together.
+--
+-- The expected shape (Codex confirms after one week of dogfood):
+--   - Composite index on (graph_edges.user_id, graph_edges.edge_type,
+--     graph_edges.target_id) once we know which traversal patterns dominate.
+--   - Composite on (bandit_rewards.user_id, surface, created_at) once we
+--     know how the nightly retrain reads the table.
+--   - Partial index on consent_audit_log filtered to voice_clone_used for
+--     the abuse-detection guardrail in ADR-012 §4.
+--   - HNSW ef parameter tuning on unified_embeddings if recall@5 trends down.
+--   - Composite on (model_routing_log.classifier_label, routed_model,
+--     created_at) for the admin surface.
+--
+-- Reserved as 034 so 027-033 ship in deliverable order in W1-W3 and we have
+-- a known migration number for the W4 polish pass without renumbering.
+--
+-- Related:
+--   - docs/specs/phase-3-master.md (master sequencing W4)
+--
+-- Rollback:
+--   -- Each index added below should have a matching `drop index if exists`
+--   -- line here. Empty until Codex fills the body.
+
+-- (intentionally empty body; placeholder ensures the file exists in the
+-- migration sequence. Codex appends index creates + matching rollback
+-- comments above this line during the W4 ship-gate window.)
