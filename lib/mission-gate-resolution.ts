@@ -69,6 +69,20 @@ export async function resolvePermissionGate(
 
     if (resolution.complete) {
       await updateMission(db, mission.id, { state: "ready" });
+    } else if (resolution.blocked_agent_ids.length > 0) {
+      await recordExecutionEvent(
+        {
+          mission_id: mission.id,
+          event_type: "permission_blocked",
+          payload: {
+            agent_id,
+            blocked_agent_ids: resolution.blocked_agent_ids,
+            steps_advanced: resolution.step_ids.length,
+            reason: resolution.reason ?? "permission_blocked",
+          },
+        },
+        { db },
+      );
     }
   }
 

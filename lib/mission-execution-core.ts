@@ -190,7 +190,7 @@ function agentToStepRow(
     agent_id: agent.agent_id,
     tool_name: missionToolName(agent),
     reversibility,
-    status: "pending",
+    status: agent.state === "ready" ? "ready" : "pending",
     inputs: {
       capability: agent.capability,
       capability_label: agent.capability_label,
@@ -214,11 +214,16 @@ function inferInitialMissionState(
   stepCount: number,
 ): MissionState {
   if (stepCount === 0) return "draft";
-  if (plan.should_pause_for_permission || plan.install_proposals.length > 0) {
+  const hasPendingSteps = plan.required_agents.some((agent) => agent.state !== "ready");
+  if (plan.install_proposals.length > 0 && hasPendingSteps) {
+    return "awaiting_permissions";
+  }
+  if (plan.should_pause_for_permission && !plan.can_continue_now) {
     return "awaiting_permissions";
   }
   if (plan.user_questions.length > 0) return "awaiting_user_input";
   if (plan.can_continue_now || plan.ready_agents.length > 0) return "ready";
+  if (hasPendingSteps) return "awaiting_permissions";
   return "draft";
 }
 

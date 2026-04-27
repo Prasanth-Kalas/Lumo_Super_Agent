@@ -18,6 +18,7 @@ export interface GateMissionStep {
 
 export interface PermissionGateResolution {
   step_ids: string[];
+  blocked_agent_ids: string[];
   complete: boolean;
   next_state: MissionState;
   reason?: string;
@@ -40,6 +41,7 @@ export function stepsToAdvanceOnPermissionGrant(
   if (!normalizedAgentId) {
     return {
       step_ids: [],
+      blocked_agent_ids: [],
       complete: false,
       next_state: asMissionState(mission.state) ?? "awaiting_permissions",
       reason: "missing_agent_id",
@@ -48,6 +50,7 @@ export function stepsToAdvanceOnPermissionGrant(
   if (mission.state !== "awaiting_permissions") {
     return {
       step_ids: [],
+      blocked_agent_ids: [],
       complete: false,
       next_state: asMissionState(mission.state) ?? "awaiting_permissions",
       reason: `mission_not_awaiting_permissions:${mission.state}`,
@@ -63,6 +66,7 @@ export function stepsToAdvanceOnPermissionGrant(
   if (stepIds.length === 0) {
     return {
       step_ids: [],
+      blocked_agent_ids: blockedAgentIds(stepList),
       complete: false,
       next_state: "awaiting_permissions",
       reason: "no_matching_pending_steps",
@@ -70,14 +74,16 @@ export function stepsToAdvanceOnPermissionGrant(
   }
 
   const advanced = new Set(stepIds);
-  const remainingPending = stepList.some(
-    (step) => step.status === "pending" && !advanced.has(step.id),
+  const blocked = blockedAgentIds(
+    stepList.filter((step) => step.status === "pending" && !advanced.has(step.id)),
   );
 
   return {
     step_ids: stepIds,
-    complete: !remainingPending,
-    next_state: remainingPending ? "awaiting_permissions" : "ready",
+    blocked_agent_ids: blocked,
+    complete: blocked.length === 0,
+    next_state: blocked.length > 0 ? "awaiting_permissions" : "ready",
+    reason: blocked.length > 0 ? "permission_blocked" : undefined,
   };
 }
 
@@ -133,6 +139,16 @@ export function pendingStepIds(steps: GateMissionStep[] | null | undefined): str
     .filter((step) => step.status === "pending")
     .map((step) => step.id)
     .filter(Boolean);
+}
+
+function blockedAgentIds(steps: GateMissionStep[] | null | undefined): string[] {
+  const out = new Set<string>();
+  for (const step of Array.isArray(steps) ? steps : []) {
+    if (step.status !== "pending") continue;
+    const agentId = step.agent_id.trim();
+    if (agentId) out.add(agentId);
+  }
+  return Array.from(out).sort();
 }
 
 function readRequiredInputKeys(plan: Record<string, unknown>): string[] {

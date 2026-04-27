@@ -86,6 +86,7 @@ await t("planToMissionRows maps all-reversible plans", () => {
     "mission.maps",
     "mission.weather",
   ]);
+  assert.deepEqual(rows.steps.map((s) => s.status), ["ready", "ready"]);
 });
 
 await t("planToMissionRows maps irreversible booking/payment plans", () => {
@@ -143,6 +144,11 @@ await t("planToMissionRows maps mixed reversibility", () => {
     "irreversible",
     "compensating",
   ]);
+  assert.deepEqual(rows.steps.map((s) => s.status), [
+    "ready",
+    "pending",
+    "ready",
+  ]);
   assert.equal(rows.steps[1].inputs.install_action, "connect_oauth");
 });
 
@@ -175,6 +181,10 @@ await t("persistMission writes one mission and ordered steps", async () => {
       ["mission_db_1", 1, "flight"],
     ],
   );
+  assert.deepEqual(db.inserts[1].values.map((step) => step.status), [
+    "ready",
+    "pending",
+  ]);
 });
 
 await t("recordExecutionEvent writes event payloads", async () => {
