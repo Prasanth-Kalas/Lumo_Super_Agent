@@ -1,5 +1,5 @@
 -- Lumo Super Agent — run-all migrations (generated)
--- Concatenation of db/migrations/001...026 in order. Safe to re-run:
+-- Concatenation of db/migrations/001...034 in order. Safe to re-run:
 -- every CREATE uses IF NOT EXISTS and every ALTER uses ADD COLUMN IF NOT EXISTS.
 -- Paste this whole file into Supabase → SQL Editor → Run.
 --
@@ -3568,3 +3568,1430 @@ $$;
 revoke all on function public.mission_executor_claim_diagnostics() from public;
 revoke all on function public.mission_executor_claim_diagnostics() from anon, authenticated;
 grant execute on function public.mission_executor_claim_diagnostics() to service_role;
+
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/027_brain_call_log.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 027 — SDK-1 Brain SDK call telemetry log.
+--
+-- Codex fills the body for SDK-1. This file is the scaffold: table name,
+-- expected columns from the SDK-1 brief in docs/specs/phase-3-master.md §1,
+-- indexes, RLS, service-role grants, and the rollback comment block. The
+-- typed Brain SDK writes one row here per Cloud Run brain call so we can
+-- observe latency, retries, fallbacks, and circuit-breaker state across
+-- every call site (lib/marketplace-intelligence.ts, lib/recall-core.ts,
+-- lib/anomaly-detection-core.ts, lib/forecasting-core.ts, lib/orchestrator.ts,
+-- and the new Phase-3 brain tools).
+--
+-- Related:
+--   - docs/specs/phase-3-master.md §1 (SDK-1 deliverable)
+--   - lib/brain-sdk/* (Codex SDK-1 implementation)
+--   - tests/phase3-brain-sdk.test.mjs (verifies retries / circuit / telemetry)
+--
+-- Rollback:
+--   drop index if exists public.brain_call_log_by_user_recent;
+--   drop index if exists public.brain_call_log_by_endpoint_recent;
+--   drop index if exists public.brain_call_log_by_outcome_recent;
+--   drop index if exists public.brain_call_log_failures_recent;
+--   drop index if exists public.brain_call_log_by_circuit_state;
+--   drop table if exists public.brain_call_log;
+
+create table if not exists public.brain_call_log (
+  id                  uuid primary key default gen_random_uuid(),
+  user_id             uuid references public.profiles(id) on delete cascade,
+  user_hash           text,
+  request_id          text not null,
+  endpoint            text not null,
+  sdk_version         text,
+  outcome             text not null check (outcome in (
+                        'ok',
+                        'fallback',
+                        'timeout',
+                        'malformed',
+                        'circuit_open',
+                        'error'
+                      )),
+  attempt             integer not null default 1 check (attempt >= 0),
+  max_attempts        integer check (max_attempts is null or max_attempts >= 1),
+  retry_reason        text,
+  fallback_reason     text,
+  circuit_state       text check (circuit_state in ('closed', 'open', 'half_open')),
+  latency_ms          integer check (latency_ms is null or latency_ms >= 0),
+  budget_ms           integer check (budget_ms is null or budget_ms >= 0),
+  http_status         integer,
+  error_class         text,
+  error_text          text,
+  caller_agent_id     text,
+  caller_surface      text,
+  payload_redacted    jsonb not null default '{}'::jsonb,
+  response_redacted   jsonb not null default '{}'::jsonb,
+  created_at          timestamptz not null default now()
+);
+
+-- Indexes (Codex may add more once usage patterns observed; reserved space
+-- in 034_phase3_indexes_polish.sql for late-W4 tuning).
+create index if not exists brain_call_log_by_user_recent
+  on public.brain_call_log (user_id, created_at desc)
+  where user_id is not null;
+
+create index if not exists brain_call_log_by_endpoint_recent
+  on public.brain_call_log (endpoint, created_at desc);
+
+create index if not exists brain_call_log_by_outcome_recent
+  on public.brain_call_log (outcome, created_at desc);
+
+create index if not exists brain_call_log_failures_recent
+  on public.brain_call_log (endpoint, created_at desc)
+  where outcome in ('fallback', 'timeout', 'malformed', 'circuit_open', 'error');
+
+create index if not exists brain_call_log_by_circuit_state
+  on public.brain_call_log (endpoint, circuit_state, created_at desc)
+  where circuit_state is not null;
+
+alter table public.brain_call_log enable row level security;
+revoke all on public.brain_call_log from anon, authenticated;
+grant all on public.brain_call_log to service_role;
+
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/028_graph_nodes_edges.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 028 — KG-1 knowledge graph substrate.
+--
+-- Codex fills the body for KG-1. This file is the scaffold: graph_nodes and
+-- graph_edges tables plus indexes per ADR-008 §2 Option (1), with RLS, and
+-- the provenance trigger that ADR-008 §4 makes non-negotiable. Codex adds the
+-- five service-role RPCs (lumo_kg_upsert_node / upsert_edge / traverse / path
+-- / neighbours) and the recursive-CTE traversal helpers (kg_traverse_one_hop,
+-- kg_traverse_two_hop, kg_traverse_three_hop, kg_path_bounded) directly under
+-- this scaffold once schema is approved.
+--
+-- Related:
+--   - docs/specs/adr-008-knowledge-graph-substrate.md (sealed)
+--   - docs/specs/phase-3-master.md §2 (KG-1 deliverable)
+--   - tests/phase3-knowledge-graph.test.mjs
+--   - tests/phase3-graph-rag-recall.test.mjs
+--   - scripts/kg_backfill.py (Codex writes; backfill 90d archive per user)
+--
+-- Open schema decisions escalated to Kalas:
+--   - Whether to add ltree hierarchy_path now (ADR-008 §2 lists it). Scaffold
+--     includes it as optional/nullable to leave the option open.
+--   - Whether `embedding` should be 384 (text MiniLM) or 1024 (unified MMRAG-1
+--     space). ADR-008 §2 specifies 384; left as 384 here. Confirm before merge.
+--
+-- Rollback:
+--   drop function if exists public.kg_path_bounded(uuid, uuid, uuid, integer);
+--   drop function if exists public.kg_traverse_three_hop(uuid, uuid, text[], integer);
+--   drop function if exists public.kg_traverse_two_hop(uuid, uuid, text[], integer);
+--   drop function if exists public.kg_traverse_one_hop(uuid, uuid, text[], integer);
+--   drop function if exists public.lumo_kg_neighbours(uuid, uuid, text[], integer);
+--   drop function if exists public.lumo_kg_path(uuid, uuid, uuid, integer);
+--   drop function if exists public.lumo_kg_traverse(uuid, uuid, text[], integer, integer);
+--   drop function if exists public.lumo_kg_upsert_edge(uuid, uuid, uuid, text, jsonb, jsonb, real);
+--   drop function if exists public.lumo_kg_upsert_node(uuid, text, text, jsonb, jsonb);
+--   drop trigger  if exists graph_nodes_require_provenance on public.graph_nodes;
+--   drop trigger  if exists graph_edges_require_provenance on public.graph_edges;
+--   drop function if exists public.graph_require_provenance();
+--   drop index    if exists public.graph_edges_user_target;
+--   drop index    if exists public.graph_edges_user_source;
+--   drop index    if exists public.graph_edges_properties_gin;
+--   drop index    if exists public.graph_edges_edge_type;
+--   drop index    if exists public.graph_nodes_hierarchy;
+--   drop index    if exists public.graph_nodes_embedding_hnsw;
+--   drop index    if exists public.graph_nodes_user_extkey;
+--   drop index    if exists public.graph_nodes_user_label;
+--   drop index    if exists public.graph_nodes_properties_gin;
+--   drop table    if exists public.graph_edges;
+--   drop table    if exists public.graph_nodes;
+
+create extension if not exists vector;
+create extension if not exists ltree;
+
+create table if not exists public.graph_nodes (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references public.profiles(id) on delete cascade,
+  label           text not null,
+  external_key    text,
+  properties      jsonb not null default '{}'::jsonb,
+  embedding       vector(384),
+  hierarchy_path  ltree,
+  source_table    text,
+  source_row_id   text,
+  source_url      text,
+  asserted_at     timestamptz not null default now(),
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  unique (user_id, label, external_key)
+);
+
+create table if not exists public.graph_edges (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references public.profiles(id) on delete cascade,
+  source_id       uuid not null references public.graph_nodes(id) on delete cascade,
+  target_id       uuid not null references public.graph_nodes(id) on delete cascade,
+  edge_type       text not null,
+  properties      jsonb not null default '{}'::jsonb,
+  weight          real not null default 1.0,
+  source_table    text,
+  source_row_id   text,
+  source_url      text,
+  asserted_at     timestamptz not null default now(),
+  created_at      timestamptz not null default now(),
+  unique (user_id, source_id, target_id, edge_type)
+);
+
+create index if not exists graph_nodes_user_label
+  on public.graph_nodes (user_id, label);
+
+create index if not exists graph_nodes_user_extkey
+  on public.graph_nodes (user_id, label, external_key);
+
+create index if not exists graph_nodes_properties_gin
+  on public.graph_nodes using gin (properties);
+
+create index if not exists graph_nodes_embedding_hnsw
+  on public.graph_nodes using hnsw (embedding vector_cosine_ops)
+  where embedding is not null;
+
+create index if not exists graph_nodes_hierarchy
+  on public.graph_nodes using gist (hierarchy_path)
+  where hierarchy_path is not null;
+
+create index if not exists graph_edges_user_source
+  on public.graph_edges (user_id, source_id, edge_type);
+
+create index if not exists graph_edges_user_target
+  on public.graph_edges (user_id, target_id, edge_type);
+
+create index if not exists graph_edges_edge_type
+  on public.graph_edges (edge_type);
+
+create index if not exists graph_edges_properties_gin
+  on public.graph_edges using gin (properties);
+
+-- Cross-user edge guard (ADR-008 §9): forbid edges that span two users.
+alter table public.graph_edges
+  drop constraint if exists graph_edges_no_cross_user;
+
+-- Provenance trigger (ADR-008 §4 "non-negotiable"): a node without
+-- source_table is a bug, except when the label is 'fact' (user-asserted
+-- facts get source_table='user_assertion'). The same trigger also blocks
+-- cross-user graph_edges so a direct table write cannot bypass the RPC.
+create or replace function public.graph_require_provenance()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  source_user uuid;
+  target_user uuid;
+begin
+  if (tg_table_name = 'graph_nodes') then
+    if new.source_table is null and lower(new.label) = 'fact' then
+      new.source_table := 'user_assertion';
+    end if;
+    if new.source_row_id is null and lower(new.label) = 'fact' then
+      new.source_row_id := coalesce(new.external_key, new.id::text);
+    end if;
+    if new.source_table is null or new.source_row_id is null then
+      raise exception 'graph_nodes row missing provenance (source_table is null)';
+    end if;
+    new.updated_at := now();
+  elsif (tg_table_name = 'graph_edges') then
+    if new.source_table is null or new.source_row_id is null then
+      raise exception 'graph_edges row missing provenance (source_table is null)';
+    end if;
+    select s.user_id, t.user_id
+      into source_user, target_user
+    from public.graph_nodes s
+    join public.graph_nodes t on t.id = new.target_id
+    where s.id = new.source_id;
+
+    if source_user is null or target_user is null then
+      raise exception 'graph_edges row references unknown graph_nodes';
+    end if;
+    if source_user <> new.user_id or target_user <> new.user_id then
+      raise exception 'cross-user graph_edges are forbidden';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists graph_nodes_require_provenance on public.graph_nodes;
+create trigger graph_nodes_require_provenance
+  before insert or update on public.graph_nodes
+  for each row execute function public.graph_require_provenance();
+
+drop trigger if exists graph_edges_require_provenance on public.graph_edges;
+create trigger graph_edges_require_provenance
+  before insert or update on public.graph_edges
+  for each row execute function public.graph_require_provenance();
+
+alter table public.graph_nodes enable row level security;
+revoke all on public.graph_nodes from anon, authenticated;
+grant all on public.graph_nodes to service_role;
+
+alter table public.graph_edges enable row level security;
+revoke all on public.graph_edges from anon, authenticated;
+grant all on public.graph_edges to service_role;
+
+-- Codex fills:
+--   create or replace function public.lumo_kg_upsert_node(...)
+--   create or replace function public.lumo_kg_upsert_edge(...)
+--   create or replace function public.lumo_kg_traverse(...)
+--   create or replace function public.lumo_kg_path(...)
+--   create or replace function public.lumo_kg_neighbours(...)
+--   create or replace function public.kg_traverse_one_hop(...)
+--   create or replace function public.kg_traverse_two_hop(...)
+--   create or replace function public.kg_traverse_three_hop(...)
+--   create or replace function public.kg_path_bounded(...)
+-- All security definer, search_path=public, service_role-only execute.
+
+create or replace function public.lumo_kg_upsert_node(
+  p_user_id uuid,
+  p_label text,
+  p_external_key text,
+  p_properties jsonb default '{}'::jsonb,
+  p_source jsonb default '{}'::jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  inserted_id uuid;
+  source_table text := nullif(p_source ->> 'source_table', '');
+  source_row_id text := nullif(p_source ->> 'source_row_id', '');
+  source_url text := nullif(p_source ->> 'source_url', '');
+begin
+  if p_user_id is null then
+    raise exception 'lumo_kg_upsert_node requires user_id';
+  end if;
+  if nullif(p_label, '') is null then
+    raise exception 'lumo_kg_upsert_node requires label';
+  end if;
+  if nullif(p_external_key, '') is null then
+    raise exception 'lumo_kg_upsert_node requires external_key';
+  end if;
+
+  if source_table is null and lower(p_label) = 'fact' then
+    source_table := 'user_assertion';
+  end if;
+  if source_row_id is null and lower(p_label) = 'fact' then
+    source_row_id := p_external_key;
+  end if;
+  if source_table is null or source_row_id is null then
+    raise exception 'lumo_kg_upsert_node requires source_table and source_row_id';
+  end if;
+
+  insert into public.graph_nodes (
+    user_id,
+    label,
+    external_key,
+    properties,
+    source_table,
+    source_row_id,
+    source_url
+  )
+  values (
+    p_user_id,
+    lower(p_label),
+    p_external_key,
+    coalesce(p_properties, '{}'::jsonb),
+    source_table,
+    source_row_id,
+    source_url
+  )
+  on conflict (user_id, label, external_key)
+  do update set
+    properties = public.graph_nodes.properties || excluded.properties,
+    source_table = excluded.source_table,
+    source_row_id = excluded.source_row_id,
+    source_url = excluded.source_url,
+    asserted_at = now(),
+    updated_at = now()
+  returning id into inserted_id;
+
+  return inserted_id;
+end;
+$$;
+
+create or replace function public.lumo_kg_upsert_edge(
+  p_user_id uuid,
+  p_source_id uuid,
+  p_target_id uuid,
+  p_edge_type text,
+  p_properties jsonb default '{}'::jsonb,
+  p_source jsonb default '{}'::jsonb,
+  p_weight real default 1.0
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  inserted_id uuid;
+  source_table text := nullif(p_source ->> 'source_table', '');
+  source_row_id text := nullif(p_source ->> 'source_row_id', '');
+  source_url text := nullif(p_source ->> 'source_url', '');
+begin
+  if p_user_id is null then
+    raise exception 'lumo_kg_upsert_edge requires user_id';
+  end if;
+  if p_source_id is null or p_target_id is null then
+    raise exception 'lumo_kg_upsert_edge requires source_id and target_id';
+  end if;
+  if nullif(p_edge_type, '') is null then
+    raise exception 'lumo_kg_upsert_edge requires edge_type';
+  end if;
+  if source_table is null or source_row_id is null then
+    raise exception 'lumo_kg_upsert_edge requires source_table and source_row_id';
+  end if;
+
+  insert into public.graph_edges (
+    user_id,
+    source_id,
+    target_id,
+    edge_type,
+    properties,
+    weight,
+    source_table,
+    source_row_id,
+    source_url
+  )
+  values (
+    p_user_id,
+    p_source_id,
+    p_target_id,
+    upper(p_edge_type),
+    coalesce(p_properties, '{}'::jsonb),
+    greatest(0.0, least(coalesce(p_weight, 1.0), 1.0)),
+    source_table,
+    source_row_id,
+    source_url
+  )
+  on conflict (user_id, source_id, target_id, edge_type)
+  do update set
+    properties = public.graph_edges.properties || excluded.properties,
+    weight = excluded.weight,
+    source_table = excluded.source_table,
+    source_row_id = excluded.source_row_id,
+    source_url = excluded.source_url,
+    asserted_at = now()
+  returning id into inserted_id;
+
+  return inserted_id;
+end;
+$$;
+
+create or replace function public.lumo_kg_traverse(
+  p_user_id uuid,
+  p_start_node_id uuid,
+  p_edge_filter text[] default null,
+  p_max_hops integer default 3,
+  p_max_results integer default 50
+)
+returns table (
+  node_id uuid,
+  label text,
+  properties jsonb,
+  depth integer,
+  score real,
+  path uuid[],
+  edge_types text[],
+  evidence jsonb
+)
+language sql
+security definer
+set search_path = public
+as $$
+  with recursive walk as (
+    select
+      n.id as node_id,
+      n.label,
+      n.properties,
+      0::integer as depth,
+      1.0::real as score,
+      array[n.id]::uuid[] as path,
+      array[]::text[] as edge_types,
+      jsonb_build_array(
+        jsonb_build_object(
+          'kind', 'node',
+          'node_id', n.id,
+          'label', n.label,
+          'source_table', n.source_table,
+          'source_row_id', n.source_row_id,
+          'source_url', n.source_url,
+          'asserted_at', n.asserted_at
+        )
+      ) as evidence
+    from public.graph_nodes n
+    where
+      n.user_id = p_user_id
+      and n.id = p_start_node_id
+      and n.source_table is not null
+      and n.source_row_id is not null
+
+    union all
+
+    select
+      target.id as node_id,
+      target.label,
+      target.properties,
+      walk.depth + 1 as depth,
+      (walk.score * edge.weight)::real as score,
+      walk.path || target.id,
+      walk.edge_types || edge.edge_type,
+      walk.evidence ||
+        jsonb_build_array(
+          jsonb_build_object(
+            'kind', 'edge',
+            'edge_id', edge.id,
+            'edge_type', edge.edge_type,
+            'source_table', edge.source_table,
+            'source_row_id', edge.source_row_id,
+            'source_url', edge.source_url,
+            'asserted_at', edge.asserted_at
+          ),
+          jsonb_build_object(
+            'kind', 'node',
+            'node_id', target.id,
+            'label', target.label,
+            'source_table', target.source_table,
+            'source_row_id', target.source_row_id,
+            'source_url', target.source_url,
+            'asserted_at', target.asserted_at
+          )
+        )
+    from walk
+    join public.graph_edges edge
+      on edge.user_id = p_user_id
+      and edge.source_id = walk.node_id
+    join public.graph_nodes target
+      on target.user_id = p_user_id
+      and target.id = edge.target_id
+    where
+      walk.depth < greatest(1, least(coalesce(p_max_hops, 3), 3))
+      and (
+        coalesce(array_length(p_edge_filter, 1), 0) = 0
+        or edge.edge_type = any(p_edge_filter)
+        or lower(edge.edge_type) = any(p_edge_filter)
+      )
+      and not target.id = any(walk.path)
+      and edge.source_table is not null
+      and edge.source_row_id is not null
+      and target.source_table is not null
+      and target.source_row_id is not null
+  )
+  select
+    walk.node_id,
+    walk.label,
+    walk.properties,
+    walk.depth,
+    walk.score,
+    walk.path,
+    walk.edge_types,
+    walk.evidence
+  from walk
+  where walk.depth > 0
+  order by walk.depth asc, walk.score desc, walk.node_id asc
+  limit greatest(1, least(coalesce(p_max_results, 50), 100));
+$$;
+
+create or replace function public.lumo_kg_path(
+  p_user_id uuid,
+  p_source_node_id uuid,
+  p_target_node_id uuid,
+  p_max_hops integer default 3
+)
+returns table (
+  node_id uuid,
+  label text,
+  properties jsonb,
+  depth integer,
+  score real,
+  path uuid[],
+  edge_types text[],
+  evidence jsonb
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select *
+  from public.lumo_kg_traverse(
+    p_user_id,
+    p_source_node_id,
+    null,
+    greatest(1, least(coalesce(p_max_hops, 3), 3)),
+    100
+  ) candidate
+  where candidate.node_id = p_target_node_id
+  order by candidate.depth asc, candidate.score desc
+  limit 1;
+$$;
+
+create or replace function public.lumo_kg_neighbours(
+  p_user_id uuid,
+  p_start_node_id uuid,
+  p_edge_filter text[] default null,
+  p_max_results integer default 50
+)
+returns table (
+  node_id uuid,
+  label text,
+  properties jsonb,
+  depth integer,
+  score real,
+  path uuid[],
+  edge_types text[],
+  evidence jsonb
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select *
+  from public.lumo_kg_traverse(p_user_id, p_start_node_id, p_edge_filter, 1, p_max_results);
+$$;
+
+create or replace function public.kg_traverse_one_hop(
+  p_user_id uuid,
+  p_start_node_id uuid,
+  p_edge_filter text[] default null,
+  p_max_results integer default 50
+)
+returns table (
+  node_id uuid,
+  label text,
+  properties jsonb,
+  depth integer,
+  score real,
+  path uuid[],
+  edge_types text[],
+  evidence jsonb
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select *
+  from public.lumo_kg_traverse(p_user_id, p_start_node_id, p_edge_filter, 1, p_max_results);
+$$;
+
+create or replace function public.kg_traverse_two_hop(
+  p_user_id uuid,
+  p_start_node_id uuid,
+  p_edge_filter text[] default null,
+  p_max_results integer default 50
+)
+returns table (
+  node_id uuid,
+  label text,
+  properties jsonb,
+  depth integer,
+  score real,
+  path uuid[],
+  edge_types text[],
+  evidence jsonb
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select *
+  from public.lumo_kg_traverse(p_user_id, p_start_node_id, p_edge_filter, 2, p_max_results);
+$$;
+
+create or replace function public.kg_traverse_three_hop(
+  p_user_id uuid,
+  p_start_node_id uuid,
+  p_edge_filter text[] default null,
+  p_max_results integer default 50
+)
+returns table (
+  node_id uuid,
+  label text,
+  properties jsonb,
+  depth integer,
+  score real,
+  path uuid[],
+  edge_types text[],
+  evidence jsonb
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select *
+  from public.lumo_kg_traverse(p_user_id, p_start_node_id, p_edge_filter, 3, p_max_results);
+$$;
+
+create or replace function public.kg_path_bounded(
+  p_user_id uuid,
+  p_source_node_id uuid,
+  p_target_node_id uuid,
+  p_max_hops integer default 3
+)
+returns table (
+  node_id uuid,
+  label text,
+  properties jsonb,
+  depth integer,
+  score real,
+  path uuid[],
+  edge_types text[],
+  evidence jsonb
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select *
+  from public.lumo_kg_path(p_user_id, p_source_node_id, p_target_node_id, p_max_hops);
+$$;
+
+revoke all on function public.lumo_kg_upsert_node(uuid, text, text, jsonb, jsonb) from public;
+revoke all on function public.lumo_kg_upsert_edge(uuid, uuid, uuid, text, jsonb, jsonb, real) from public;
+revoke all on function public.lumo_kg_traverse(uuid, uuid, text[], integer, integer) from public;
+revoke all on function public.lumo_kg_path(uuid, uuid, uuid, integer) from public;
+revoke all on function public.lumo_kg_neighbours(uuid, uuid, text[], integer) from public;
+revoke all on function public.kg_traverse_one_hop(uuid, uuid, text[], integer) from public;
+revoke all on function public.kg_traverse_two_hop(uuid, uuid, text[], integer) from public;
+revoke all on function public.kg_traverse_three_hop(uuid, uuid, text[], integer) from public;
+revoke all on function public.kg_path_bounded(uuid, uuid, uuid, integer) from public;
+
+revoke all on function public.lumo_kg_upsert_node(uuid, text, text, jsonb, jsonb) from anon, authenticated;
+revoke all on function public.lumo_kg_upsert_edge(uuid, uuid, uuid, text, jsonb, jsonb, real) from anon, authenticated;
+revoke all on function public.lumo_kg_traverse(uuid, uuid, text[], integer, integer) from anon, authenticated;
+revoke all on function public.lumo_kg_path(uuid, uuid, uuid, integer) from anon, authenticated;
+revoke all on function public.lumo_kg_neighbours(uuid, uuid, text[], integer) from anon, authenticated;
+revoke all on function public.kg_traverse_one_hop(uuid, uuid, text[], integer) from anon, authenticated;
+revoke all on function public.kg_traverse_two_hop(uuid, uuid, text[], integer) from anon, authenticated;
+revoke all on function public.kg_traverse_three_hop(uuid, uuid, text[], integer) from anon, authenticated;
+revoke all on function public.kg_path_bounded(uuid, uuid, uuid, integer) from anon, authenticated;
+
+grant execute on function public.lumo_kg_upsert_node(uuid, text, text, jsonb, jsonb) to service_role;
+grant execute on function public.lumo_kg_upsert_edge(uuid, uuid, uuid, text, jsonb, jsonb, real) to service_role;
+grant execute on function public.lumo_kg_traverse(uuid, uuid, text[], integer, integer) to service_role;
+grant execute on function public.lumo_kg_path(uuid, uuid, uuid, integer) to service_role;
+grant execute on function public.lumo_kg_neighbours(uuid, uuid, text[], integer) to service_role;
+grant execute on function public.kg_traverse_one_hop(uuid, uuid, text[], integer) to service_role;
+grant execute on function public.kg_traverse_two_hop(uuid, uuid, text[], integer) to service_role;
+grant execute on function public.kg_traverse_three_hop(uuid, uuid, text[], integer) to service_role;
+grant execute on function public.kg_path_bounded(uuid, uuid, uuid, integer) to service_role;
+
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/029_bandit_arms_rewards.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 029 — BANDIT-1 contextual bandit substrate.
+--
+-- Codex fills the body for BANDIT-1. This file is the scaffold: bandit_arms
+-- (per-user LinUCB state — theta, A_inv, b), bandit_rewards (per-event
+-- context+reward log used by both online increments and the nightly Modal
+-- retraining job), bandit_cohort_priors (warm-start per surface/cohort), and
+-- bandit_user_models (per-user weights index, ADR-009 §4 §10). Codex adds the
+-- two brain tool RPCs (lumo_personalize_rank, lumo_log_outcome) and the
+-- promotion-flag column read by the LinUCB->Thompson promotion path.
+--
+-- Related:
+--   - docs/specs/adr-009-bandit-algorithm.md (sealed)
+--   - docs/specs/phase-3-master.md §3 (BANDIT-1 deliverable)
+--   - tests/phase3-bandit-arms.test.mjs
+--   - tests/phase3-bandit-promotion.test.mjs
+--
+-- Open schema decisions escalated to Kalas:
+--   - Vector dim for context_vector. ADR-009 §6 puts the context vector at
+--     ~18-23 dims; scaffold uses vector(32) to leave headroom. Confirm.
+--   - Whether A_inv and theta should be jsonb (portable, debuggable) or
+--     bytea (compact). Scaffold uses jsonb per ADR-009 §4. Codex may switch
+--     to bytea if jsonb proves too slow at 1k MAU.
+--
+-- Rollback:
+--   drop function if exists public.lumo_log_outcome(uuid, text, text, integer, jsonb);
+--   drop function if exists public.lumo_personalize_rank(uuid, text, jsonb, jsonb);
+--   drop index    if exists public.bandit_rewards_by_user_arm;
+--   drop index    if exists public.bandit_rewards_by_user_surface_recent;
+--   drop index    if exists public.bandit_rewards_by_created;
+--   drop index    if exists public.bandit_arms_by_user_surface;
+--   drop index    if exists public.bandit_arms_promoted;
+--   drop index    if exists public.bandit_user_models_by_user_surface;
+--   drop index    if exists public.bandit_cohort_priors_by_surface_cohort;
+--   drop table    if exists public.bandit_rewards;
+--   drop table    if exists public.bandit_arms;
+--   drop table    if exists public.bandit_user_models;
+--   drop table    if exists public.bandit_cohort_priors;
+
+create extension if not exists vector;
+
+-- Cohort priors: 3 cohorts per surface, recomputed weekly (ADR-009 §4).
+create table if not exists public.bandit_cohort_priors (
+  id            uuid primary key default gen_random_uuid(),
+  surface       text not null check (surface in (
+                  'marketplace_tile',
+                  'proactive_moment',
+                  'chat_suggestion'
+                )),
+  cohort_id     text not null,                       -- 'low'|'medium'|'high'
+  weights_jsonb jsonb not null default '{}'::jsonb,  -- theta, A_inv, b
+  computed_at   timestamptz not null default now(),
+  unique (surface, cohort_id)
+);
+
+create index if not exists bandit_cohort_priors_by_surface_cohort
+  on public.bandit_cohort_priors (surface, cohort_id, computed_at desc);
+
+-- Per-user model index (ADR-009 §4): which model_version is active per user
+-- per surface. Promotion to Thompson flips a flag here.
+create table if not exists public.bandit_user_models (
+  id                       uuid primary key default gen_random_uuid(),
+  user_id                  uuid not null references public.profiles(id) on delete cascade,
+  surface                  text not null check (surface in (
+                             'marketplace_tile',
+                             'proactive_moment',
+                             'chat_suggestion'
+                           )),
+  algorithm                text not null default 'linucb' check (algorithm in (
+                             'linucb',
+                             'thompson'
+                           )),
+  model_version            text not null,
+  alpha                    real not null default 1.0,            -- LinUCB confidence radius
+  cold_start_event_count   integer not null default 0,
+  promoted_at              timestamptz,
+  weights_jsonb            jsonb not null default '{}'::jsonb,
+  updated_at               timestamptz not null default now(),
+  unique (user_id, surface)
+);
+
+create index if not exists bandit_user_models_by_user_surface
+  on public.bandit_user_models (user_id, surface, updated_at desc);
+
+-- Per-arm LinUCB state (theta, A_inv, b are the LinUCB primitives).
+create table if not exists public.bandit_arms (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references public.profiles(id) on delete cascade,
+  surface         text not null,
+  arm_id          text not null,                       -- candidate id
+  theta           jsonb not null default '[]'::jsonb,  -- d-dim weights
+  a_inv           jsonb not null default '[]'::jsonb,  -- d x d covariance inverse
+  b              jsonb not null default '[]'::jsonb,   -- d-dim accumulator
+  update_count    integer not null default 0,
+  last_reward_at  timestamptz,
+  updated_at      timestamptz not null default now(),
+  created_at      timestamptz not null default now(),
+  unique (user_id, surface, arm_id)
+);
+
+create index if not exists bandit_arms_by_user_surface
+  on public.bandit_arms (user_id, surface, updated_at desc);
+
+create index if not exists bandit_arms_promoted
+  on public.bandit_arms (user_id, surface)
+  where update_count >= 100;
+
+-- Per-event rewards log. Online increments and nightly retraining both read
+-- this table; never deleted in v1 (retention policy is a Phase-4 question).
+create table if not exists public.bandit_rewards (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references public.profiles(id) on delete cascade,
+  surface         text not null,
+  arm_id          text not null,
+  context_vector  vector(32),
+  reward          integer not null check (reward between -2 and 2),
+  event_type      text not null check (event_type in (
+                    'impression',
+                    'click',
+                    'dismiss',
+                    'dwell',
+                    'install',
+                    'action_completed'
+                  )),
+  request_id      text,
+  ab_assignment   text check (ab_assignment in ('control', 'treatment') or ab_assignment is null),
+  created_at      timestamptz not null default now()
+);
+
+create index if not exists bandit_rewards_by_user_arm
+  on public.bandit_rewards (user_id, surface, arm_id, created_at desc);
+
+create index if not exists bandit_rewards_by_user_surface_recent
+  on public.bandit_rewards (user_id, surface, created_at desc);
+
+create index if not exists bandit_rewards_by_created
+  on public.bandit_rewards (created_at);
+
+alter table public.bandit_cohort_priors enable row level security;
+revoke all on public.bandit_cohort_priors from anon, authenticated;
+grant all on public.bandit_cohort_priors to service_role;
+
+alter table public.bandit_user_models enable row level security;
+revoke all on public.bandit_user_models from anon, authenticated;
+grant all on public.bandit_user_models to service_role;
+
+alter table public.bandit_arms enable row level security;
+revoke all on public.bandit_arms from anon, authenticated;
+grant all on public.bandit_arms to service_role;
+
+alter table public.bandit_rewards enable row level security;
+revoke all on public.bandit_rewards from anon, authenticated;
+grant all on public.bandit_rewards to service_role;
+
+-- Codex fills:
+--   create or replace function public.lumo_personalize_rank(...)
+--   create or replace function public.lumo_log_outcome(...)
+-- Both security definer, search_path=public, service_role-only execute.
+
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/030_voice_consent_audit.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 030 — VOICE-1 voice clones + biometric consent audit log.
+--
+-- Codex fills the body for VOICE-1. This file is the scaffold: voice_clones
+-- (one per user, encrypted voice_id, status state machine per ADR-012 §3),
+-- consent_audit_log (append-only, with the action enum from ADR-012 §2.3),
+-- and partitioning hint for 7-year retention (BIPA buffer per ADR-012 §7).
+-- Codex adds the helper RPCs request_voice_id_for_tts and revoke_voice_clone
+-- under this scaffold.
+--
+-- Related:
+--   - docs/specs/adr-012-voice-cloning-biometric-consent.md (sealed)
+--   - docs/specs/phase-3-master.md §4 (VOICE-1 deliverable)
+--   - tests/phase3-voice-consent.test.mjs (verifies all 8 invariants)
+--   - app/onboarding/voice/* (Coworker C — DO NOT TOUCH)
+--   - components/voice/* (Coworker C — DO NOT TOUCH)
+--
+-- 8 invariants enforced (ADR-012 §2):
+--   2.1 No default-on
+--   2.2 No incidental cloning (per-bucket isolation; runtime, not schema)
+--   2.3 Strict audit trail (this table; APPEND-ONLY)
+--   2.4 Sample retention bound (24h purge cron; runtime + voice_sample_purged action)
+--   2.5 Owner-only (unique on user_id; cloning RPC checks JWT match)
+--   2.6 Revocation 7-day SLA (status state machine + cron job)
+--   2.7 Use disclosure (voice_clone_used row per call)
+--   2.8 Storage encryption (voice_id_encrypted bytea via pgcrypto)
+--
+-- Open schema decisions escalated to Kalas:
+--   - Whether to physically partition consent_audit_log by month for the
+--     7-year retention story. Scaffold creates a partition-ready table but
+--     does not declare partitions — Codex enables partitioning post-launch
+--     if row volume warrants. Confirm posture.
+--   - pgcrypto symmetric key handling. Scaffold assumes a service-role
+--     setting `app.voice_clone_key` resolved at runtime. Confirm key rotation
+--     plan before merge.
+--
+-- Rollback:
+--   drop function if exists public.revoke_voice_clone(uuid);
+--   drop function if exists public.request_voice_id_for_tts(uuid, text, text, text);
+--   drop trigger  if exists consent_audit_log_no_update on public.consent_audit_log;
+--   drop trigger  if exists consent_audit_log_no_delete on public.consent_audit_log;
+--   drop function if exists public.consent_audit_log_append_only();
+--   drop index    if exists public.consent_audit_log_voice;
+--   drop index    if exists public.consent_audit_log_user;
+--   drop index    if exists public.voice_clones_deletion_pending;
+--   drop index    if exists public.voice_clones_status;
+--   drop table    if exists public.consent_audit_log;
+--   drop table    if exists public.voice_clones;
+
+create extension if not exists pgcrypto;
+
+create table if not exists public.voice_clones (
+  id                       uuid primary key default gen_random_uuid(),
+  user_id                  uuid not null unique references public.profiles(id) on delete cascade,
+  voice_id_encrypted       bytea not null,
+  engine                   text not null default 'self_hosted' check (engine in (
+                             'self_hosted',          -- XTTS / Coqui per ADR-012
+                             'third_party_fallback'
+                           )),
+  status                   text not null default 'active' check (status in (
+                             'active',
+                             'pending_deletion',
+                             'failed',
+                             'deleted'
+                           )),
+  consent_version          text not null,
+  created_at               timestamptz not null default now(),
+  last_used_at             timestamptz,
+  deletion_requested_at    timestamptz,
+  deletion_completed_at    timestamptz
+);
+
+create index if not exists voice_clones_status
+  on public.voice_clones (status);
+
+create index if not exists voice_clones_deletion_pending
+  on public.voice_clones (deletion_requested_at)
+  where status = 'pending_deletion';
+
+alter table public.voice_clones enable row level security;
+revoke all on public.voice_clones from anon, authenticated;
+grant all on public.voice_clones to service_role;
+
+-- Append-only audit log. ADR-012 §2.3 enumerates the required actions.
+-- Partition-ready (no partition declared in v1; revisit if row volume
+-- exceeds ~10M rows or if 7-year retention requires hot/cold split).
+create table if not exists public.consent_audit_log (
+  id                   uuid primary key default gen_random_uuid(),
+  user_id              uuid not null references public.profiles(id) on delete cascade,
+  action               text not null check (action in (
+                         'consent_granted',
+                         'consent_revoked',
+                         'voice_clone_created',
+                         'voice_clone_used',
+                         'voice_clone_use_disclosed',
+                         'voice_clone_accessed',
+                         'voice_clone_deleted',
+                         'voice_clone_deletion_failed',
+                         'voice_sample_purged',
+                         'wake_word_enabled',
+                         'wake_word_disabled',
+                         'interrupted_listening'
+                       )),
+  voice_id             text,                              -- redacted/hashed; never the raw decrypted id
+  ip_address           inet,
+  user_agent           text,
+  evidence_payload     jsonb not null default '{}'::jsonb,
+  consent_text_hash    text,
+  created_by           text not null default 'service' check (created_by in (
+                         'user',
+                         'system',
+                         'admin',
+                         'service'
+                       )),
+  created_at           timestamptz not null default now(),
+  unique (user_id, action, created_at, voice_id)
+);
+
+create index if not exists consent_audit_log_user
+  on public.consent_audit_log (user_id, created_at desc);
+
+create index if not exists consent_audit_log_voice
+  on public.consent_audit_log (voice_id)
+  where voice_id is not null;
+
+-- ADR-012 §2.3: append-only. Updates and deletes raise. Account-deletion
+-- cascades are handled via the FK on user_id (the only allowed delete path).
+create or replace function public.consent_audit_log_append_only()
+returns trigger
+language plpgsql
+as $$
+begin
+  if (tg_op = 'UPDATE') then
+    raise exception 'consent_audit_log is append-only; updates forbidden';
+  elsif (tg_op = 'DELETE') then
+    -- Allow only the cascade from profiles. If invoked outside of a
+    -- profile-cascade context, raise. Codex hardens this check at merge time.
+    if current_setting('lumo.allow_consent_audit_delete', true) <> 'true' then
+      raise exception 'consent_audit_log is append-only; direct deletes forbidden';
+    end if;
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists consent_audit_log_no_update on public.consent_audit_log;
+create trigger consent_audit_log_no_update
+  before update on public.consent_audit_log
+  for each row execute function public.consent_audit_log_append_only();
+
+drop trigger if exists consent_audit_log_no_delete on public.consent_audit_log;
+create trigger consent_audit_log_no_delete
+  before delete on public.consent_audit_log
+  for each row execute function public.consent_audit_log_append_only();
+
+alter table public.consent_audit_log enable row level security;
+revoke all on public.consent_audit_log from anon, authenticated;
+grant all on public.consent_audit_log to service_role;
+
+-- Codex fills:
+--   create or replace function public.request_voice_id_for_tts(
+--     p_user_id uuid, p_request_id text, p_surface text, p_caller_agent_id text
+--   ) returns text
+--     language plpgsql security definer ...
+--     -- decrypt voice_id_encrypted via pgp_sym_decrypt; write
+--     -- voice_clone_used audit row in same transaction.
+--   create or replace function public.revoke_voice_clone(p_user_id uuid)
+--     returns void
+--     language plpgsql security definer ...
+--     -- set status='pending_deletion'; write consent_revoked audit row;
+--     -- enqueue deletion job (cron picks up).
+
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/031_wake_word_settings.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 031 — WAKE-1 wake-word per-user settings + telemetry.
+--
+-- Codex fills the body for WAKE-1. This file is the scaffold: wake_word_settings
+-- per-user row (off by default per ADR-010 §6), model versioning so we can
+-- ship per-user model upgrades without re-prompting consent, and counters for
+-- TPR / FAR telemetry that feed the held-out evaluation set (ADR-010 §5).
+--
+-- Related:
+--   - docs/specs/adr-010-wake-word-engine.md (sealed)
+--   - docs/specs/phase-3-master.md §5 (WAKE-1 deliverable)
+--   - tests/phase3-wake-word-privacy.test.mjs
+--   - lib/wake-word/engine.ts (Codex implements behind the engine interface)
+--
+-- Open schema decisions escalated to Kalas:
+--   - Do we want per-user sensitivity slider (3 levels) persisted here?
+--     ADR-010 §10 mentions it as a Phase-3 mitigation. Scaffold includes it
+--     as `sensitivity` int 1..3 default 2. Confirm before merge.
+--
+-- Rollback:
+--   drop index if exists public.wake_word_settings_enabled;
+--   drop table if exists public.wake_word_settings;
+
+create table if not exists public.wake_word_settings (
+  id                     uuid primary key default gen_random_uuid(),
+  user_id                uuid not null unique references public.profiles(id) on delete cascade,
+  enabled                boolean not null default false,                  -- ADR-010 §6.1: off by default
+  engine                 text not null default 'custom_cnn' check (engine in (
+                           'custom_cnn',           -- v1 default, on-device
+                           'openwakeword',
+                           'porcupine'             -- paid fallback, gated
+                         )),
+  model_version          text,
+  sensitivity            integer not null default 2 check (sensitivity between 1 and 3),
+  last_calibrated_at     timestamptz,
+  last_enabled_at        timestamptz,
+  last_disabled_at       timestamptz,
+  -- Telemetry counters (ADR-010 §5). Counts only; never raw audio.
+  true_positive_count    integer not null default 0 check (true_positive_count >= 0),
+  false_accept_count     integer not null default 0 check (false_accept_count >= 0),
+  fired_total_count      integer not null default 0 check (fired_total_count >= 0),
+  -- Idle-sleep / battery suspend bookkeeping (ADR-010 §6.3).
+  last_fired_at          timestamptz,
+  auto_suspended_reason  text check (auto_suspended_reason in (
+                           'idle_30min',
+                           'low_battery',
+                           'tab_background',
+                           'mic_revoked',
+                           'engine_error'
+                         ) or auto_suspended_reason is null),
+  created_at             timestamptz not null default now(),
+  updated_at             timestamptz not null default now()
+);
+
+create index if not exists wake_word_settings_enabled
+  on public.wake_word_settings (enabled, last_fired_at desc)
+  where enabled = true;
+
+drop trigger if exists wake_word_settings_touch_updated_at on public.wake_word_settings;
+create trigger wake_word_settings_touch_updated_at
+  before update on public.wake_word_settings
+  for each row execute function public.touch_updated_at();
+
+alter table public.wake_word_settings enable row level security;
+revoke all on public.wake_word_settings from anon, authenticated;
+grant all on public.wake_word_settings to service_role;
+
+-- Note: wake-word enable/disable also writes a row to consent_audit_log
+-- (action='wake_word_enabled' / 'wake_word_disabled' / 'interrupted_listening')
+-- per ADR-010 §6.1, using the audit table created in 030_voice_consent_audit.sql.
+
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/032_multimodal_embeddings.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 032 — MMRAG-1 unified multi-modal embedding substrate.
+--
+-- Codex fills the body for MMRAG-1. This file is the scaffold: unified_embeddings
+-- (vector(1024), HNSW with m=16, ef_construction=64 per ADR-011 §4),
+-- projector_artifacts (versioned weight matrices for the linear projectors),
+-- and the cascade-delete trigger from native source tables. Codex adds the
+-- two brain tool RPCs (lumo_recall_unified, lumo_project_embedding) and the
+-- backfill cron under this scaffold.
+--
+-- Related:
+--   - docs/specs/adr-011-multimodal-rag-projection.md (sealed)
+--   - docs/specs/phase-3-master.md §6 (MMRAG-1 deliverable)
+--   - tests/phase3-multimodal-rag.test.mjs (recall@5 ≥ 0.7 synthetic gate)
+--   - Native sources: content_embeddings (015), audio_transcripts (017),
+--     pdf_documents (019), image_embeddings (020).
+--
+-- Open schema decisions escalated to Kalas:
+--   - HNSW parameters m=16 / ef_construction=64 are sealed in ADR-011 §4. If
+--     storage or recall@5 ends up off-target the parameter sweep is in
+--     migration 034. Confirm before merge.
+--
+-- Rollback:
+--   drop function if exists public.unified_embeddings_cascade_delete();
+--   drop trigger  if exists content_embeddings_cascade_unified on public.content_embeddings;
+--   drop trigger  if exists image_embeddings_cascade_unified on public.image_embeddings;
+--   drop trigger  if exists audio_transcripts_cascade_unified on public.audio_transcripts;
+--   drop trigger  if exists pdf_documents_cascade_unified on public.pdf_documents;
+--   drop function if exists public.lumo_project_embedding(text, vector);
+--   drop function if exists public.lumo_recall_unified(uuid, text, jsonb, integer);
+--   drop index    if exists public.unified_embeddings_user_modality;
+--   drop index    if exists public.unified_embeddings_hnsw;
+--   drop index    if exists public.unified_embeddings_source;
+--   drop table    if exists public.unified_embeddings;
+--   drop table    if exists public.projector_artifacts;
+
+create extension if not exists vector;
+
+create table if not exists public.projector_artifacts (
+  id            uuid primary key default gen_random_uuid(),
+  version       text not null,                          -- e.g. 'v1.0-text', 'v1.0-clip', 'v1.0-audio'
+  modality      text not null check (modality in ('text', 'image', 'audio')),
+  weights       bytea not null,                         -- serialized weight matrix
+  input_dim     integer not null check (input_dim > 0),
+  output_dim    integer not null default 1024 check (output_dim = 1024),
+  loss          real,
+  recall_at_5   real,                                   -- held-out evaluation
+  created_at    timestamptz not null default now(),
+  unique (version, modality)
+);
+
+alter table public.projector_artifacts enable row level security;
+revoke all on public.projector_artifacts from anon, authenticated;
+grant all on public.projector_artifacts to service_role;
+
+create table if not exists public.unified_embeddings (
+  id                 uuid primary key default gen_random_uuid(),
+  user_id            uuid not null references public.profiles(id) on delete cascade,
+  modality           text not null check (modality in ('text', 'image', 'audio')),
+  source_table       text not null,                       -- 'content_embeddings'|'image_embeddings'|'audio_transcripts'|'pdf_documents'
+  source_row_id      text not null,
+  source_url         text,
+  text_repr          text,                                -- input to the cross-encoder re-ranker
+  embedding          vector(1024) not null,
+  projector_version  text not null,
+  created_at         timestamptz not null default now(),
+  unique (source_table, source_row_id, projector_version)
+);
+
+create index if not exists unified_embeddings_user_modality
+  on public.unified_embeddings (user_id, modality);
+
+create index if not exists unified_embeddings_source
+  on public.unified_embeddings (source_table, source_row_id);
+
+-- HNSW index (ADR-011 §4): m=16, ef_construction=64. Rebuild quarterly per
+-- ADR-011 §14 risk register.
+create index if not exists unified_embeddings_hnsw
+  on public.unified_embeddings using hnsw (embedding vector_cosine_ops)
+  with (m = 16, ef_construction = 64);
+
+alter table public.unified_embeddings enable row level security;
+revoke all on public.unified_embeddings from anon, authenticated;
+grant all on public.unified_embeddings to service_role;
+
+-- Cascade delete from native source tables (ADR-011 §4 "deletion of a native
+-- row cascades to the unified row via a trigger"). Codex wires the per-table
+-- triggers below; the function body is shared.
+create or replace function public.unified_embeddings_cascade_delete()
+returns trigger
+language plpgsql
+as $$
+begin
+  delete from public.unified_embeddings
+   where source_table = tg_argv[0]
+     and source_row_id = old.id::text;
+  return old;
+end;
+$$;
+
+-- Codex enables these triggers once the native column 'id' shapes are
+-- confirmed (some native tables use bigint, some uuid; the cast above
+-- handles both, but the trigger DDL is left commented so Codex can add
+-- per-table after a quick column audit).
+--
+--   create trigger content_embeddings_cascade_unified
+--     after delete on public.content_embeddings
+--     for each row execute function public.unified_embeddings_cascade_delete('content_embeddings');
+--   create trigger image_embeddings_cascade_unified
+--     after delete on public.image_embeddings
+--     for each row execute function public.unified_embeddings_cascade_delete('image_embeddings');
+--   create trigger audio_transcripts_cascade_unified
+--     after delete on public.audio_transcripts
+--     for each row execute function public.unified_embeddings_cascade_delete('audio_transcripts');
+--   create trigger pdf_documents_cascade_unified
+--     after delete on public.pdf_documents
+--     for each row execute function public.unified_embeddings_cascade_delete('pdf_documents');
+
+-- Codex fills:
+--   create or replace function public.lumo_recall_unified(
+--     p_user_id uuid, p_query text, p_filters jsonb, p_top_k integer
+--   ) returns table (
+--     source_table text, source_row_id text, source_url text,
+--     text_repr text, modality text, score real, reranker_engaged boolean
+--   )
+--   create or replace function public.lumo_project_embedding(
+--     p_modality text, p_native_embedding vector
+--   ) returns vector(1024)
+
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/033_runtime_intelligence.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 033 — RUNTIME-1 agent runtime intelligence substrate.
+--
+-- Codex fills the body for RUNTIME-1. This file is the scaffold: three
+-- tables for the W4 platform-watching-itself layer:
+--
+--   - agent_outputs_sampled — sampled agent outputs (with quality signals)
+--     used to build a 7-day rolling reference distribution for KS / JS
+--     drift detection per ADR-aligned spec in phase-3-master.md §7.
+--   - model_routing_log — every provider-routing decision with latency,
+--     cost, classifier label so the orchestrator can backtest its forecast.
+--   - prompt_ab_arms — prompt-version A/B counters used by the runtime
+--     intelligence admin surface.
+--
+-- The two RUNTIME-1 deliverables not in this scaffold (drift checker and
+-- connector hazard) are pure brain-side logic; they read from these tables
+-- and from agent_tool_usage. Connector_health writes happen via the existing
+-- ops_observability schema.
+--
+-- Related:
+--   - docs/specs/phase-3-master.md §7 (RUNTIME-1 deliverable)
+--   - tests/phase3-runtime-intelligence.test.mjs (drift KS, A/B aggregation,
+--     model routing classifier coverage)
+--   - app/admin/intelligence/* (Coworker D — DO NOT TOUCH)
+--
+-- Open schema decisions escalated to Kalas:
+--   - Sampling rate for agent_outputs_sampled (ADR ref says 7-day rolling
+--     window; sample rate is undeclared). Scaffold leaves it to runtime
+--     config; Codex sets a default of 5% per agent.
+--   - Whether prompt_ab_arms needs separate counters per surface or per
+--     agent. Scaffold goes per (agent_id, prompt_version) — confirm.
+--
+-- Rollback:
+--   drop index if exists public.prompt_ab_arms_by_agent_version;
+--   drop index if exists public.model_routing_log_by_label;
+--   drop index if exists public.model_routing_log_by_query;
+--   drop index if exists public.model_routing_log_recent;
+--   drop index if exists public.agent_outputs_sampled_by_agent_recent;
+--   drop index if exists public.agent_outputs_sampled_by_input_hash;
+--   drop table if exists public.prompt_ab_arms;
+--   drop table if exists public.model_routing_log;
+--   drop table if exists public.agent_outputs_sampled;
+
+create table if not exists public.agent_outputs_sampled (
+  id                  uuid primary key default gen_random_uuid(),
+  user_id             uuid references public.profiles(id) on delete cascade,
+  agent_id            text not null,
+  prompt_version      text,
+  input_hash          text not null,                       -- SHA-256 of normalised input
+  output_text         text,                                -- redacted output text
+  output_tokens       integer check (output_tokens is null or output_tokens >= 0),
+  classifier_label    text,
+  quality_signals     jsonb not null default '{}'::jsonb,  -- {accepted: bool, refused: bool, latency_ms: int, etc.}
+  sampled_at          timestamptz not null default now()
+);
+
+create index if not exists agent_outputs_sampled_by_agent_recent
+  on public.agent_outputs_sampled (agent_id, sampled_at desc);
+
+create index if not exists agent_outputs_sampled_by_input_hash
+  on public.agent_outputs_sampled (agent_id, input_hash);
+
+alter table public.agent_outputs_sampled enable row level security;
+revoke all on public.agent_outputs_sampled from anon, authenticated;
+grant all on public.agent_outputs_sampled to service_role;
+
+create table if not exists public.model_routing_log (
+  id                  uuid primary key default gen_random_uuid(),
+  user_id             uuid references public.profiles(id) on delete cascade,
+  query_id            text not null,
+  classifier_label    text,
+  routed_model        text not null,                       -- e.g. 'claude-3-5-sonnet', 'gpt-4o', 'gemini-1.5-pro'
+  routed_provider     text,
+  forecast_cost_usd   numeric(8, 6),
+  forecast_latency_ms integer,
+  forecast_confidence real check (forecast_confidence is null or (forecast_confidence between 0 and 1)),
+  fell_back_to_table  boolean not null default false,      -- true when forecast confidence < 0.6
+  latency_ms          integer check (latency_ms is null or latency_ms >= 0),
+  cost_usd            numeric(8, 6),
+  status              text not null default 'success' check (status in (
+                        'success',
+                        'fallback',
+                        'timeout',
+                        'error'
+                      )),
+  created_at          timestamptz not null default now()
+);
+
+create index if not exists model_routing_log_recent
+  on public.model_routing_log (created_at desc);
+
+create index if not exists model_routing_log_by_query
+  on public.model_routing_log (query_id);
+
+create index if not exists model_routing_log_by_label
+  on public.model_routing_log (classifier_label, created_at desc);
+
+alter table public.model_routing_log enable row level security;
+revoke all on public.model_routing_log from anon, authenticated;
+grant all on public.model_routing_log to service_role;
+
+create table if not exists public.prompt_ab_arms (
+  id                  uuid primary key default gen_random_uuid(),
+  agent_id            text not null,
+  prompt_version      text not null,
+  samples_count       bigint not null default 0,
+  accept_count        bigint not null default 0,
+  refusal_count       bigint not null default 0,
+  latency_p50_ms      integer,
+  latency_p95_ms      integer,
+  cost_usd_total      numeric(12, 6) not null default 0,
+  last_sampled_at     timestamptz,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now(),
+  unique (agent_id, prompt_version)
+);
+
+create index if not exists prompt_ab_arms_by_agent_version
+  on public.prompt_ab_arms (agent_id, prompt_version);
+
+drop trigger if exists prompt_ab_arms_touch_updated_at on public.prompt_ab_arms;
+create trigger prompt_ab_arms_touch_updated_at
+  before update on public.prompt_ab_arms
+  for each row execute function public.touch_updated_at();
+
+alter table public.prompt_ab_arms enable row level security;
+revoke all on public.prompt_ab_arms from anon, authenticated;
+grant all on public.prompt_ab_arms to service_role;
+
+-- ════════════════════════════════════════════════════════════════
+-- db/migrations/034_phase3_indexes_polish.sql
+-- ════════════════════════════════════════════════════════════════
+
+-- Migration 034 — Phase 3 composite-index polish (reserved for late W4).
+--
+-- Codex fills the body for the Phase 3 ship-gate week. This file is the
+-- scaffold: a deliberate empty migration reserved for the index tuning we
+-- can only do once we observe production query patterns from KG-1, BANDIT-1,
+-- VOICE-1, WAKE-1, MMRAG-1, and RUNTIME-1 running together.
+--
+-- The expected shape (Codex confirms after one week of dogfood):
+--   - Composite index on (graph_edges.user_id, graph_edges.edge_type,
+--     graph_edges.target_id) once we know which traversal patterns dominate.
+--   - Composite on (bandit_rewards.user_id, surface, created_at) once we
+--     know how the nightly retrain reads the table.
+--   - Partial index on consent_audit_log filtered to voice_clone_used for
+--     the abuse-detection guardrail in ADR-012 §4.
+--   - HNSW ef parameter tuning on unified_embeddings if recall@5 trends down.
+--   - Composite on (model_routing_log.classifier_label, routed_model,
+--     created_at) for the admin surface.
+--
+-- Reserved as 034 so 027-033 ship in deliverable order in W1-W3 and we have
+-- a known migration number for the W4 polish pass without renumbering.
+--
+-- Related:
+--   - docs/specs/phase-3-master.md (master sequencing W4)
+--
+-- Rollback:
+--   -- Each index added below should have a matching `drop index if exists`
+--   -- line here. Empty until Codex fills the body.
+
+-- (intentionally empty body; placeholder ensures the file exists in the
+-- migration sequence. Codex appends index creates + matching rollback
+-- comments above this line during the W4 ship-gate window.)

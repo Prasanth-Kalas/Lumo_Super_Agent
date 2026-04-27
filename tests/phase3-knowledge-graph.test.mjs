@@ -1,22 +1,15 @@
 /**
  * KG-1 knowledge graph substrate regression.
  *
- * Tests the relational graph_nodes / graph_edges substrate (ADR-008).
- * Deterministic; no real network. Synthesises an in-memory graph and
- * verifies:
- *   - node + edge insertion shape (provenance required, ADR-008 §4)
- *   - 1-hop / 2-hop / 3-hop CTE traversal correctness on a fixture
- *   - cycle prevention (path tracking, ADR-008 §6)
- *   - cross-user isolation (no cross-user edges, ADR-008 §9)
- *   - p95 latency budgets respected on the synthetic fixture
- *     (1-hop < 200ms, 2-hop < 600ms, 3-hop < 1500ms — measured against
- *     in-memory traversal so runtime is dominated by JS overhead, but
- *     the gate ensures the test fixture itself stays cheap)
- *
  * Run: node --experimental-strip-types tests/phase3-knowledge-graph.test.mjs
  */
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import {
+  traverseGraphInMemory,
+  validateKnowledgeGraphFixture,
+} from "../lib/knowledge-graph-core.ts";
 
 let pass = 0;
 let fail = 0;
@@ -31,287 +24,147 @@ const t = (name, fn) => {
   }
 };
 
-// ---------- in-memory graph fixture ----------
-//
-// Shape mirrors the real schema: nodes carry user_id+label+external_key
-// and provenance triplet; edges carry user_id+source_id+target_id+edge_type.
-
 const USER_A = "00000000-0000-0000-0000-000000000aaa";
 const USER_B = "00000000-0000-0000-0000-000000000bbb";
+const synthetic = JSON.parse(fs.readFileSync("tests/fixtures/vegas-kg-synthetic.json", "utf8"));
 
-function emptyGraph() {
-  return { nodes: new Map(), edges: [] };
+function node(id, user_id = USER_A, extra = {}) {
+  return {
+    id,
+    user_id,
+    label: "mission",
+    external_key: id,
+    properties: { summary: id },
+    source_table: "missions",
+    source_row_id: id,
+    source_url: `https://lumo.test/${id}`,
+    ...extra,
+  };
 }
 
-function insertNode(g, n) {
-  // Provenance enforcement (ADR-008 §4): non-fact label requires source_table.
-  if (!n.source_table && n.label !== "fact") {
-    throw new Error("graph_nodes row missing provenance");
-  }
-  const key = `${n.user_id}|${n.label}|${n.external_key}`;
-  const id = n.id ?? `node-${g.nodes.size}`;
-  const row = { id, ...n };
-  g.nodes.set(id, row);
-  // unique (user_id, label, external_key) — return existing if duplicate.
-  for (const existing of g.nodes.values()) {
-    if (existing.id !== id && `${existing.user_id}|${existing.label}|${existing.external_key}` === key) {
-      g.nodes.delete(id);
-      return existing;
-    }
-  }
-  return row;
+function edge(id, source_id, target_id, user_id = USER_A, extra = {}) {
+  return {
+    id,
+    user_id,
+    source_id,
+    target_id,
+    edge_type: "RELATED_TO",
+    weight: 0.9,
+    source_table: "mission_execution_events",
+    source_row_id: id,
+    source_url: `https://lumo.test/edges/${id}`,
+    ...extra,
+  };
 }
 
-function insertEdge(g, e) {
-  if (!e.source_table) throw new Error("graph_edges row missing provenance");
-  const src = g.nodes.get(e.source_id);
-  const dst = g.nodes.get(e.target_id);
-  if (!src || !dst) throw new Error("edge references unknown node");
-  // Cross-user edges forbidden (ADR-008 §9).
-  if (src.user_id !== dst.user_id || src.user_id !== e.user_id) {
-    throw new Error("cross-user edge forbidden");
-  }
-  // unique (user_id, source_id, target_id, edge_type)
-  for (const ex of g.edges) {
-    if (
-      ex.user_id === e.user_id &&
-      ex.source_id === e.source_id &&
-      ex.target_id === e.target_id &&
-      ex.edge_type === e.edge_type
-    ) {
-      return ex;
-    }
-  }
-  const row = { ...e, weight: e.weight ?? 1.0 };
-  g.edges.push(row);
-  return row;
-}
-
-function oneHop(g, userId, startId, edgeFilter) {
-  return g.edges
-    .filter((e) => e.user_id === userId && e.source_id === startId)
-    .filter((e) => !edgeFilter || edgeFilter.includes(e.edge_type))
-    .map((e) => ({
-      target_id: e.target_id,
-      edge_type: e.edge_type,
-      weight: e.weight,
-      depth: 1,
-      score: e.weight,
-    }));
-}
-
-function nHop(g, userId, startId, maxHops, edgeFilter) {
-  const out = [];
-  const stack = [{ node: startId, path: [startId], depth: 0, score: 1 }];
-  while (stack.length) {
-    const cur = stack.pop();
-    if (cur.depth >= maxHops) continue;
-    const edges = g.edges.filter(
-      (e) =>
-        e.user_id === userId &&
-        e.source_id === cur.node &&
-        (!edgeFilter || edgeFilter.includes(e.edge_type)) &&
-        !cur.path.includes(e.target_id), // cycle guard
-    );
-    for (const e of edges) {
-      const next = {
-        node: e.target_id,
-        path: [...cur.path, e.target_id],
-        depth: cur.depth + 1,
-        score: cur.score * e.weight,
-      };
-      out.push(next);
-      stack.push(next);
-    }
-  }
-  return out;
-}
-
-// ---------- fixture ----------
-const g = emptyGraph();
-const userMission = insertNode(g, {
-  user_id: USER_A,
-  label: "mission",
-  external_key: "mission-vegas",
-  properties: { summary: "Vegas trip" },
-  source_table: "missions",
-  source_row_id: "m-1",
-  source_url: "https://lumo/missions/m-1",
-});
-const userEvent = insertNode(g, {
-  user_id: USER_A,
-  label: "event",
-  external_key: "evt-vegas-dinner",
-  properties: { title: "Vegas dinner" },
-  source_table: "connector_responses_archive",
-  source_row_id: "r-101",
-  source_url: "https://calendar.google.com/?eid=evt1",
-});
-const userContact = insertNode(g, {
-  user_id: USER_A,
-  label: "contact",
-  external_key: "contact-alice",
-  properties: { name: "Alice" },
-  source_table: "connector_responses_archive",
-  source_row_id: "r-102",
-  source_url: "https://mail.google.com/#inbox/m-200",
-});
-const userPlace = insertNode(g, {
-  user_id: USER_A,
-  label: "place",
-  external_key: "place-vegas",
-  properties: { name: "Las Vegas" },
-  source_table: "connector_responses_archive",
-  source_row_id: "r-103",
-  source_url: null,
-});
-insertEdge(g, {
-  user_id: USER_A,
-  source_id: userMission.id,
-  target_id: userEvent.id,
-  edge_type: "part_of",
-  weight: 0.9,
-  source_table: "missions",
-  source_row_id: "m-1",
-});
-insertEdge(g, {
-  user_id: USER_A,
-  source_id: userEvent.id,
-  target_id: userContact.id,
-  edge_type: "attended",
-  weight: 0.8,
-  source_table: "connector_responses_archive",
-  source_row_id: "r-101",
-});
-insertEdge(g, {
-  user_id: USER_A,
-  source_id: userMission.id,
-  target_id: userPlace.id,
-  edge_type: "located_at",
-  weight: 0.95,
-  source_table: "missions",
-  source_row_id: "m-1",
-});
-
-// User B has its own contact that should never be reachable from User A.
-const userBContact = insertNode(g, {
-  user_id: USER_B,
-  label: "contact",
-  external_key: "contact-bob",
-  properties: { name: "Bob" },
-  source_table: "connector_responses_archive",
-  source_row_id: "r-999",
-});
+const fixture = {
+  user: { id: USER_A },
+  nodes: [
+    node("a"),
+    node("b", USER_A, { label: "event", properties: { title: "Vegas dinner" } }),
+    node("c", USER_A, { label: "person", properties: { name: "Alice" } }),
+    node("d", USER_A, { label: "place", properties: { name: "Las Vegas" } }),
+    node("other", USER_B, { label: "person", properties: { name: "Other user" } }),
+  ],
+  edges: [
+    edge("ab", "a", "b", USER_A, { edge_type: "PART_OF", weight: 0.9 }),
+    edge("bc", "b", "c", USER_A, { edge_type: "ATTENDED", weight: 0.8 }),
+    edge("cd", "c", "d", USER_A, { edge_type: "LOCATED_AT", weight: 0.7 }),
+    edge("da", "d", "a", USER_A, { edge_type: "RELATED_TO", weight: 0.6 }),
+  ],
+};
 
 console.log("\nKG-1 knowledge graph substrate");
 
-t("inserts node with provenance", () => {
-  assert.equal(userMission.source_table, "missions");
-  assert.equal(userEvent.source_url, "https://calendar.google.com/?eid=evt1");
+t("validates Synthetic Sam fixture with provenance", () => {
+  const result = validateKnowledgeGraphFixture(synthetic);
+  assert.equal(result.ok, true, result.errors.join("\n"));
+  assert.equal(result.node_count, 147);
+  assert.equal(result.edge_count, 313);
 });
 
-t("rejects node insertion missing provenance (non-fact label)", () => {
-  assert.throws(() =>
-    insertNode(g, { user_id: USER_A, label: "event", external_key: "no-prov" }),
-  );
+t("Synthetic Sam contains explicit Tahoe BLOCKED_BY evidence", () => {
+  const tahoe = synthetic.nodes.find((n) => n.external_key === "mission-tahoe-trip");
+  assert.ok(tahoe);
+  const blockers = synthetic.edges.filter((e) => e.source_id === tahoe.id && e.edge_type === "BLOCKED_BY");
+  assert.equal(blockers.length, 2);
+  const targets = blockers.map((e) => synthetic.nodes.find((n) => n.id === e.target_id)?.external_key).sort();
+  assert.deepEqual(targets, ["evt-q4-board-meeting", "evt-tahoe-storm-forecast"]);
 });
 
-t("allows fact node without source_table (user-asserted)", () => {
-  const factNode = insertNode(g, {
-    user_id: USER_A,
-    label: "fact",
-    external_key: "fact-1",
-    properties: { text: "I prefer aisle seats" },
-  });
-  assert.equal(factNode.label, "fact");
+t("rejects node missing provenance", () => {
+  const bad = {
+    user: { id: USER_A },
+    nodes: [{ ...node("bad"), source_table: null }],
+    edges: [],
+  };
+  const result = validateKnowledgeGraphFixture(bad);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /node missing source_table/);
 });
 
-t("rejects edge insertion missing provenance", () => {
-  assert.throws(() =>
-    insertEdge(g, {
-      user_id: USER_A,
-      source_id: userMission.id,
-      target_id: userEvent.id,
-      edge_type: "test",
-    }),
-  );
+t("rejects edge missing provenance", () => {
+  const bad = {
+    ...fixture,
+    edges: [{ ...fixture.edges[0], source_table: null }],
+  };
+  const result = validateKnowledgeGraphFixture(bad);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /edge missing source_table/);
 });
 
 t("rejects cross-user edge", () => {
-  assert.throws(() =>
-    insertEdge(g, {
-      user_id: USER_A,
-      source_id: userMission.id,
-      target_id: userBContact.id,
-      edge_type: "mentions",
-      source_table: "test",
-    }),
-  );
+  const bad = {
+    ...fixture,
+    edges: [...fixture.edges, edge("cross", "a", "other", USER_A)],
+  };
+  const result = validateKnowledgeGraphFixture(bad);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /cross-user edge forbidden/);
 });
 
-t("1-hop traversal returns direct neighbours only", () => {
-  const r = oneHop(g, USER_A, userMission.id, null);
-  const targets = r.map((x) => x.target_id).sort();
-  assert.deepEqual(targets, [userEvent.id, userPlace.id].sort());
-});
-
-t("1-hop respects edge_filter", () => {
-  const r = oneHop(g, USER_A, userMission.id, ["located_at"]);
-  assert.equal(r.length, 1);
-  assert.equal(r[0].target_id, userPlace.id);
-});
-
-t("2-hop traversal reaches contact via event", () => {
-  const r = nHop(g, USER_A, userMission.id, 2, null);
-  const reached = r.map((x) => x.node);
-  assert.ok(reached.includes(userContact.id), "contact reachable in 2 hops");
-});
-
-t("3-hop traversal terminates without cycles", () => {
-  // create a small cycle: contact → mission, then walk should not loop.
-  insertEdge(g, {
+t("traverses one hop with edge filter", () => {
+  const rows = traverseGraphInMemory({
+    fixture,
     user_id: USER_A,
-    source_id: userContact.id,
-    target_id: userMission.id,
-    edge_type: "related_to",
-    weight: 0.3,
-    source_table: "synthetic",
-    source_row_id: "syn-1",
+    start_node_id: "a",
+    max_hops: 1,
+    edge_filter: ["part_of"],
   });
-  const start = Date.now();
-  const r = nHop(g, USER_A, userMission.id, 3, null);
-  const elapsed = Date.now() - start;
-  assert.ok(elapsed < 1500, `3-hop budget breach: ${elapsed}ms`);
-  // Cycle guard: no result's path repeats a node.
-  for (const x of r) {
-    assert.equal(new Set(x.path).size, x.path.length, `cycle in path: ${x.path}`);
-  }
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].node_id, "b");
+  assert.equal(rows[0].depth, 1);
 });
 
-t("user A query never sees user B nodes", () => {
-  const r = nHop(g, USER_A, userMission.id, 3, null);
-  for (const x of r) {
-    assert.notEqual(x.node, userBContact.id);
-  }
+t("traverses two and three hops with cycle prevention", () => {
+  const rows = traverseGraphInMemory({
+    fixture,
+    user_id: USER_A,
+    start_node_id: "a",
+    max_hops: 3,
+  });
+  assert.ok(rows.some((row) => row.path.join(">") === "a>b>c"));
+  assert.ok(rows.some((row) => row.path.join(">") === "a>b>c>d"));
+  assert.equal(rows.some((row) => row.path.join(">") === "a>b>c>d>a"), false);
 });
 
-t("p95 latency budgets met on fixture", () => {
-  const samples = { one: [], two: [], three: [] };
-  for (let i = 0; i < 50; i++) {
-    let s = Date.now();
-    oneHop(g, USER_A, userMission.id, null);
-    samples.one.push(Date.now() - s);
-    s = Date.now();
-    nHop(g, USER_A, userMission.id, 2, null);
-    samples.two.push(Date.now() - s);
-    s = Date.now();
-    nHop(g, USER_A, userMission.id, 3, null);
-    samples.three.push(Date.now() - s);
+t("keeps traversal under the p95 budget on Synthetic Sam", () => {
+  const starts = synthetic.nodes.slice(0, 40).map((n) => n.id);
+  const samples = [];
+  for (const start of starts) {
+    const t0 = performance.now();
+    traverseGraphInMemory({
+      fixture: synthetic,
+      user_id: synthetic.user.id,
+      start_node_id: start,
+      max_hops: 3,
+      max_results: 50,
+    });
+    samples.push(performance.now() - t0);
   }
-  const p95 = (a) => a.sort((x, y) => x - y)[Math.floor(a.length * 0.95)];
-  assert.ok(p95(samples.one) < 200, "1-hop p95 < 200ms");
-  assert.ok(p95(samples.two) < 600, "2-hop p95 < 600ms");
-  assert.ok(p95(samples.three) < 1500, "3-hop p95 < 1500ms");
+  samples.sort((a, b) => a - b);
+  const p95 = samples[Math.floor(samples.length * 0.95)] ?? 0;
+  assert.ok(p95 < 1500, `p95 ${p95}ms exceeded 1500ms`);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

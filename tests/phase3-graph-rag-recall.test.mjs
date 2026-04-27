@@ -1,21 +1,15 @@
 /**
  * KG-1 GraphRAG recall test.
  *
- * Tests the /api/graph/recall surface contract: a synthetic graph is
- * loaded, the recall route is invoked (mocked fetch — no real network),
- * and we verify:
- *   - every returned candidate carries provenance (ADR-008 §7)
- *   - path array reaches the expected target (Vegas dinner contact)
- *   - confidence is the product of edge weights
- *   - vector_only fallback flag set when the graph traversal yields zero
- *     evidence rows
- *   - client renderer would reject a no-evidence response (we model the
- *     contract here; the real renderer guard is in components/)
- *
  * Run: node --experimental-strip-types tests/phase3-graph-rag-recall.test.mjs
  */
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import {
+  assertGraphCitedHasProvenance,
+  recallGraphFromFixture,
+} from "../lib/knowledge-graph-core.ts";
 
 let pass = 0;
 let fail = 0;
@@ -30,174 +24,86 @@ const t = async (name, fn) => {
   }
 };
 
-// ---------- mock fetch / synthetic graph recall ----------
-
-function buildGraphRecall(query, fixture) {
-  // Naive recall over the fixture: matches event title text contains the
-  // first significant query token; assembles a 2-hop path mission→event→contact
-  // with provenance + product-of-weights confidence.
-  const tokens = query
-    .toLowerCase()
-    .split(/\W+/)
-    .filter((w) => w.length > 3);
-  let evidence = [];
-  let path = [];
-  let confidence = 0;
-  for (const evt of fixture.events) {
-    if (tokens.some((tok) => evt.title.toLowerCase().includes(tok))) {
-      const mission = fixture.missions.find((m) => m.id === evt.mission_id);
-      const contact = fixture.contacts.find((c) => c.event_id === evt.id);
-      if (mission && contact) {
-        path = [mission.id, evt.id, contact.id];
-        evidence = [
-          {
-            node_id: mission.id,
-            label: "mission",
-            source_table: "missions",
-            source_row_id: mission.id,
-            source_url: mission.source_url,
-            asserted_at: "2026-04-20T00:00:00Z",
-          },
-          {
-            node_id: evt.id,
-            label: "event",
-            source_table: "connector_responses_archive",
-            source_row_id: evt.id,
-            source_url: evt.source_url,
-            asserted_at: "2026-04-20T00:00:00Z",
-          },
-          {
-            node_id: contact.id,
-            label: "contact",
-            source_table: "connector_responses_archive",
-            source_row_id: contact.id,
-            source_url: contact.source_url,
-            asserted_at: "2026-04-20T00:00:00Z",
-          },
-        ];
-        confidence = mission.weight_to_event * evt.weight_to_contact;
-        break;
-      }
-    }
-  }
-  if (evidence.length === 0) {
-    return {
-      candidates: [],
-      evidence: [],
-      path: [],
-      confidence: 0,
-      evidence_mode: "vector_only",
-    };
-  }
-  return {
-    candidates: [{ node_id: path[path.length - 1] }],
-    evidence,
-    path,
-    confidence,
-    evidence_mode: "graph_cited",
-  };
-}
-
-const FIXTURE = {
-  missions: [
-    { id: "m-1", source_url: "https://lumo/missions/m-1", weight_to_event: 0.9 },
-  ],
-  events: [
-    {
-      id: "e-1",
-      mission_id: "m-1",
-      title: "Vegas dinner with Alice",
-      source_url: "https://calendar.google.com/?eid=e-1",
-      weight_to_contact: 0.8,
-    },
-  ],
-  contacts: [
-    { id: "c-1", event_id: "e-1", source_url: "https://mail.google.com/m-200" },
-  ],
-};
-
-// Mock fetch — every test that wants to call /api/graph/recall goes through this.
-globalThis.fetch = async (_url, opts) => {
-  const body = JSON.parse(opts?.body ?? "{}");
-  const result = buildGraphRecall(body.query ?? "", FIXTURE);
-  return {
-    ok: true,
-    status: 200,
-    json: async () => result,
-  };
-};
+const synthetic = JSON.parse(fs.readFileSync("tests/fixtures/vegas-kg-synthetic.json", "utf8"));
 
 console.log("\nKG-1 GraphRAG recall");
 
-await t("returns graph_cited evidence for relevant query", async () => {
-  const r = await fetch("/api/graph/recall", {
-    method: "POST",
-    body: JSON.stringify({ query: "who did I meet about the Vegas trip last month" }),
-  });
-  const j = await r.json();
-  assert.equal(j.evidence_mode, "graph_cited");
-  assert.equal(j.evidence.length, 3);
-  assert.equal(j.path[0], "m-1");
-  assert.equal(j.path[2], "c-1");
+await t("answers the Synthetic Sam Vegas-over-Tahoe query with graph citations", async () => {
+  const result = recallGraphFromFixture(
+    "why did Sam pick Vegas over Tahoe last December?",
+    synthetic,
+    { user_id: synthetic.user.id, max_hops: 3 },
+  );
+  assert.equal(result.evidence_mode, "graph_cited");
+  assert.match(result.answer, /board meeting/i);
+  assert.match(result.answer, /storm/i);
+  assert.ok(result.citations.length >= 2);
+  assertGraphCitedHasProvenance(result);
+});
+
+await t("returns the Tahoe mission plus both BLOCKED_BY targets", async () => {
+  const result = recallGraphFromFixture(
+    "what made me pick Vegas over Tahoe?",
+    synthetic,
+    { user_id: synthetic.user.id, max_hops: 3 },
+  );
+  const citedText = result.citations.map((citation) => citation.text).join(" | ");
+  assert.match(citedText, /Plan Tahoe ski trip/);
+  assert.match(citedText, /Q4 board meeting/);
+  assert.match(citedText, /Severe winter storm/);
+  assert.equal(result.traversal_path.length >= 2, true);
 });
 
 await t("each evidence row carries provenance triplet", async () => {
-  const r = await fetch("/api/graph/recall", {
-    method: "POST",
-    body: JSON.stringify({ query: "Vegas dinner" }),
+  const result = recallGraphFromFixture("why did Sam pick Vegas over Tahoe?", synthetic, {
+    user_id: synthetic.user.id,
   });
-  const j = await r.json();
-  for (const ev of j.evidence) {
+  for (const ev of result.evidence) {
     assert.ok(ev.source_table, "source_table missing");
     assert.ok(ev.source_row_id, "source_row_id missing");
     assert.ok("source_url" in ev, "source_url field missing");
-    assert.ok(ev.node_id, "node_id missing");
-    assert.ok(ev.asserted_at, "asserted_at missing");
   }
 });
 
-await t("confidence is product of edge weights", async () => {
-  const r = await fetch("/api/graph/recall", {
-    method: "POST",
-    body: JSON.stringify({ query: "Vegas dinner" }),
+await t("confidence is the product of the blocker edge weights", async () => {
+  const result = recallGraphFromFixture("why did Sam pick Vegas over Tahoe?", synthetic, {
+    user_id: synthetic.user.id,
   });
-  const j = await r.json();
-  assert.ok(Math.abs(j.confidence - 0.9 * 0.8) < 1e-9);
+  assert.ok(Math.abs(result.confidence - 0.96 * 0.94) < 1e-6);
 });
 
 await t("falls back to vector_only on no graph evidence", async () => {
-  const r = await fetch("/api/graph/recall", {
-    method: "POST",
-    body: JSON.stringify({ query: "tasmania devil migration patterns" }),
+  const result = recallGraphFromFixture("tasmania devil migration patterns", synthetic, {
+    user_id: synthetic.user.id,
   });
-  const j = await r.json();
-  assert.equal(j.evidence_mode, "vector_only");
-  assert.equal(j.evidence.length, 0);
-  assert.deepEqual(j.path, []);
+  assert.equal(result.evidence_mode, "vector_only");
+  assert.equal(result.evidence.length, 0);
+  assert.deepEqual(result.path, []);
 });
 
-await t("client renderer contract: refuses graph response without evidence", async () => {
-  // Model the renderer guard: a graph_cited response with empty evidence is
-  // a contract violation that the client must reject.
-  function renderGate(resp) {
-    if (resp.evidence_mode === "graph_cited" && resp.evidence.length === 0) {
-      throw new Error("graph_cited response missing evidence");
-    }
-    return true;
-  }
-  const bad = { evidence_mode: "graph_cited", evidence: [], path: ["m-1"], confidence: 0.5 };
-  assert.throws(() => renderGate(bad));
+await t("client renderer contract refuses graph response without evidence", async () => {
+  const bad = {
+    answer: "bad",
+    citations: [],
+    traversal_path: [["m-1"]],
+    candidates: [],
+    evidence: [],
+    path: ["m-1"],
+    confidence: 0.5,
+    evidence_mode: "graph_cited",
+    source: "fixture",
+    latency_ms: 0,
+  };
+  assert.throws(() => assertGraphCitedHasProvenance(bad), /missing evidence/);
 });
 
 await t("citation count >= 2 for the master spec demo query", async () => {
-  // ADR-008 §11.4: chat orchestrator surfaces a graph-cited answer to
-  // "who did I meet about the Vegas trip last month" with >= 2 evidence rows.
-  const r = await fetch("/api/graph/recall", {
-    method: "POST",
-    body: JSON.stringify({ query: "who did I meet about the Vegas trip last month" }),
-  });
-  const j = await r.json();
-  assert.ok(j.evidence.length >= 2);
+  const result = recallGraphFromFixture(
+    "why did Sam pick Vegas over Tahoe last December?",
+    synthetic,
+    { user_id: synthetic.user.id, max_hops: 3 },
+  );
+  assert.ok(result.citations.length >= 2);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

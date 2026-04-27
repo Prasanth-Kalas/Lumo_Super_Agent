@@ -78,6 +78,7 @@ const KNOWN_CRONS = [
   "/api/cron/sync-workspace",
   "/api/cron/publish-due-posts",
   "/api/cron/index-archive",
+  "/api/cron/kg-reconcile",
   "/api/cron/execute-mission-steps",
   "/api/cron/rollback-missions",
 ] as const;

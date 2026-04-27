@@ -24,6 +24,9 @@
     "app/api/cron/index-archive/route.ts": {
       "maxDuration": 60
     },
+    "app/api/cron/kg-reconcile/route.ts": {
+      "maxDuration": 60
+    },
     "app/api/cron/execute-mission-steps/route.ts": {
       "maxDuration": 60
     },
@@ -55,6 +58,10 @@
     {
       "path": "/api/cron/index-archive",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/kg-reconcile",
+      "schedule": "15 3 * * *"
     },
     {
       "path": "/api/cron/execute-mission-steps",
