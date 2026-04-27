@@ -16,6 +16,27 @@
 --   Re-run the original function definitions from migrations 017, 019, 020,
 --   and 025. This is not recommended unless debugging a regression: the
 --   GRANT/REVOKE boundary is the durable authorization control.
+--
+-- Apply note:
+--   In production this migration was applied in two passes. The first
+--   Supabase SQL Editor run redefined only the focused rollback RPC; the
+--   second run selected the full embedding-RPC block and landed the three
+--   embedding batch RPCs. For SQL Editor DDL, select all before Run or use
+--   psql so every statement executes.
+--
+-- POST-DEPLOY VERIFICATION:
+--   select proname, prosrc ~ 'auth\.role' as has_auth_role_in_body
+--     from pg_proc
+--    where pronamespace = 'public'::regnamespace
+--      and proname in (
+--            'next_audio_transcript_embedding_batch',
+--            'next_pdf_document_embedding_batch',
+--            'next_image_embedding_text_batch',
+--            'next_rollback_step_for_execution'
+--          )
+--    order by proname;
+--   Expect four rows, all `false`. If any row is `true`, the focused-statement
+--   editor trap likely left part of the migration unapplied.
 
 create or replace function public.next_audio_transcript_embedding_batch(
   requested_limit integer default 100

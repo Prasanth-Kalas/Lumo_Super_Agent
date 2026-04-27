@@ -41,7 +41,12 @@ The CLI syncs any migration not yet applied. Idempotent — re-running is safe.
 
 ### Option B — SQL editor
 
-Copy-paste each file (001 through 008) in order into Supabase's SQL editor, run each. Don't skip ahead; later migrations assume earlier tables exist.
+Copy-paste each file in order into Supabase's SQL editor, select the whole
+file (`Cmd+A`), then run it. Do not skip ahead; later migrations assume
+earlier tables and functions exist. The whole-file selection matters for
+DDL migrations: if the cursor is inside one `CREATE FUNCTION` block, the
+editor can run only that focused statement instead of the full migration.
+Using `psql` via the pooler/direct connection avoids this ambiguity.
 
 ### Option C — Your own migration runner
 

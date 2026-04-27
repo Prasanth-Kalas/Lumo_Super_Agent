@@ -453,8 +453,13 @@ Time: 5 minutes if it's a small migration, longer for backfills.
 3. Paste the migration content. If multiple migrations are pending,
    apply them strictly in number order — later migrations assume the
    earlier ones' tables and functions exist.
-4. Run.
-5. If the **destructive operations** warning fires, read the warning's
+4. Select the whole pasted migration (`Cmd+A`) before clicking **Run**,
+   or use `psql` via the pooler/direct connection instead. Supabase SQL
+   Editor can execute only the currently focused statement when the cursor
+   is inside a `CREATE FUNCTION` block; migration 036 was applied in two
+   passes because of this editor behavior.
+5. Run.
+6. If the **destructive operations** warning fires, read the warning's
    "matched lines" carefully. As of migration 023 every header has a
    `-- Rollback:` comment block listing the drops; those count as
    "destructive matches" but are inert (they are inside `--` lines).
@@ -462,14 +467,18 @@ Time: 5 minutes if it's a small migration, longer for backfills.
    Otherwise stop and re-read the migration body — a real
    `drop ... if exists` outside a comment is rare and intentional, but
    you want to know about it before you click through.
-6. If a **new tables without RLS** warning fires, prefer **Run and
+7. If a **new tables without RLS** warning fires, prefer **Run and
    enable RLS** unless the migration body already enables RLS. As of
    migration 023, every Sprint 2 / Sprint 3 migration explicitly
    enables RLS and revokes anon/authenticated grants, so the warning
    is over-eager but harmless to acknowledge.
-7. Re-run the audit query from Step 1 of bring-up; the new table
+8. For any migration that `CREATE OR REPLACE FUNCTION`s an RPC, run its
+   `-- POST-DEPLOY VERIFICATION` query in the same SQL Editor session.
+   This confirms the live `pg_proc` body actually changed, not just the
+   statement that had editor focus.
+9. Re-run the audit query from Step 1 of bring-up; the new table
    should appear, the row count should match expectations.
-8. If the migration was wired with `node db/build-run-all.mjs`,
+10. If the migration was wired with `node db/build-run-all.mjs`,
    regenerate `db/run-all.sql` so future fresh deploys pick the new
    migration up.
 
