@@ -328,11 +328,11 @@ The labelled Day-4 seed set lives in
 `Lumo_ML_Service/tests/test_classify.py`: 100 hand-curated synthetic examples
 stratified across sponsorship, consulting, speaker/podcast invites, hiring,
 licensing, spam, and ordinary viewer chatter. The current seed-set eval is
-classifier precision 1.00 / recall 1.00 / F1 1.00 vs. previous regex F1 0.148
-at the shared lead threshold. This number is a seed/regression result, not a
-held-out generalisation claim, and must not be used in external or board
-communications until replaced by a randomly sampled held-out eval with a
-separate validation-calibrated threshold.
+retained only as a regression fixture; it is not a held-out generalisation
+claim and must not be used in external or board communications. The current
+honest benchmark is F1 0.86 on a 100-row seed-style holdout with production
+validation pending. A credible production metric requires at least 1000
+real-traffic labels with annotator agreement tracked before publication.
 
 ## 8. Safety rules
 
@@ -437,7 +437,7 @@ Current deterministic eval snapshot (local, April 26, 2026):
 | Recall MRR@5 | Super Agent | 1.000 | >= 0.80 |
 | Classifier fallback F1 | Super Agent | 0.889 | >= 0.80 |
 | Malformed brain recall fallback | Super Agent | 1.000 | 1.00 |
-| Classifier seed precision / recall / F1 | Lumo ML Service | 1.000 / 1.000 / 1.000 | >= 0.85 |
+| Classifier seed-style holdout F1 | Lumo ML Service | 0.86 | >= 0.85 |
 | Ranking nDCG@7 | Lumo ML Service | 0.905 | >= 0.82 |
 | Risk badge coverage | Lumo ML Service | 1.000 | 1.00 |
 | Recall MRR@5 | Lumo ML Service | 1.000 | >= 0.80 |

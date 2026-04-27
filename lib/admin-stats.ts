@@ -35,7 +35,7 @@ import {
   type ProactiveMomentRow,
 } from "./admin-stats-core.js";
 
-const BRAIN_HEALTH_TIMEOUT_MS = 1000;
+const BRAIN_HEALTH_TIMEOUT_MS = 8000;
 
 export type {
   AdminIntelligenceStats,
