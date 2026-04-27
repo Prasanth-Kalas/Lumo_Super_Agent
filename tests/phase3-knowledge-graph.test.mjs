@@ -239,6 +239,8 @@ t("KG embedding RPCs rely on GRANT boundary, not auth.role predicates", () => {
 t("fixture reembed uses bounded batches without retry amplification", () => {
   assert.match(knowledgeGraphSource, /const KG_FIXTURE_EMBED_BATCH_SIZE = 16;/);
   assert.match(knowledgeGraphSource, /const KG_FIXTURE_EMBED_MAX_ATTEMPTS = 1;/);
+  assert.match(knowledgeGraphSource, /const KG_FIXTURE_EMBED_TIMEOUT_MS = 30_000;/);
+  assert.match(knowledgeGraphSource, /const KG_FIXTURE_EMBED_FAILURE_THRESHOLD = 100;/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
