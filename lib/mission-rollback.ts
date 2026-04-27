@@ -96,6 +96,7 @@ export async function initiateMissionRollback(args: {
     );
   }
 
+  let finalState = transition.target;
   if (transition.target === "rolled_back") {
     await recordRollbackCompletedIfNeeded(db, args.mission_id, {
       forward_steps: 0,
@@ -103,9 +104,12 @@ export async function initiateMissionRollback(args: {
       skipped: 0,
       failed: 0,
     });
+  } else if (transition.target === "rolling_back") {
+    const completed = await finishMissionRollbackIfComplete(db, args.mission_id);
+    if (completed) finalState = "rolled_back";
   }
 
-  return { ok: true, mission_id: args.mission_id, state: transition.target };
+  return { ok: true, mission_id: args.mission_id, state: finalState };
 }
 
 export async function runMissionRollbackTick(options: {
@@ -130,7 +134,10 @@ export async function runMissionRollbackTick(options: {
 
   while (counts.claimed < limit) {
     const steps = await claimRollbackSteps(db, 1);
-    if (steps.length === 0) break;
+    if (steps.length === 0) {
+      counts.rollback_completed += await finishIdleRollingBackMissions(db, limit);
+      break;
+    }
     const step = steps[0];
     if (!step) break;
     counts.claimed += 1;
@@ -233,6 +240,18 @@ export async function runMissionRollbackTick(options: {
   return { ok: errors.length === 0, counts, errors };
 }
 
+async function finishIdleRollingBackMissions(
+  db: SupabaseLike,
+  limit: number,
+): Promise<number> {
+  const missions = await readRollingBackMissions(db, limit);
+  let completed = 0;
+  for (const mission of missions) {
+    if (await finishMissionRollbackIfComplete(db, mission.id)) completed += 1;
+  }
+  return completed;
+}
+
 async function dispatchRollbackTool(
   toolName: string,
   args: Record<string, unknown>,
@@ -274,6 +293,21 @@ async function readMission(db: SupabaseLike, mission_id: string): Promise<Rollba
     .limit(1);
   if (error) throw new Error(`mission_read_failed:${error.message ?? "unknown"}`);
   return normalizeMissionRow(Array.isArray(data) ? data[0] : null);
+}
+
+async function readRollingBackMissions(
+  db: SupabaseLike,
+  limit: number,
+): Promise<RollbackMissionRow[]> {
+  const { data, error } = await db
+    .from("missions")
+    .select("id, user_id, state")
+    .eq("state", "rolling_back")
+    .limit(Math.max(1, Math.min(10, Math.trunc(limit))));
+  if (error) throw new Error(`rolling_back_missions_read_failed:${error.message ?? "unknown"}`);
+  return Array.isArray(data)
+    ? data.map(normalizeMissionRow).filter((row): row is RollbackMissionRow => row !== null)
+    : [];
 }
 
 async function readMissionSteps(db: SupabaseLike, mission_id: string): Promise<RollbackStepRow[]> {

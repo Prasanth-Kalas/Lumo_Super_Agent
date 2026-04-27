@@ -175,6 +175,72 @@ async function main() {
     );
   });
 
+  await t("initiating rollback completes missions with no executed steps", async () => {
+    const db = mockRollbackDb({
+      missions: [{ id: "mission_pending", user_id: userId(), state: "ready" }],
+      steps: [
+        step("step_pending", "mission_pending", 0, "reversible", {
+          status: "pending",
+          finished_at: null,
+        }),
+      ],
+    });
+
+    const result = await initiateMissionRollback({
+      mission_id: "mission_pending",
+      trigger: "user",
+      reason: "workspace_cancel",
+      actor_user_id: userId(),
+      user_id: userId(),
+      db,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.state, "rolled_back");
+    assert.equal(db.tables.missions[0].state, "rolled_back");
+    assert.deepEqual(db.tables.events.map((row) => row.event_type), [
+      "rollback_initiated",
+      "rollback_completed",
+    ]);
+    assert.deepEqual(db.tables.events.at(-1).payload, {
+      forward_steps: 0,
+      succeeded: 0,
+      skipped: 0,
+      failed: 0,
+    });
+  });
+
+  await t("rollback tick finishes already-initiated missions with no claimable steps", async () => {
+    const db = mockRollbackDb({
+      missions: [{ id: "mission_stuck", user_id: userId(), state: "rolling_back" }],
+      steps: [
+        step("step_stuck", "mission_stuck", 0, "reversible", {
+          status: "pending",
+          finished_at: null,
+        }),
+      ],
+      events: [
+        {
+          mission_id: "mission_stuck",
+          step_id: null,
+          event_type: "rollback_initiated",
+          payload: { reason: "workspace_cancel" },
+        },
+      ],
+    });
+
+    const result = await runMissionRollbackTick({ db });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.counts.claimed, 0);
+    assert.equal(result.counts.rollback_completed, 1);
+    assert.equal(db.tables.missions[0].state, "rolled_back");
+    assert.deepEqual(db.tables.events.map((row) => row.event_type), [
+      "rollback_initiated",
+      "rollback_completed",
+    ]);
+  });
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail > 0 ? 1 : 0);
 }
@@ -188,7 +254,7 @@ function step(id, mission_id, step_order, reversibility, overrides = {}) {
     agent_id: `agent_${step_order}`,
     tool_name: `agent_${step_order}_tool`,
     reversibility,
-    status: "succeeded",
+    status: overrides.status ?? "succeeded",
     inputs: overrides.inputs ?? {},
     outputs: overrides.outputs ?? {},
     finished_at: overrides.finished_at ?? "2026-04-27T00:00:00Z",
@@ -200,7 +266,7 @@ function mockRollbackDb(seed) {
   const tables = {
     missions: seed.missions.map((row) => ({ ...row })),
     steps: seed.steps.map((row) => ({ ...row })),
-    events: [],
+    events: (seed.events ?? []).map((row) => ({ ...row })),
     attempts: [],
   };
   return {
