@@ -93,6 +93,8 @@ const LUMO_EMBED_TOOL = "lumo_embed";
 const LUMO_KG_SYNTHESIZE_TOOL = "lumo_kg_synthesize";
 const KG_EMBED_TIMEOUT_MS = 8_000;
 const KG_SYNTHESIZE_TIMEOUT_MS = 8_000;
+const KG_FIXTURE_EMBED_BATCH_SIZE = 16;
+const KG_FIXTURE_EMBED_MAX_ATTEMPTS = 1;
 const DEFAULT_SEED_COUNT = 5;
 
 export async function recallKnowledgeGraph(
@@ -148,12 +150,13 @@ export async function embedKnowledgeGraphFixtureNodes(
   const errors: string[] = [];
   const embeddingsByFixtureId = new Map<string, number[]>();
   const nodes = fixture.nodes.filter((node) => node.user_id === (fixture.user?.id ?? node.user_id));
-  for (let index = 0; index < nodes.length; index += 64) {
-    const batch = nodes.slice(index, index + 64);
+  for (let index = 0; index < nodes.length; index += KG_FIXTURE_EMBED_BATCH_SIZE) {
+    const batch = nodes.slice(index, index + KG_FIXTURE_EMBED_BATCH_SIZE);
     const embeddings = await embedKgTexts(
       user_id,
       batch.map((node) => summaryText(node)),
       { surface: "kg-fixture-reembed" },
+      { maxAttempts: KG_FIXTURE_EMBED_MAX_ATTEMPTS },
     );
     if (!embeddings || embeddings.length !== batch.length) {
       errors.push(`embedding_batch_failed:${index}`);
@@ -398,6 +401,7 @@ async function embedKgTexts(
   user_id: string,
   texts: string[],
   source_metadata: Record<string, unknown>,
+  options: { maxAttempts?: number } = {},
 ): Promise<number[][] | null> {
   const baseUrl = resolveMlBaseUrl();
   const authorizationHeader = serviceAuthorizationHeader(user_id, LUMO_EMBED_TOOL);
@@ -411,7 +415,7 @@ async function embedKgTexts(
     });
     const body = await sdk.embed(
       { texts, source_metadata },
-      { authorizationHeader, timeoutMs: KG_EMBED_TIMEOUT_MS },
+      { authorizationHeader, timeoutMs: KG_EMBED_TIMEOUT_MS, maxAttempts: options.maxAttempts },
     ) as EmbedResponse;
     if (body.dimensions !== 384 || !Array.isArray(body.embeddings)) return null;
     return body.embeddings;

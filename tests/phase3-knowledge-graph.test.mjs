@@ -32,6 +32,7 @@ const t = (name, fn) => {
 const USER_A = "00000000-0000-0000-0000-000000000aaa";
 const USER_B = "00000000-0000-0000-0000-000000000bbb";
 const synthetic = JSON.parse(fs.readFileSync("tests/fixtures/vegas-kg-synthetic.json", "utf8"));
+const knowledgeGraphSource = fs.readFileSync("lib/knowledge-graph.ts", "utf8");
 const migration035 = fs.readFileSync("db/migrations/035_kg_embedding_seed_rpc.sql", "utf8");
 
 function node(id, user_id = USER_A, extra = {}) {
@@ -233,6 +234,11 @@ t("KG embedding RPCs rely on GRANT boundary, not auth.role predicates", () => {
   assert.match(migration035, /grant execute on function public\.lumo_kg_upsert_node/);
   assert.match(migration035, /grant execute on function public\.lumo_kg_seed_by_embedding/);
   assert.match(migration035, /revoke all on function public\.lumo_kg_seed_by_embedding/);
+});
+
+t("fixture reembed uses bounded batches without retry amplification", () => {
+  assert.match(knowledgeGraphSource, /const KG_FIXTURE_EMBED_BATCH_SIZE = 16;/);
+  assert.match(knowledgeGraphSource, /const KG_FIXTURE_EMBED_MAX_ATTEMPTS = 1;/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
