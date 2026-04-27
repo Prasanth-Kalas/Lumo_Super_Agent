@@ -32,6 +32,7 @@ import {
   DEFAULT_SILENCE,
 } from "../lib/voice-chunking.ts";
 import {
+  browserProsodyForEmotion,
   inferVoiceEmotion,
   openAiEmotionInstructions,
   tuneVoiceForEmotion,
@@ -189,6 +190,19 @@ t("emotion tuning clamps values", () => {
 });
 t("OpenAI instructions include sentence completion guidance", () => {
   assert.ok(openAiEmotionInstructions("warm").includes("finish every sentence cleanly"));
+});
+t("browser fallback prosody gets calmer for reassurance", () => {
+  const reassuring = browserProsodyForEmotion("reassuring");
+  const excited = browserProsodyForEmotion("excited");
+  assert.ok(reassuring.rate < excited.rate);
+  assert.ok(reassuring.pitch < excited.pitch);
+});
+t("browser fallback prosody stays in SpeechSynthesis-safe bounds", () => {
+  for (const emotion of ["neutral", "warm", "reassuring", "excited", "celebratory"]) {
+    const p = browserProsodyForEmotion(emotion);
+    assert.ok(p.rate >= 0.8 && p.rate <= 1.2, `${emotion} rate ${p.rate}`);
+    assert.ok(p.pitch >= 0.8 && p.pitch <= 1.2, `${emotion} pitch ${p.pitch}`);
+  }
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

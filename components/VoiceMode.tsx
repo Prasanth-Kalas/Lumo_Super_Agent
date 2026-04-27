@@ -49,7 +49,11 @@ import {
   silenceDecision,
   DEFAULT_SILENCE,
 } from "@/lib/voice-chunking";
-import { inferVoiceEmotion, type VoiceEmotion } from "@/lib/voice-emotion";
+import {
+  browserProsodyForEmotion,
+  inferVoiceEmotion,
+  type VoiceEmotion,
+} from "@/lib/voice-emotion";
 
 // How long to honor a "premium TTS unavailable" verdict before
 // re-probing. Tuned for transient upstream issues (ElevenLabs 402
@@ -60,6 +64,12 @@ const PREMIUM_TTS_COOLDOWN_MS = 60_000;
 const PREMIUM_TTS_TIMEOUT_MS = 10_000;
 const BROWSER_TTS_START_TIMEOUT_MS = 2_500;
 const BROWSER_TTS_DONE_TIMEOUT_MS = 45_000;
+const RECORDED_STT_MAX_MS = 30_000;
+const RECORDED_STT_MIME_TYPES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+];
 const BARGE_IN_ENABLED =
   process.env.NEXT_PUBLIC_LUMO_BARGE_IN_ENABLED === "true";
 
@@ -214,6 +224,19 @@ function pickVoice(
   return voices[0] ?? null;
 }
 
+function canRecordFallback(): boolean {
+  if (typeof window === "undefined") return false;
+  if (!navigator?.mediaDevices?.getUserMedia) return false;
+  return typeof window.MediaRecorder !== "undefined";
+}
+
+function preferredRecordingMimeType(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  const MR = window.MediaRecorder;
+  if (!MR || typeof MR.isTypeSupported !== "function") return undefined;
+  return RECORDED_STT_MIME_TYPES.find((type) => MR.isTypeSupported(type));
+}
+
 export default function VoiceMode(props: VoiceModeProps) {
   const {
     enabled,
@@ -245,6 +268,13 @@ export default function VoiceMode(props: VoiceModeProps) {
 
   // Refs — mutable state that shouldn't re-render.
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recorderStreamRef = useRef<MediaStream | null>(null);
+  const recorderChunksRef = useRef<BlobPart[]>([]);
+  const recorderSubmitRef = useRef<boolean>(false);
+  const recorderStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const voiceRef = useRef<SpeechSynthesisVoice | null>(null);
   // Premium TTS state — starts "unknown", flips to "available" after
   // first successful /api/tts call, or "unavailable" after a network
@@ -334,7 +364,8 @@ export default function VoiceMode(props: VoiceModeProps) {
     if (typeof window === "undefined") return;
     const Ctor =
       window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
-    supportedRef.current = Boolean(Ctor) && "speechSynthesis" in window;
+    supportedRef.current =
+      "speechSynthesis" in window && (Boolean(Ctor) || canRecordFallback());
     if (!supportedRef.current) {
       setState("unsupported");
     }
@@ -365,6 +396,7 @@ export default function VoiceMode(props: VoiceModeProps) {
   const playPremiumTts = useCallback(
     async (
       text: string,
+      emotion: VoiceEmotion,
       onStart: () => void,
     ): Promise<"played" | "unavailable" | "aborted"> => {
       if (typeof window === "undefined") return "unavailable";
@@ -388,7 +420,7 @@ export default function VoiceMode(props: VoiceModeProps) {
           body: JSON.stringify({
             text,
             voice_id: getSelectedVoiceId(),
-            emotion: inferVoiceEmotion(text),
+            emotion,
           }),
         });
       } catch (e) {
@@ -476,8 +508,11 @@ export default function VoiceMode(props: VoiceModeProps) {
       if (!text.trim()) return;
       const speakable = toSpeakable(text);
       if (!speakable.trim()) return;
+      const emotion = inferVoiceEmotion(speakable);
+      const prosody = browserProsodyForEmotion(emotion);
+      setCurrentEmotion(emotion);
 
-      const premium = await playPremiumTts(speakable, onStart);
+      const premium = await playPremiumTts(speakable, emotion, onStart);
       if (premium === "played" || premium === "aborted") return;
 
       if (
@@ -519,8 +554,8 @@ export default function VoiceMode(props: VoiceModeProps) {
           const u = new SpeechSynthesisUtterance(speakable);
           activeUtteranceRef.current = u;
           if (voiceRef.current) u.voice = voiceRef.current;
-          u.rate = 1.05;
-          u.pitch = 1.0;
+          u.rate = prosody.rate;
+          u.pitch = prosody.pitch;
           u.volume = 1.0;
           u.onstart = markStarted;
           u.onend = finish;
@@ -709,12 +744,208 @@ export default function VoiceMode(props: VoiceModeProps) {
     }
   }, []);
 
+  const clearRecorderStopTimer = useCallback(() => {
+    if (recorderStopTimerRef.current) {
+      clearTimeout(recorderStopTimerRef.current);
+      recorderStopTimerRef.current = null;
+    }
+  }, []);
+
+  const stopRecorderStream = useCallback(() => {
+    const stream = recorderStreamRef.current;
+    recorderStreamRef.current = null;
+    if (!stream) return;
+    for (const track of stream.getTracks()) {
+      try {
+        track.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+  }, []);
+
+  const transcribeRecordedAudio = useCallback(
+    async (blob: Blob) => {
+      if (!blob.size) {
+        setInterim("");
+        setState("idle");
+        return;
+      }
+      setState("thinking");
+      setInterim("Transcribing your voice…");
+      const form = new FormData();
+      form.set(
+        "audio",
+        blob,
+        `lumo-voice.${blob.type.includes("mp4") ? "m4a" : "webm"}`,
+      );
+      const language =
+        typeof navigator !== "undefined" && /^en(-|$)/i.test(navigator.language)
+          ? navigator.language
+          : "en-US";
+      form.set("language", language);
+      try {
+        const res = await fetch("/api/stt", {
+          method: "POST",
+          body: form,
+        });
+        const data = (await res.json().catch(() => null)) as {
+          transcript?: unknown;
+          error?: unknown;
+        } | null;
+        if (!res.ok) {
+          const code = typeof data?.error === "string" ? data.error : `stt_${res.status}`;
+          throw new Error(code);
+        }
+        const transcript =
+          typeof data?.transcript === "string" ? data.transcript.trim() : "";
+        setInterim("");
+        if (transcript) {
+          setErrorMessage(null);
+          userStoppedListeningRef.current = false;
+          onUserUtterance(transcript);
+          return;
+        }
+        setErrorMessage("I didn't catch enough audio to transcribe");
+        setState("idle");
+      } catch (err) {
+        console.warn("[voice] recorded STT failed:", err);
+        setInterim("");
+        setErrorMessage(
+          err instanceof Error && err.message === "stt_not_configured"
+            ? "recorded speech fallback is not configured"
+            : "recorded speech transcription failed",
+        );
+        setState("error");
+      }
+    },
+    [onUserUtterance],
+  );
+
+  const startRecordedFallback = useCallback(
+    async (reason?: string) => {
+      if (!canRecordFallback()) {
+        setErrorMessage("speech input is unavailable in this browser session");
+        setState("error");
+        return;
+      }
+      if (recorderRef.current) return;
+      cancelTts();
+      clearSilenceTimer();
+      clearRecorderStopTimer();
+      recorderChunksRef.current = [];
+      recorderSubmitRef.current = true;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        const mimeType = preferredRecordingMimeType();
+        const recorder = mimeType
+          ? new MediaRecorder(stream, { mimeType })
+          : new MediaRecorder(stream);
+        recorderStreamRef.current = stream;
+        recorderRef.current = recorder;
+        recorder.ondataavailable = (event) => {
+          if (event.data?.size) recorderChunksRef.current.push(event.data);
+        };
+        recorder.onerror = (event) => {
+          console.warn("[voice] MediaRecorder error:", event);
+          clearRecorderStopTimer();
+          recorderSubmitRef.current = false;
+          recorderRef.current = null;
+          stopRecorderStream();
+          setInterim("");
+          setErrorMessage("microphone recording failed");
+          setState("error");
+        };
+        recorder.onstop = () => {
+          clearRecorderStopTimer();
+          recorderRef.current = null;
+          stopRecorderStream();
+          const chunks = recorderChunksRef.current;
+          recorderChunksRef.current = [];
+          if (!recorderSubmitRef.current) {
+            recorderSubmitRef.current = true;
+            setInterim("");
+            setState("idle");
+            return;
+          }
+          const blob = new Blob(chunks, {
+            type: recorder.mimeType || mimeType || "audio/webm",
+          });
+          void transcribeRecordedAudio(blob);
+        };
+        recorder.start();
+        if (reason) console.info("[voice] using recorded STT fallback:", reason);
+        setErrorMessage(null);
+        setInterim("Recording through Lumo STT…");
+        setState("listening");
+        recorderStopTimerRef.current = setTimeout(() => {
+          if (recorderRef.current?.state === "recording") {
+            try {
+              recorderRef.current.stop();
+            } catch {
+              /* ignore */
+            }
+          }
+        }, RECORDED_STT_MAX_MS);
+      } catch (err) {
+        recorderRef.current = null;
+        stopRecorderStream();
+        recorderChunksRef.current = [];
+        recorderSubmitRef.current = true;
+        const message =
+          err instanceof DOMException
+            ? friendlySpeechError(err.name)
+            : "microphone recording could not start";
+        setErrorMessage(message);
+        setState("error");
+      }
+    },
+    [
+      cancelTts,
+      clearRecorderStopTimer,
+      clearSilenceTimer,
+      stopRecorderStream,
+      transcribeRecordedAudio,
+    ],
+  );
+
+  const stopRecordedFallback = useCallback(
+    (submit: boolean) => {
+      clearRecorderStopTimer();
+      recorderSubmitRef.current = submit;
+      const recorder = recorderRef.current;
+      if (!recorder) {
+        stopRecorderStream();
+        return;
+      }
+      try {
+        if (recorder.state === "recording") {
+          recorder.requestData?.();
+          recorder.stop();
+        }
+      } catch {
+        recorderRef.current = null;
+        stopRecorderStream();
+      }
+    },
+    [clearRecorderStopTimer, stopRecorderStream],
+  );
+
   const startListening = useCallback(() => {
     if (!supportedRef.current) return;
     if (typeof window === "undefined") return;
     const Ctor =
       window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
-    if (!Ctor) return;
+    if (!Ctor) {
+      void startRecordedFallback("browser speech recognition is unavailable");
+      return;
+    }
 
     // Idempotency guard. The hands-free loop can race — both the
     // chunk-speak effect AND the tail-flush effect schedule a
@@ -722,7 +953,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     // this guard, two SpeechRecognition instances end up running
     // simultaneously and each emits the user's utterance → duplicate
     // turns ("from Chicago" appearing twice in the thread).
-    if (recognitionRef.current) {
+    if (recognitionRef.current || recorderRef.current) {
       return;
     }
 
@@ -865,7 +1096,6 @@ export default function VoiceMode(props: VoiceModeProps) {
         const buffered = finalBufferRef.current.trim();
         finalBufferRef.current = "";
         setInterim("");
-        userStoppedListeningRef.current = true;
         if (recognitionRef.current === rec) {
           recognitionRef.current = null;
         }
@@ -876,10 +1106,9 @@ export default function VoiceMode(props: VoiceModeProps) {
             /* ignore */
           }
         }
-        setErrorMessage(
-          "speech input is unavailable in this browser session; typed chat and speaker still work",
+        void startRecordedFallback(
+          "browser speech service is unreachable",
         );
-        setState("idle");
         return;
       }
       const buffered = finalBufferRef.current.trim();
@@ -954,7 +1183,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       setState("error");
       console.warn("[voice] start failed:", err);
     }
-  }, [onUserUtterance, cancelTts, clearSilenceTimer]);
+  }, [onUserUtterance, cancelTts, clearSilenceTimer, startRecordedFallback]);
 
   const scheduleHandsFreeListening = useCallback(
     (delayMs = 200) => {
@@ -974,6 +1203,10 @@ export default function VoiceMode(props: VoiceModeProps) {
   );
 
   const stopListening = useCallback(() => {
+    if (recorderRef.current) {
+      stopRecordedFallback(true);
+      return;
+    }
     const rec = recognitionRef.current;
     if (!rec) return;
     userStoppedListeningRef.current = true;
@@ -1000,7 +1233,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       // ignore
     }
     setState("idle");
-  }, [clearSilenceTimer, onUserUtterance]);
+  }, [clearSilenceTimer, onUserUtterance, stopRecordedFallback]);
 
   // Muting mid-speech should kill in-flight audio immediately,
   // drain the queue so nothing resumes on un-mute, and bump the
@@ -1161,7 +1394,8 @@ export default function VoiceMode(props: VoiceModeProps) {
     const noQueue = ttsQueueRef.current.length === 0;
     const noWorker = !ttsWorkerRunningRef.current;
     const noRec = recognitionRef.current === null;
-    if (noQueue && noWorker && noRec) {
+    const noRecorded = recorderRef.current === null;
+    if (noQueue && noWorker && noRec && noRecorded) {
       setState("idle");
       if (wantHandsFreeRef.current) {
         scheduleHandsFreeListening();
@@ -1285,6 +1519,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       } catch {
         // ignore
       }
+      stopRecordedFallback(false);
       try {
         bargeInRef.current?.stop();
       } catch {
@@ -1304,7 +1539,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     }
     if (state === "off" && supportedRef.current) setState("idle");
     if (state === "off" && !supportedRef.current) setState("unsupported");
-  }, [enabled, state, cancelTts]);
+  }, [enabled, state, cancelTts, stopRecordedFallback]);
 
   // ─── Presentation ────────────────────────────────────────────
   if (state === "unsupported" && enabled) {
@@ -1383,6 +1618,12 @@ export default function VoiceMode(props: VoiceModeProps) {
           <StatusDot state={state} />
           {stateLabel(state, currentEmotion)}
         </span>
+
+        {state === "speaking" ? (
+          <span className="rounded-full border border-lumo-hair px-2 py-1 text-[11px] text-lumo-fg-low">
+            {emotionLabel(currentEmotion)}
+          </span>
+        ) : null}
 
         {/* Primary action — shifts with state */}
         {actionVisible ? (

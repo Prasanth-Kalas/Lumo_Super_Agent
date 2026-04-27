@@ -64,6 +64,7 @@ const PROTECTED_API_PREFIXES = [
   "/api/notifications",
   "/api/autonomy",
   "/api/audio",
+  "/api/stt",
   "/api/documents",
   "/api/images",
   "/api/ops",
