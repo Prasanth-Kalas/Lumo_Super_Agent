@@ -11,6 +11,11 @@ export interface VoiceTuning {
   style: number;
 }
 
+export interface BrowserVoiceProsody {
+  rate: number;
+  pitch: number;
+}
+
 const EXCITED_RE =
   /\b(great|awesome|amazing|love it|found|ready|let's go|perfect|yes|nice)\b/i;
 const CELEBRATORY_RE =
@@ -77,6 +82,24 @@ export function openAiEmotionInstructions(emotion: VoiceEmotion): string {
     case "neutral":
     default:
       return base;
+  }
+}
+
+export function browserProsodyForEmotion(
+  emotion: VoiceEmotion,
+): BrowserVoiceProsody {
+  switch (emotion) {
+    case "celebratory":
+      return { rate: 1.08, pitch: 1.08 };
+    case "excited":
+      return { rate: 1.07, pitch: 1.05 };
+    case "reassuring":
+      return { rate: 0.95, pitch: 0.96 };
+    case "warm":
+      return { rate: 1.02, pitch: 1.02 };
+    case "neutral":
+    default:
+      return { rate: 1.0, pitch: 1.0 };
   }
 }
 
