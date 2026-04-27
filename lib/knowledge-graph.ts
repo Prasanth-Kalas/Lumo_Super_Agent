@@ -94,6 +94,7 @@ const LUMO_KG_SYNTHESIZE_TOOL = "lumo_kg_synthesize";
 const KG_EMBED_TIMEOUT_MS = 8_000;
 const KG_SYNTHESIZE_TIMEOUT_MS = 8_000;
 const KG_FIXTURE_EMBED_BATCH_SIZE = 16;
+const KG_FIXTURE_EMBED_MAX_PASSES = 2;
 const KG_FIXTURE_EMBED_MAX_ATTEMPTS = 1;
 const KG_FIXTURE_EMBED_TIMEOUT_MS = 30_000;
 const KG_FIXTURE_EMBED_FAILURE_THRESHOLD = 100;
@@ -152,28 +153,37 @@ export async function embedKnowledgeGraphFixtureNodes(
   const errors: string[] = [];
   const embeddingsByFixtureId = new Map<string, number[]>();
   const nodes = fixture.nodes.filter((node) => node.user_id === (fixture.user?.id ?? node.user_id));
+  let pendingBatches: Array<{ index: number; batch: KnowledgeGraphNode[] }> = [];
   for (let index = 0; index < nodes.length; index += KG_FIXTURE_EMBED_BATCH_SIZE) {
-    const batch = nodes.slice(index, index + KG_FIXTURE_EMBED_BATCH_SIZE);
-    const embeddings = await embedKgTexts(
-      user_id,
-      batch.map((node) => summaryText(node)),
-      { surface: "kg-fixture-reembed" },
-      {
-        failureThreshold: KG_FIXTURE_EMBED_FAILURE_THRESHOLD,
-        maxAttempts: KG_FIXTURE_EMBED_MAX_ATTEMPTS,
-        timeoutMs: KG_FIXTURE_EMBED_TIMEOUT_MS,
-      },
-    );
-    if (!embeddings || embeddings.length !== batch.length) {
-      errors.push(`embedding_batch_failed:${index}`);
-      continue;
-    }
-    for (let i = 0; i < batch.length; i++) {
-      const node = batch[i];
-      const embedding = embeddings[i];
-      if (node && embedding) embeddingsByFixtureId.set(node.id, embedding);
-    }
+    pendingBatches.push({ index, batch: nodes.slice(index, index + KG_FIXTURE_EMBED_BATCH_SIZE) });
   }
+
+  for (let pass = 0; pass < KG_FIXTURE_EMBED_MAX_PASSES && pendingBatches.length > 0; pass++) {
+    const nextPending: Array<{ index: number; batch: KnowledgeGraphNode[] }> = [];
+    for (const { index, batch } of pendingBatches) {
+      const embeddings = await embedKgTexts(
+        user_id,
+        batch.map((node) => summaryText(node)),
+        { surface: "kg-fixture-reembed", pass: pass + 1 },
+        {
+          failureThreshold: KG_FIXTURE_EMBED_FAILURE_THRESHOLD,
+          maxAttempts: KG_FIXTURE_EMBED_MAX_ATTEMPTS,
+          timeoutMs: KG_FIXTURE_EMBED_TIMEOUT_MS,
+        },
+      );
+      if (!embeddings || embeddings.length !== batch.length) {
+        nextPending.push({ index, batch });
+        continue;
+      }
+      for (let i = 0; i < batch.length; i++) {
+        const node = batch[i];
+        const embedding = embeddings[i];
+        if (node && embedding) embeddingsByFixtureId.set(node.id, embedding);
+      }
+    }
+    pendingBatches = nextPending;
+  }
+  errors.push(...pendingBatches.map(({ index }) => `embedding_batch_failed:${index}`));
   return { embeddingsByFixtureId, errors };
 }
 
