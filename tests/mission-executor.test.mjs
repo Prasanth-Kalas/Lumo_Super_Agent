@@ -11,7 +11,10 @@ import {
   isStuckRunningStep,
   missionCompletionFromStatuses,
 } from "../lib/mission-executor-core.ts";
-import { runMissionExecutorTick } from "../lib/mission-executor.ts";
+import {
+  readMissionExecutorDiagnostic,
+  runMissionExecutorTick,
+} from "../lib/mission-executor.ts";
 
 let pass = 0;
 let fail = 0;
@@ -160,6 +163,22 @@ async function main() {
     assert.deepEqual(db.tables.events, []);
   });
 
+  await t("executor diagnostic reports the database observed role", async () => {
+    const db = mockMissionDb(
+      {
+        missions: [{ id: "mission_diag", user_id: userId(), state: "ready" }],
+        steps: [step("diag_1", "mission_diag", 0, "ready")],
+      },
+      { diagnosticRole: "service_role" },
+    );
+    assert.deepEqual(await readMissionExecutorDiagnostic(db), {
+      runtime_role: "service_role",
+      ready_steps: 1,
+      ready_missions: 1,
+      claimable_ready_steps: 1,
+    });
+  });
+
   await t("worker fails the mission on a non-retryable step failure", async () => {
     const db = mockMissionDb({
       missions: [{ id: "mission_2", user_id: userId(), state: "ready" }],
@@ -224,6 +243,22 @@ function mockMissionDb(seed, options = {}) {
     tables,
     async rpc(fn, args) {
       if (fn !== "next_mission_step_for_execution") {
+        if (fn === "mission_executor_claim_diagnostics") {
+          const readySteps = tables.steps.filter((row) => row.status === "ready");
+          return {
+            data: [
+              {
+                runtime_role: options.diagnosticRole ?? "service_role",
+                ready_steps: readySteps.length,
+                ready_missions: tables.missions.filter((row) => row.state === "ready").length,
+                claimable_ready_steps: readySteps.filter((row) =>
+                  priorStepsDone(tables.steps, row),
+                ).length,
+              },
+            ],
+            error: null,
+          };
+        }
         return { data: null, error: { message: `unknown rpc ${fn}` } };
       }
       if (options.rpcReturnsEmpty) return { data: [], error: null };

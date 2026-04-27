@@ -36,6 +36,13 @@ export type MissionStepDispatcher = (
   step: ClaimedMissionStep,
 ) => Promise<MissionDispatchResult>;
 
+export interface MissionExecutorDiagnostic {
+  runtime_role: string;
+  ready_steps: number;
+  ready_missions: number;
+  claimable_ready_steps: number;
+}
+
 interface ExecutorDispatchContext {
   user_id: string;
   session_id: string;
@@ -47,6 +54,8 @@ interface ExecutorDispatchContext {
   user_confirmed: boolean;
   user_pii: Record<string, unknown>;
 }
+
+let diagnosticLogged = false;
 
 export async function runMissionExecutorTick(options: {
   db?: SupabaseLike | null;
@@ -68,6 +77,14 @@ export async function runMissionExecutorTick(options: {
   const dispatchStep = options.dispatchStep ?? dispatchMissionStep;
   const limit = Math.max(1, Math.min(10, Math.trunc(options.limit ?? 10)));
   const attemptedStepIds = new Set<string>();
+
+  if (process.env.LUMO_MISSION_EXECUTOR_DIAGNOSTIC === "true" && !diagnosticLogged) {
+    diagnosticLogged = true;
+    const diagnostic = await readMissionExecutorDiagnostic(db).catch((err) => ({
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    console.warn("[mission-executor] claim diagnostic", diagnostic);
+  }
 
   while (counts.claimed < limit) {
     const steps = await claimReadySteps(db, 1, attemptedStepIds);
@@ -134,6 +151,25 @@ export async function runMissionExecutorTick(options: {
   }
 
   return { ok: errors.length === 0, counts, errors };
+}
+
+export async function readMissionExecutorDiagnostic(
+  db: SupabaseLike,
+): Promise<MissionExecutorDiagnostic> {
+  if (typeof db.rpc !== "function") {
+    throw new Error("mission_executor_diagnostic_rpc_missing");
+  }
+  const { data, error } = await db.rpc("mission_executor_claim_diagnostics");
+  if (error) {
+    throw new Error(`mission_executor_diagnostic_failed:${error.message ?? "unknown"}`);
+  }
+  const row = Array.isArray(data) ? data[0] : null;
+  return {
+    runtime_role: typeof row?.runtime_role === "string" ? row.runtime_role : "",
+    ready_steps: numberOrZero(row?.ready_steps),
+    ready_missions: numberOrZero(row?.ready_missions),
+    claimable_ready_steps: numberOrZero(row?.claimable_ready_steps),
+  };
 }
 
 export async function dispatchMissionStep(
