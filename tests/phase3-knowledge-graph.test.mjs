@@ -10,6 +10,11 @@ import {
   traverseGraphInMemory,
   validateKnowledgeGraphFixture,
 } from "../lib/knowledge-graph-core.ts";
+import {
+  buildGraphSeedNodeIdMap,
+  prepareGraphEdgeSeedRows,
+  prepareGraphNodeSeedRows,
+} from "../lib/knowledge-graph.ts";
 
 let pass = 0;
 let fail = 0;
@@ -165,6 +170,46 @@ t("keeps traversal under the p95 budget on Synthetic Sam", () => {
   samples.sort((a, b) => a - b);
   const p95 = samples[Math.floor(samples.length * 0.95)] ?? 0;
   assert.ok(p95 < 1500, `p95 ${p95}ms exceeded 1500ms`);
+});
+
+t("scopes synthetic DB seed rows per tenant without fixture id collisions", () => {
+  const tenantA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const tenantB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const nodesA = prepareGraphNodeSeedRows(tenantA, synthetic);
+  const nodesB = prepareGraphNodeSeedRows(tenantB, synthetic);
+
+  assert.equal(nodesA.length, 147);
+  assert.equal(nodesB.length, 147);
+  assert.equal(nodesA.some((row) => "id" in row), false);
+  assert.equal(nodesB.some((row) => "id" in row), false);
+
+  const dbNodesA = nodesA.map((row, index) => ({
+    id: `a-node-${index}`,
+    user_id: row.user_id,
+    label: row.label,
+    external_key: row.external_key,
+  }));
+  const dbNodesB = nodesB.map((row, index) => ({
+    id: `b-node-${index}`,
+    user_id: row.user_id,
+    label: row.label,
+    external_key: row.external_key,
+  }));
+  const mapA = buildGraphSeedNodeIdMap(tenantA, synthetic, dbNodesA);
+  const mapB = buildGraphSeedNodeIdMap(tenantB, synthetic, dbNodesB);
+  const edgesA = prepareGraphEdgeSeedRows(tenantA, synthetic, mapA);
+  const edgesB = prepareGraphEdgeSeedRows(tenantB, synthetic, mapB);
+
+  assert.equal(edgesA.length, 313);
+  assert.equal(edgesB.length, 313);
+  assert.equal(edgesA.some((row) => "id" in row), false);
+  assert.equal(edgesB.some((row) => "id" in row), false);
+
+  const idsA = new Set(dbNodesA.map((row) => row.id));
+  const idsB = new Set(dbNodesB.map((row) => row.id));
+  assert.equal([...idsA].some((id) => idsB.has(id)), false);
+  assert.equal(edgesA.every((row) => idsA.has(row.source_id) && idsA.has(row.target_id)), true);
+  assert.equal(edgesB.every((row) => idsB.has(row.source_id) && idsB.has(row.target_id)), true);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -1,4 +1,4 @@
-import { getSupabase } from "./db";
+import { getSupabase } from "./db.ts";
 import {
   recallGraphFromFixture,
   validateKnowledgeGraphFixture,
@@ -7,7 +7,7 @@ import {
   type KnowledgeGraphNode,
   type KnowledgeGraphRecallResult,
   type KnowledgeGraphTraversalRow,
-} from "./knowledge-graph-core";
+} from "./knowledge-graph-core.ts";
 
 export interface RecallKnowledgeGraphArgs {
   user_id: string;
@@ -22,6 +22,37 @@ export interface RebuildKnowledgeGraphResult {
   node_count: number;
   edge_count: number;
   errors: string[];
+}
+
+export interface GraphNodeSeedRow {
+  user_id: string;
+  label: string;
+  external_key: string;
+  properties: Record<string, unknown>;
+  source_table: string | null;
+  source_row_id: string | null;
+  source_url: string | null;
+  asserted_at: string;
+}
+
+export interface GraphEdgeSeedRow {
+  user_id: string;
+  source_id: string;
+  target_id: string;
+  edge_type: string;
+  properties: Record<string, unknown>;
+  weight: number;
+  source_table: string | null;
+  source_row_id: string | null;
+  source_url: string | null;
+  asserted_at: string;
+}
+
+export interface GraphNodeIdentityRow {
+  id: string;
+  user_id: string;
+  label: string;
+  external_key: string;
 }
 
 export async function recallKnowledgeGraph(
@@ -110,18 +141,11 @@ export async function seedKnowledgeGraphFixture(
     };
   }
 
-  const nodeRows = fixture.nodes.map((node) => ({
-    id: node.id,
-    user_id,
-    label: node.label.toLowerCase(),
-    external_key: node.external_key,
-    properties: node.properties ?? {},
-    source_table: node.source_table,
-    source_row_id: node.source_row_id,
-    source_url: node.source_url ?? null,
-    asserted_at: node.asserted_at ?? new Date().toISOString(),
-  }));
-  const nodeResult = await db.from("graph_nodes").upsert(nodeRows, { onConflict: "id" });
+  const nodeRows = prepareGraphNodeSeedRows(user_id, fixture);
+  const nodeResult = await db
+    .from("graph_nodes")
+    .upsert(nodeRows, { onConflict: "user_id,label,external_key" })
+    .select("id,user_id,label,external_key");
   if (nodeResult.error) {
     return {
       ok: false,
@@ -132,20 +156,26 @@ export async function seedKnowledgeGraphFixture(
     };
   }
 
-  const edgeRows = fixture.edges.map((edge) => ({
-    id: edge.id,
-    user_id,
-    source_id: edge.source_id,
-    target_id: edge.target_id,
-    edge_type: edge.edge_type.toUpperCase(),
-    properties: edge.properties ?? {},
-    weight: edge.weight ?? 1,
-    source_table: edge.source_table,
-    source_row_id: edge.source_row_id,
-    source_url: edge.source_url ?? null,
-    asserted_at: edge.asserted_at ?? new Date().toISOString(),
-  }));
-  const edgeResult = await db.from("graph_edges").upsert(edgeRows, { onConflict: "id" });
+  let edgeRows: GraphEdgeSeedRow[];
+  try {
+    const nodeIdByFixtureId = buildGraphSeedNodeIdMap(
+      user_id,
+      fixture,
+      normalizeNodeIdentityRows(nodeResult.data ?? []),
+    );
+    edgeRows = prepareGraphEdgeSeedRows(user_id, fixture, nodeIdByFixtureId);
+  } catch (err) {
+    return {
+      ok: false,
+      applied: false,
+      node_count: validation.node_count,
+      edge_count: validation.edge_count,
+      errors: [err instanceof Error ? err.message : String(err)],
+    };
+  }
+  const edgeResult = await db
+    .from("graph_edges")
+    .upsert(edgeRows, { onConflict: "user_id,source_id,target_id,edge_type" });
   if (edgeResult.error) {
     return {
       ok: false,
@@ -163,6 +193,69 @@ export async function seedKnowledgeGraphFixture(
     edge_count: validation.edge_count,
     errors: [],
   };
+}
+
+export function prepareGraphNodeSeedRows(
+  user_id: string,
+  fixture: KnowledgeGraphFixture,
+): GraphNodeSeedRow[] {
+  return fixture.nodes.map((node) => ({
+    user_id,
+    label: node.label.toLowerCase(),
+    external_key: node.external_key,
+    properties: node.properties ?? {},
+    source_table: node.source_table,
+    source_row_id: node.source_row_id,
+    source_url: node.source_url ?? null,
+    asserted_at: node.asserted_at ?? new Date().toISOString(),
+  }));
+}
+
+export function buildGraphSeedNodeIdMap(
+  user_id: string,
+  fixture: KnowledgeGraphFixture,
+  dbRows: GraphNodeIdentityRow[],
+): Map<string, string> {
+  const byKey = new Map<string, string>();
+  for (const row of dbRows) {
+    if (row.user_id !== user_id) continue;
+    byKey.set(nodeSeedKey(row.label, row.external_key), row.id);
+  }
+  const out = new Map<string, string>();
+  for (const node of fixture.nodes) {
+    const dbId = byKey.get(nodeSeedKey(node.label, node.external_key));
+    if (!dbId) {
+      throw new Error(`graph_seed_node_id_missing:${node.label}:${node.external_key}`);
+    }
+    out.set(node.id, dbId);
+  }
+  return out;
+}
+
+export function prepareGraphEdgeSeedRows(
+  user_id: string,
+  fixture: KnowledgeGraphFixture,
+  nodeIdByFixtureId: Map<string, string>,
+): GraphEdgeSeedRow[] {
+  return fixture.edges.map((edge) => {
+    const source_id = nodeIdByFixtureId.get(edge.source_id);
+    const target_id = nodeIdByFixtureId.get(edge.target_id);
+    if (!source_id || !target_id) {
+      throw new Error(`graph_seed_edge_endpoint_missing:${edge.id}`);
+    }
+    return {
+      user_id,
+      source_id,
+      target_id,
+      edge_type: edge.edge_type.toUpperCase(),
+      properties: edge.properties ?? {},
+      weight: edge.weight ?? 1,
+      source_table: edge.source_table,
+      source_row_id: edge.source_row_id,
+      source_url: edge.source_url ?? null,
+      asserted_at: edge.asserted_at ?? new Date().toISOString(),
+    };
+  });
 }
 
 export async function traverseKnowledgeGraph(
@@ -184,6 +277,18 @@ export async function traverseKnowledgeGraph(
     return [];
   }
   return (data ?? []) as KnowledgeGraphTraversalRow[];
+}
+
+function normalizeNodeIdentityRows(rows: unknown[]): GraphNodeIdentityRow[] {
+  return rows.map((row) => {
+    const r = row as Record<string, unknown>;
+    return {
+      id: String(r.id),
+      user_id: String(r.user_id),
+      label: String(r.label),
+      external_key: String(r.external_key),
+    };
+  });
 }
 
 function normalizeNodeRows(rows: unknown[]): KnowledgeGraphNode[] {
@@ -228,4 +333,8 @@ function emptyFixture(user_id: string): KnowledgeGraphFixture {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function nodeSeedKey(label: string, external_key: string): string {
+  return `${label.toLowerCase()}::${external_key}`;
 }
