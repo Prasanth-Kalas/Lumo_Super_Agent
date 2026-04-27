@@ -44,12 +44,12 @@ export function nextSpeakableChunk(buf: string): {
  * mid-sentence thinking pause doesn't truncate them.
  *
  * Inputs chosen empirically from user reports (see task history):
- *   - 1200 ms short window is just above Chrome's native ~700 ms
- *     isFinal threshold, enough to feel responsive without
- *     chattering.
- *   - 3500 ms long window forgives the typical "from SFO … to
+ *   - 2200 ms short window is comfortably above Chrome's native
+ *     ~700 ms isFinal threshold, so natural pauses do not split
+ *     one spoken thought into multiple chat turns.
+ *   - 4500 ms long window forgives the typical "from SFO … to
  *     Austin" mid-sentence pause.
- *   - 60 chars / ~10 words is the inflection where utterances read
+ *   - 80 chars / ~13 words is the inflection where utterances read
  *     as "complete thought" rather than "opening clause".
  */
 export interface SilenceWindows {
@@ -59,9 +59,9 @@ export interface SilenceWindows {
 }
 
 export const DEFAULT_SILENCE: SilenceWindows = {
-  shortMs: 1500,
-  longMs: 3500,
-  longUtteranceChars: 60,
+  shortMs: 2200,
+  longMs: 4500,
+  longUtteranceChars: 80,
 };
 
 export function chooseSilenceWindow(

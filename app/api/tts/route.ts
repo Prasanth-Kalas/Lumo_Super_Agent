@@ -39,6 +39,12 @@
 
 import type { NextRequest } from "next/server";
 import { getSetting, isFeatureEnabled } from "@/lib/admin-settings";
+import {
+  inferVoiceEmotion,
+  openAiEmotionInstructions,
+  tuneVoiceForEmotion,
+  type VoiceEmotion,
+} from "@/lib/voice-emotion";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,6 +84,7 @@ const MAX_TEXT_CHARS = 5000;
 interface Body {
   text?: string;
   voice_id?: string;
+  emotion?: VoiceEmotion;
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -135,6 +142,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     DEFAULT_SIMILARITY,
   );
   const style = await getSetting<number>("voice.style", DEFAULT_STYLE);
+  const emotion = parseEmotion(body.emotion) ?? inferVoiceEmotion(text);
 
   const voiceId =
     typeof body.voice_id === "string" && body.voice_id.length > 0
@@ -165,9 +173,14 @@ export async function POST(req: NextRequest): Promise<Response> {
           // an operator can retune from /admin/settings without a
           // deploy. Settings cache is 30s so changes propagate fast.
           voice_settings: {
-            stability,
-            similarity_boost: similarityBoost,
-            style,
+            ...tuneVoiceForEmotion(
+              {
+                stability,
+                similarity_boost: similarityBoost,
+                style,
+              },
+              emotion,
+            ),
             use_speaker_boost: true,
           },
         }),
@@ -179,7 +192,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     if (upstream?.ok && upstream.body) {
-      return audio(upstream.body, "elevenlabs");
+      return audio(upstream.body, "elevenlabs", emotion);
     }
 
     if (upstream) {
@@ -217,8 +230,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           response_format: "mp3",
           ...(openAiModel.startsWith("gpt-4o")
             ? {
-                instructions:
-                  "Speak like Lumo: warm, concise, composed, and useful. Keep a natural conversational pace.",
+                instructions: openAiEmotionInstructions(emotion),
               }
             : {}),
         }),
@@ -230,7 +242,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     if (upstream?.ok && upstream.body) {
-      return audio(upstream.body, "openai");
+      return audio(upstream.body, "openai", emotion);
     }
 
     if (upstream) {
@@ -257,7 +269,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   });
 }
 
-function audio(body: ReadableStream<Uint8Array>, provider: string): Response {
+function audio(
+  body: ReadableStream<Uint8Array>,
+  provider: string,
+  emotion: VoiceEmotion,
+): Response {
   // Stream the upstream MP3 body straight through to the client.
   // No buffering — first audio chunk lands in the browser as soon
   // as the provider emits it.
@@ -267,10 +283,21 @@ function audio(body: ReadableStream<Uint8Array>, provider: string): Response {
       "content-type": "audio/mpeg",
       "cache-control": "no-store",
       "x-lumo-tts-provider": provider,
+      "x-lumo-tts-emotion": emotion,
       // Advertise streaming so fetch doesn't buffer.
       "transfer-encoding": "chunked",
     },
   });
+}
+
+function parseEmotion(value: unknown): VoiceEmotion | null {
+  return value === "neutral" ||
+    value === "warm" ||
+    value === "reassuring" ||
+    value === "excited" ||
+    value === "celebratory"
+    ? value
+    : null;
 }
 
 function pickOpenAiVoice(requested: unknown): string {

@@ -172,7 +172,7 @@ The `/memory` VoicePicker component reads the catalog, lets the user Preview eac
 |---|---|---|
 | Silent voice, no MP3 in network tab | `ELEVENLABS_API_KEY` not set, or key invalid | Set the env var; redeploy. |
 | Silent voice, /api/tts returns 402 | ElevenLabs subscription lapsed or out of credits | Top up / renew subscription. Cooldown will re-probe within 60s. |
-| Voice keeps restarting and cutting itself off | Barge-in over-triggering (usually because ambient noise crosses the RMS threshold) | Raise `BARGE_IN_THRESHOLD` in `lib/barge-in.ts` or reduce mic sensitivity in the OS. |
+| Voice keeps restarting and cutting itself off | Barge-in over-triggering, usually because laptop speakers make Lumo hear itself | Keep `NEXT_PUBLIC_LUMO_BARGE_IN_ENABLED` unset/false. Only enable it for headphone testing until echo handling is stronger. |
 | No mic icon in composer | Firefox (no SpeechRecognition) or OS mic permission denied | Switch browser; grant mic permission. |
 | Voice works but is the "cheap robot" | TTS cooldown currently in effect after a transient upstream error | Wait 60s or reload the tab. |
 

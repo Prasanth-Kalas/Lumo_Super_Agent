@@ -29,6 +29,11 @@ import {
   silenceDecision,
   DEFAULT_SILENCE,
 } from "../lib/voice-chunking.ts";
+import {
+  inferVoiceEmotion,
+  openAiEmotionInstructions,
+  tuneVoiceForEmotion,
+} from "../lib/voice-emotion.ts";
 import assert from "node:assert/strict";
 
 let pass = 0;
@@ -130,13 +135,36 @@ console.log("\nchooseSilenceWindow");
 t("short buffer -> long window", () => assert.equal(chooseSilenceWindow("hi"), DEFAULT_SILENCE.longMs));
 t("empty buffer -> long window", () => assert.equal(chooseSilenceWindow(""), DEFAULT_SILENCE.longMs));
 t("long buffer -> short window", () => assert.equal(chooseSilenceWindow("a".repeat(100)), DEFAULT_SILENCE.shortMs));
-t("borderline 60 chars -> short", () => assert.equal(chooseSilenceWindow("a".repeat(60)), DEFAULT_SILENCE.shortMs));
-t("borderline 59 chars -> long", () => assert.equal(chooseSilenceWindow("a".repeat(59)), DEFAULT_SILENCE.longMs));
+t("borderline 80 chars -> short", () => assert.equal(chooseSilenceWindow("a".repeat(80)), DEFAULT_SILENCE.shortMs));
+t("borderline 79 chars -> long", () => assert.equal(chooseSilenceWindow("a".repeat(79)), DEFAULT_SILENCE.longMs));
 
 console.log("\nsilenceDecision");
 t("empty -> rearm", () => assert.equal(silenceDecision(""), "rearm"));
 t("whitespace -> rearm", () => assert.equal(silenceDecision("   "), "rearm"));
 t("content -> dispatch", () => assert.equal(silenceDecision("hello"), "dispatch"));
+
+console.log("\nvoice emotion");
+t("confirmed text sounds celebratory", () => {
+  assert.equal(inferVoiceEmotion("Your flight is booked and confirmed."), "celebratory");
+});
+t("permission text sounds reassuring", () => {
+  assert.equal(inferVoiceEmotion("I need your permission before I book this."), "reassuring");
+});
+t("upbeat text sounds excited", () => {
+  assert.equal(inferVoiceEmotion("Great, I found three options!"), "excited");
+});
+t("emotion tuning clamps values", () => {
+  const tuned = tuneVoiceForEmotion(
+    { stability: 0.99, similarity_boost: 0.99, style: 0.95 },
+    "reassuring",
+  );
+  assert.equal(tuned.stability, 1);
+  assert.equal(tuned.similarity_boost, 1);
+  assert.ok(tuned.style <= 1);
+});
+t("OpenAI instructions include sentence completion guidance", () => {
+  assert.ok(openAiEmotionInstructions("warm").includes("finish every sentence cleanly"));
+});
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

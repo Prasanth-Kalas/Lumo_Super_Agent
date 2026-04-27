@@ -186,6 +186,13 @@ Setup: [oauth-apps/spotify.md](oauth-apps/spotify.md). Note the Premium requirem
 **Purpose:** Porcupine wake-word SDK key for "Hey Lumo" detection. Read by `lib/wake-word.ts`.
 **Source:** [console.picovoice.ai](https://console.picovoice.ai) → Access keys.
 
+### `NEXT_PUBLIC_LUMO_BARGE_IN_ENABLED`
+
+**Type:** Not sensitive
+**Required:** No
+**Default:** unset / `false`
+**Purpose:** Enables experimental hands-free barge-in, where Lumo listens for user interruption while TTS is speaking. Keep disabled unless testing with headphones; laptop speakers can make Lumo hear itself and cut off its own sentence.
+
 ## Optional — admin
 
 ### `LUMO_ADMIN_EMAILS`
@@ -218,8 +225,8 @@ Setup: [oauth-apps/spotify.md](oauth-apps/spotify.md). Note the Premium requirem
 ### `BARGE_IN_THRESHOLD`
 
 **Type:** Not sensitive
-**Default:** `0.05`
-**Purpose:** RMS threshold for barge-in detection. Higher = less sensitive (fewer false triggers), lower = more sensitive.
+**Default:** currently code-level only
+**Purpose:** Reserved for future server-configurable barge-in tuning. The current client build keeps barge-in disabled unless `NEXT_PUBLIC_LUMO_BARGE_IN_ENABLED=true`.
 
 ### `WAKE_WORD_SENSITIVITY`
 

@@ -58,6 +58,8 @@ const PREMIUM_TTS_COOLDOWN_MS = 60_000;
 const PREMIUM_TTS_TIMEOUT_MS = 10_000;
 const BROWSER_TTS_START_TIMEOUT_MS = 2_500;
 const BROWSER_TTS_DONE_TIMEOUT_MS = 45_000;
+const BARGE_IN_ENABLED =
+  process.env.NEXT_PUBLIC_LUMO_BARGE_IN_ENABLED === "true";
 
 // ─── Types for the Web Speech API that TS doesn't ship ────────────
 // We declare only what we touch. See:
@@ -306,6 +308,13 @@ export default function VoiceMode(props: VoiceModeProps) {
   useEffect(() => {
     enabledRef.current = enabled;
   }, [enabled]);
+
+  const hasUnspokenTail = useCallback(() => {
+    return lastSpokenTextRef.current
+      .slice(spokenSoFarRef.current)
+      .trim()
+      .length > 0;
+  }, []);
 
   // J5 — barge-in: a second mic pipeline that stays open while TTS is
   // playing. When it detects user speech, we cancel TTS and pivot to
@@ -663,14 +672,14 @@ export default function VoiceMode(props: VoiceModeProps) {
   //
   // Silence thresholds are two-tier:
   //
-  //   SILENCE_END_MS (2500 ms)   → "normal" end-of-turn. Long
+  //   Long window (~4500 ms)     → "normal" end-of-turn. Long
   //       enough that a user thinking mid-sentence doesn't get cut
   //       off ("Find me a flight from SFO … to Austin next Friday
   //       … for under $400"). Feels slightly laggy to fast
   //       speakers but is the right default for conversational
   //       and hands-free use.
   //
-  //   SILENCE_SHORT_MS (1200 ms) → only applies once the buffered
+  //   Short window (~2200 ms)    → only applies once the buffered
   //       transcript is long enough to clearly be a complete
   //       utterance. Tight sentences ("new thread", "yes",
   //       "confirm") dispatch faster; long ones wait.
@@ -874,6 +883,24 @@ export default function VoiceMode(props: VoiceModeProps) {
         recognitionRef.current = null;
       }
       setState((prev) => (prev === "listening" ? "idle" : prev));
+      if (
+        !pending &&
+        !userStoppedListeningRef.current &&
+        wantHandsFreeRef.current &&
+        enabledRef.current &&
+        !busyRef.current
+      ) {
+        window.setTimeout(() => {
+          if (
+            !userStoppedListeningRef.current &&
+            wantHandsFreeRef.current &&
+            enabledRef.current &&
+            !busyRef.current
+          ) {
+            startListening();
+          }
+        }, 250);
+      }
     };
 
     recognitionRef.current = rec;
@@ -994,6 +1021,12 @@ export default function VoiceMode(props: VoiceModeProps) {
     enqueueTts(chunk, () => {
       if (busyRef.current) {
         setState("thinking");
+      } else if (hasUnspokenTail()) {
+        // A completed sentence finished before React's tail-flush
+        // effect had a chance to enqueue the final partial sentence.
+        // Don't restart the microphone yet, or Lumo can talk over
+        // its own tail and sound like it cut the sentence short.
+        setState("thinking");
       } else if (wantHandsFreeRef.current && enabled) {
         setState("idle");
         scheduleHandsFreeListening();
@@ -1007,6 +1040,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     muted,
     enqueueTts,
     cancelTts,
+    hasUnspokenTail,
     scheduleHandsFreeListening,
   ]);
 
@@ -1104,6 +1138,7 @@ export default function VoiceMode(props: VoiceModeProps) {
   // moment we leave the speaking state so we're never holding a live
   // stream we don't need.
   useEffect(() => {
+    if (!BARGE_IN_ENABLED) return;
     if (!enabled) return;
     if (state !== "speaking") return;
     let cancelled = false;
