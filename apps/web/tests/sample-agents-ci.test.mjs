@@ -7,21 +7,21 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import weatherAgent from "../samples/weather-now/src/index.ts";
+import weatherAgent from "../../../samples/weather-now/src/index.ts";
 import emailAgent, {
   sampleUnreadMessages,
-} from "../samples/summarize-emails-daily/src/index.ts";
+} from "../../../samples/summarize-emails-daily/src/index.ts";
 import rentalsAgent, {
   fixtureRental,
-} from "../samples/lumo-rentals-trip-planner/src/index.ts";
+} from "../../../samples/lumo-rentals-trip-planner/src/index.ts";
 import {
   createSampleContext,
   invokeSampleAgent,
-} from "../samples/_shared/runtime.ts";
+} from "../../../samples/_shared/runtime.ts";
 import {
   assertCostWithinManifest,
   validateSampleManifestFile,
-} from "../samples/_shared/validation.ts";
+} from "../../../samples/_shared/validation.ts";
 
 let pass = 0;
 let fail = 0;
@@ -38,21 +38,22 @@ const t = async (name, fn) => {
 
 console.log("\nsample reference agents");
 
+const samplesRoot = "../..";
 const samples = [
   {
-    dir: "samples/weather-now",
+    dir: `${samplesRoot}/samples/weather-now`,
     agent: weatherAgent,
     capability: "whats_the_weather_now",
     expectedTier: "experimental",
   },
   {
-    dir: "samples/summarize-emails-daily",
+    dir: `${samplesRoot}/samples/summarize-emails-daily`,
     agent: emailAgent,
     capability: "summarize_unread_inbox",
     expectedTier: "verified",
   },
   {
-    dir: "samples/lumo-rentals-trip-planner",
+    dir: `${samplesRoot}/samples/lumo-rentals-trip-planner`,
     agent: rentalsAgent,
     capability: "book_rental",
     expectedTier: "official",
@@ -102,7 +103,7 @@ await t("weather-now runs deterministically in dev and sandbox modes", async () 
     assert.equal(result.status, "succeeded");
     assert.equal((result.outputs ?? {}).temp_f, 74);
     assertCostWithinManifest(
-      validateSampleManifestFile("samples/weather-now/lumo-agent.json"),
+      validateSampleManifestFile(`${samplesRoot}/samples/weather-now/lumo-agent.json`),
       result.cost_actuals.usd,
     );
   }
@@ -132,7 +133,7 @@ await t("summarize-emails-daily runs and idempotently caches", async () => {
   assert.equal((first.outputs ?? {}).total_unread, 3);
   assert.equal((second.outputs ?? {}).cached, true);
   assertCostWithinManifest(
-    validateSampleManifestFile("samples/summarize-emails-daily/lumo-agent.json"),
+    validateSampleManifestFile(`${samplesRoot}/samples/summarize-emails-daily/lumo-agent.json`),
     first.cost_actuals.usd,
   );
 });
@@ -153,13 +154,13 @@ await t("lumo-rentals-trip-planner returns a confirmation card before side effec
 await t("lumo-rentals-trip-planner confirms booking with provenance chain", async () => {
   const stripeFixture = JSON.parse(
     readFileSync(
-      "samples/lumo-rentals-trip-planner/fixtures/stripe-charge.json",
+      `${samplesRoot}/samples/lumo-rentals-trip-planner/fixtures/stripe-charge.json`,
       "utf8",
     ),
   );
   const calendarFixture = JSON.parse(
     readFileSync(
-      "samples/lumo-rentals-trip-planner/fixtures/calendar-event.json",
+      `${samplesRoot}/samples/lumo-rentals-trip-planner/fixtures/calendar-event.json`,
       "utf8",
     ),
   );
@@ -194,7 +195,7 @@ await t("lumo-rentals-trip-planner confirms booking with provenance chain", asyn
     ],
   );
   assertCostWithinManifest(
-    validateSampleManifestFile("samples/lumo-rentals-trip-planner/lumo-agent.json"),
+    validateSampleManifestFile(`${samplesRoot}/samples/lumo-rentals-trip-planner/lumo-agent.json`),
     result.cost_actuals.usd,
   );
 });
