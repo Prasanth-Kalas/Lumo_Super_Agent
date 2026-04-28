@@ -20,6 +20,14 @@ import Link from "next/link";
 import { LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import VoicePicker from "@/components/VoicePicker";
+import {
+  confidenceLabel,
+  confidenceTone,
+  formatMemoryRelative,
+  memoryHealthSummary,
+  memorySourceDescription,
+  memorySourceLabel,
+} from "@/lib/memory-ui";
 
 interface Me {
   id: string;
@@ -91,6 +99,7 @@ export default function MemoryPage() {
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [forgettingId, setForgettingId] = useState<string | null>(null);
 
   useEffect(() => {
     // Lightweight identity fetch — runs in parallel with the memory
@@ -142,11 +151,37 @@ export default function MemoryPage() {
     return buckets;
   }, [facts]);
 
+  const memoryStats = useMemo(() => {
+    const highConfidenceCount = facts.filter((f) => f.confidence >= 0.8).length;
+    const inferredCount = facts.filter((f) => f.source === "inferred").length;
+    return {
+      highConfidenceCount,
+      inferredCount,
+      summary: memoryHealthSummary({
+        factCount: facts.length,
+        highConfidenceCount,
+        inferredCount,
+        patternCount: patterns.length,
+      }),
+    };
+  }, [facts, patterns.length]);
+
   async function forgetFact(id: string) {
-    if (!window.confirm("Forget this? You can't undo from the UI (yet).")) return;
-    const res = await fetch(`/api/memory/facts/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      setFacts((prev) => prev.filter((f) => f.id !== id));
+    const fact = facts.find((f) => f.id === id);
+    const label = fact ? `"${fact.fact.slice(0, 120)}"` : "this memory";
+    if (!window.confirm(`Forget ${label}? Lumo will stop using it in chat.`)) {
+      return;
+    }
+    setForgettingId(id);
+    try {
+      const res = await fetch(`/api/memory/facts/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setFacts((prev) => prev.filter((f) => f.id !== id));
+        return;
+      }
+      setError("Couldn't forget that memory. Please try again.");
+    } finally {
+      setForgettingId((current) => (current === id ? null : current));
     }
   }
 
@@ -195,6 +230,33 @@ export default function MemoryPage() {
             You control all of it — edit, forget, or wipe.
           </p>
         </div>
+
+        <section className="grid gap-3 sm:grid-cols-4">
+          <MemoryStat label="Saved facts" value={facts.length} />
+          <MemoryStat label="High confidence" value={memoryStats.highConfidenceCount} />
+          <MemoryStat label="Inferred" value={memoryStats.inferredCount} />
+          <MemoryStat label="Patterns" value={patterns.length} />
+        </section>
+
+        <section className="rounded-xl border border-lumo-hair bg-lumo-surface px-4 py-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-[13px] font-medium text-lumo-fg">
+                {memoryStats.summary}
+              </div>
+              <p className="mt-0.5 text-[12.5px] leading-relaxed text-lumo-fg-mid">
+                Lumo uses high-confidence memories to personalize chat. Anything inferred
+                stays visible here so you can correct or forget it.
+              </p>
+            </div>
+            <Link
+              href="/history"
+              className="shrink-0 rounded-md border border-lumo-hair px-3 py-1.5 text-[12px] text-lumo-fg-mid hover:border-lumo-edge hover:text-lumo-fg"
+            >
+              View chat history
+            </Link>
+          </div>
+        </section>
 
         {error ? (
           <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-[12.5px] text-red-500">
@@ -276,17 +338,12 @@ export default function MemoryPage() {
                       </div>
                       <ul className="divide-y divide-lumo-hair border-y border-lumo-hair">
                         {catFacts.map((f) => (
-                          <li key={f.id} className="py-2.5 flex items-start gap-3">
-                            <span className="flex-1 text-[13px] text-lumo-fg-high">{f.fact}</span>
-                            <button
-                              type="button"
-                              onClick={() => void forgetFact(f.id)}
-                              className="shrink-0 h-6 px-2 rounded-md border border-lumo-hair text-[11px] text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge transition-colors"
-                              aria-label="Forget this"
-                            >
-                              Forget
-                            </button>
-                          </li>
+                          <MemoryFactRow
+                            key={f.id}
+                            fact={f}
+                            forgetting={forgettingId === f.id}
+                            onForget={() => void forgetFact(f.id)}
+                          />
                         ))}
                       </ul>
                     </div>
@@ -298,17 +355,9 @@ export default function MemoryPage() {
             {patterns.length > 0 ? (
               <section className="space-y-3">
                 <h2 className="text-[16px] font-semibold text-lumo-fg">Observed patterns</h2>
-                <ul className="space-y-1.5">
+                <ul className="space-y-2">
                   {patterns.map((p) => (
-                    <li
-                      key={p.id}
-                      className="flex items-center justify-between text-[12.5px] text-lumo-fg-high border-b border-lumo-hair pb-2"
-                    >
-                      <span>{p.description}</span>
-                      <span className="text-[11px] text-lumo-fg-low">
-                        seen {p.evidence_count}×
-                      </span>
-                    </li>
+                    <MemoryPatternRow key={p.id} pattern={p} />
                   ))}
                 </ul>
               </section>
@@ -322,6 +371,113 @@ export default function MemoryPage() {
         )}
       </div>
     </main>
+  );
+}
+
+function MemoryStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-lumo-hair bg-lumo-surface px-3 py-2.5">
+      <div className="text-[20px] font-semibold tracking-[-0.02em] text-lumo-fg">
+        {value}
+      </div>
+      <div className="mt-0.5 text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-low">
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function MemoryFactRow({
+  fact,
+  forgetting,
+  onForget,
+}: {
+  fact: UserFact;
+  forgetting: boolean;
+  onForget: () => void;
+}) {
+  const source = memorySourceLabel(fact.source);
+  const sourceDescription = memorySourceDescription(fact.source);
+  const tone = confidenceTone(fact.confidence);
+  return (
+    <li className="py-3">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-[13.5px] leading-relaxed text-lumo-fg-high">
+            {fact.fact}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <MemoryPill label={source} title={sourceDescription} />
+            <MemoryPill
+              label={confidenceLabel(fact.confidence)}
+              tone={tone}
+              title="Confidence controls how strongly Lumo should use this memory."
+            />
+            <MemoryPill
+              label={`confirmed ${formatMemoryRelative(fact.last_confirmed_at)}`}
+              title={`First seen ${formatMemoryRelative(fact.first_seen_at)}`}
+            />
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onForget}
+          disabled={forgetting}
+          className="shrink-0 h-7 px-2.5 rounded-md border border-lumo-hair text-[11.5px] text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge transition-colors disabled:opacity-50"
+          aria-label={`Forget memory: ${fact.fact}`}
+        >
+          {forgetting ? "Forgetting" : "Forget"}
+        </button>
+      </div>
+    </li>
+  );
+}
+
+function MemoryPatternRow({ pattern }: { pattern: BehaviorPattern }) {
+  const tone = confidenceTone(pattern.confidence);
+  return (
+    <li className="rounded-lg border border-lumo-hair bg-lumo-surface px-3 py-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-[13.5px] leading-relaxed text-lumo-fg-high">
+            {pattern.description}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <MemoryPill label={pattern.pattern_kind.replace(/_/g, " ")} />
+            <MemoryPill label={`seen ${pattern.evidence_count}x`} />
+            <MemoryPill label={`observed ${formatMemoryRelative(pattern.last_observed_at)}`} />
+          </div>
+        </div>
+        <MemoryPill label={confidenceLabel(pattern.confidence)} tone={tone} />
+      </div>
+    </li>
+  );
+}
+
+function MemoryPill({
+  label,
+  tone,
+  title,
+}: {
+  label: string;
+  tone?: "high" | "medium" | "low";
+  title?: string;
+}) {
+  const toneClass =
+    tone === "high"
+      ? "border-lumo-accent/30 bg-lumo-accent/10 text-lumo-accent"
+      : tone === "medium"
+        ? "border-amber-500/30 bg-amber-500/10 text-amber-500"
+        : tone === "low"
+          ? "border-red-500/30 bg-red-500/10 text-red-400"
+          : "border-lumo-hair bg-lumo-bg text-lumo-fg-low";
+  return (
+    <span
+      title={title}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] ${toneClass}`}
+    >
+      {label}
+    </span>
   );
 }
 
