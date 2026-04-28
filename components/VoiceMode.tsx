@@ -43,11 +43,13 @@ import { startWakeWord, type WakeWordHandle } from "@/lib/wake-word";
 import { playAudioStream, type StreamingAudioHandle } from "@/lib/streaming-audio";
 import { getSelectedVoiceId } from "@/lib/voice-catalog";
 import {
-  nextSpeakableChunk,
+  nextSpeakableChunks,
+  finalSpeakableChunks,
   chooseSilenceWindow as chooseSilenceWindowPure,
   silenceDecision,
   DEFAULT_SILENCE,
 } from "@/lib/voice-chunking";
+import { inferVoiceEmotion, type VoiceEmotion } from "@/lib/voice-emotion";
 
 // How long to honor a "premium TTS unavailable" verdict before
 // re-probing. Tuned for transient upstream issues (ElevenLabs 402
@@ -228,6 +230,7 @@ export default function VoiceMode(props: VoiceModeProps) {
   const [state, setState] = useState<VoiceState>(enabled ? "idle" : "off");
   const [interim, setInterim] = useState<string>(""); // what user is currently saying
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [currentEmotion, setCurrentEmotion] = useState<VoiceEmotion>("warm");
 
   // Mirror every transition to the shell-provided callback so the
   // right-rail HUD can render a matching dot. Ref-latched so a
@@ -385,6 +388,7 @@ export default function VoiceMode(props: VoiceModeProps) {
           body: JSON.stringify({
             text,
             voice_id: getSelectedVoiceId(),
+            emotion: inferVoiceEmotion(text),
           }),
         });
       } catch (e) {
@@ -409,6 +413,10 @@ export default function VoiceMode(props: VoiceModeProps) {
 
       premiumStatusRef.current = "available";
       premiumUnavailableSinceRef.current = 0;
+      const responseEmotion = parseVoiceEmotion(
+        res.headers.get("x-lumo-tts-emotion"),
+      );
+      setCurrentEmotion(responseEmotion ?? inferVoiceEmotion(text));
 
       return new Promise<"played" | "unavailable" | "aborted">((resolve) => {
         let handle: StreamingAudioHandle;
@@ -478,6 +486,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       ) {
         return;
       }
+      setCurrentEmotion(inferVoiceEmotion(speakable));
       await new Promise<void>((resolve) => {
         const synth = window.speechSynthesis;
         let done = false;
@@ -1025,11 +1034,11 @@ export default function VoiceMode(props: VoiceModeProps) {
     lastSpokenTextRef.current = spokenText;
 
     const untouched = spokenText.slice(spokenSoFarRef.current);
-    const { chunk, rest } = nextSpeakableChunk(untouched);
-    if (!chunk) return;
+    const { chunks, rest } = nextSpeakableChunks(untouched);
+    if (chunks.length === 0) return;
 
-    // Commit this chunk as spoken — even when muted, so we don't
-    // reread the chunk once the user un-mutes mid-response.
+    // Commit these chunks as spoken — even when muted, so we don't
+    // reread them once the user un-mutes mid-response.
     spokenSoFarRef.current = spokenText.length - rest.length;
 
     // Muted: suppress TTS but keep the hands-free loop. When the
@@ -1037,27 +1046,35 @@ export default function VoiceMode(props: VoiceModeProps) {
     // tail-flush effect below.
     if (muted) return;
 
-    // Enqueue. onEnd runs only when this chunk happens to be the
-    // last in the queue at its own completion — see runTtsWorker.
+    // Enqueue sentence-bounded chunks. Only the last chunk gets the
+    // state-transition callback, so long responses cannot cut off
+    // midway or restart listening between sentences.
     // busyRef (not busy) so the state transition reflects the
     // NOW-value when the callback actually runs, not the value
     // captured when this chunk was enqueued.
-    enqueueTts(chunk, () => {
-      if (busyRef.current) {
-        setState("thinking");
-      } else if (hasUnspokenTail()) {
-        // A completed sentence finished before React's tail-flush
-        // effect had a chance to enqueue the final partial sentence.
-        // Don't restart the microphone yet, or Lumo can talk over
-        // its own tail and sound like it cut the sentence short.
-        setState("thinking");
-      } else if (wantHandsFreeRef.current && enabled) {
-        setState("idle");
-        scheduleHandsFreeListening();
-      } else {
-        setState("idle");
-      }
-    });
+    chunks.forEach((chunk, index) =>
+      enqueueTts(
+        chunk,
+        index === chunks.length - 1
+          ? () => {
+              if (busyRef.current) {
+                setState("thinking");
+              } else if (hasUnspokenTail()) {
+                // A completed sentence finished before React's tail-flush
+                // effect had a chance to enqueue the final partial sentence.
+                // Don't restart the microphone yet, or Lumo can talk over
+                // its own tail and sound like it cut the sentence short.
+                setState("thinking");
+              } else if (wantHandsFreeRef.current && enabled) {
+                setState("idle");
+                scheduleHandsFreeListening();
+              } else {
+                setState("idle");
+              }
+            }
+          : undefined,
+      ),
+    );
   }, [
     spokenText,
     enabled,
@@ -1079,7 +1096,8 @@ export default function VoiceMode(props: VoiceModeProps) {
     if (!("speechSynthesis" in window)) return;
 
     const tail = spokenText.slice(spokenSoFarRef.current).trim();
-    if (!tail) {
+    const tailChunks = finalSpeakableChunks(tail);
+    if (tailChunks.length === 0) {
       // Nothing to speak, but we may still need to resume the mic
       // if all chunks are already done.
       if (
@@ -1105,14 +1123,21 @@ export default function VoiceMode(props: VoiceModeProps) {
       return;
     }
 
-    enqueueTts(tail, () => {
-      if (wantHandsFreeRef.current && enabled) {
-        setState("idle");
-        scheduleHandsFreeListening();
-      } else {
-        setState("idle");
-      }
-    });
+    tailChunks.forEach((chunk, index) =>
+      enqueueTts(
+        chunk,
+        index === tailChunks.length - 1
+          ? () => {
+              if (wantHandsFreeRef.current && enabled) {
+                setState("idle");
+                scheduleHandsFreeListening();
+              } else {
+                setState("idle");
+              }
+            }
+          : undefined,
+      ),
+    );
   }, [
     busy,
     spokenText,
@@ -1356,7 +1381,7 @@ export default function VoiceMode(props: VoiceModeProps) {
           aria-live="polite"
         >
           <StatusDot state={state} />
-          {stateLabel(state)}
+          {stateLabel(state, currentEmotion)}
         </span>
 
         {/* Primary action — shifts with state */}
@@ -1441,7 +1466,20 @@ function friendlySpeechError(code: string): string {
   return code || "voice could not start";
 }
 
-function stateLabel(s: VoiceState): string {
+function parseVoiceEmotion(value: string | null): VoiceEmotion | null {
+  if (
+    value === "neutral" ||
+    value === "warm" ||
+    value === "reassuring" ||
+    value === "excited" ||
+    value === "celebratory"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function stateLabel(s: VoiceState, emotion: VoiceEmotion): string {
   switch (s) {
     case "off":
       return "off";
@@ -1452,11 +1490,26 @@ function stateLabel(s: VoiceState): string {
     case "thinking":
       return "thinking";
     case "speaking":
-      return "speaking";
+      return emotionLabel(emotion);
     case "unsupported":
       return "not supported";
     case "error":
       return "error";
+  }
+}
+
+function emotionLabel(emotion: VoiceEmotion): string {
+  switch (emotion) {
+    case "celebratory":
+      return "celebrating";
+    case "excited":
+      return "upbeat";
+    case "reassuring":
+      return "reassuring";
+    case "warm":
+      return "warm voice";
+    case "neutral":
+      return "speaking";
   }
 }
 

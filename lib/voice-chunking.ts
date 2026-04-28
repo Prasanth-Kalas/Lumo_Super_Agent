@@ -21,6 +21,7 @@
  * and waits for the next buffer update.
  */
 const MIN_CHUNK_CHARS = 20;
+const MAX_CHUNK_CHARS = 420;
 
 export function nextSpeakableChunk(buf: string): {
   chunk: string;
@@ -28,13 +29,54 @@ export function nextSpeakableChunk(buf: string): {
 } {
   if (buf.length < MIN_CHUNK_CHARS) return { chunk: "", rest: buf };
   const re = /([.!?]+\s)|(\n{2,})/g;
-  let lastMatch = -1;
+  const boundaries: number[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(buf)) !== null) {
-    lastMatch = re.lastIndex;
+    boundaries.push(re.lastIndex);
   }
-  if (lastMatch < 0) return { chunk: "", rest: buf };
-  return { chunk: buf.slice(0, lastMatch).trim(), rest: buf.slice(lastMatch) };
+  if (boundaries.length === 0) return { chunk: "", rest: buf };
+
+  let chosen = -1;
+  for (const boundary of boundaries) {
+    const len = buf.slice(0, boundary).trim().length;
+    if (len < MIN_CHUNK_CHARS) continue;
+    if (boundary <= MAX_CHUNK_CHARS) {
+      chosen = boundary;
+      continue;
+    }
+    if (chosen < 0) chosen = boundary;
+    break;
+  }
+  if (chosen < 0) return { chunk: "", rest: buf };
+  return { chunk: buf.slice(0, chosen).trim(), rest: buf.slice(chosen) };
+}
+
+export function nextSpeakableChunks(buf: string): {
+  chunks: string[];
+  rest: string;
+} {
+  const chunks: string[] = [];
+  let rest = buf;
+  while (rest.trim()) {
+    const next = nextSpeakableChunk(rest);
+    if (!next.chunk) break;
+    chunks.push(next.chunk);
+    rest = next.rest;
+  }
+  return { chunks, rest };
+}
+
+export function finalSpeakableChunks(buf: string): string[] {
+  const { chunks, rest } = nextSpeakableChunks(buf);
+  const tail = rest.trim();
+  if (tail) chunks.push(ensureSentenceEnding(tail));
+  return chunks;
+}
+
+function ensureSentenceEnding(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  return /[.!?…]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
 /**

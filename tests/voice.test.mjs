@@ -25,6 +25,8 @@ import {
 } from "../lib/voice-format.ts";
 import {
   nextSpeakableChunk,
+  nextSpeakableChunks,
+  finalSpeakableChunks,
   chooseSilenceWindow,
   silenceDecision,
   DEFAULT_SILENCE,
@@ -110,12 +112,35 @@ t("single sentence ready", () => {
   const r = nextSpeakableChunk("This is a complete sentence. ");
   assert.ok(r.chunk.length > 0);
 });
-t("two sentences -> yields all", () => {
+t("two short sentences may share one bounded chunk", () => {
   const r = nextSpeakableChunk("First one done. Second one here. ");
+  assert.ok(r.chunk.includes("First"));
   assert.ok(r.chunk.includes("Second"));
+  assert.equal(r.rest, "");
+});
+t("nextSpeakableChunks drains ready bounded chunks in order", () => {
+  const sentence =
+    "This is a complete sentence with enough words to be queued for speaking. ";
+  const r = nextSpeakableChunks(`${sentence.repeat(10)}Partial`);
+  assert.ok(r.chunks.length > 1);
+  assert.equal(r.chunks.join(" "), sentence.repeat(10).trim());
+  assert.equal(r.rest, "Partial");
+});
+t("long response is split instead of one huge TTS request", () => {
+  const sentence =
+    "This is a complete sentence with enough words to be queued for speaking. ";
+  const long = sentence.repeat(10);
+  const r = nextSpeakableChunks(long);
+  assert.ok(r.chunks.length > 1);
+  assert.ok(r.chunks.every((chunk) => chunk.length <= 500));
+});
+t("finalSpeakableChunks adds punctuation to final tail", () => {
+  assert.deepEqual(finalSpeakableChunks("Almost done"), ["Almost done."]);
 });
 t("trailing partial stays as rest", () => {
-  const r = nextSpeakableChunk("Full sentence here. Partial next");
+  const r = nextSpeakableChunk(
+    "Full sentence is definitely ready now. Partial next",
+  );
   assert.equal(r.rest, "Partial next");
 });
 t("paragraph break works", () => {
