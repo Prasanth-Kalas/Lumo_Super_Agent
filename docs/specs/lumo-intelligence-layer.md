@@ -410,9 +410,19 @@ Phase 1 is accepted only when all of these pass:
 3. Marketplace risk demo:
    - Scores at least ten sample agents and flags at least two deliberate
      over-permissioned manifests.
-4. Lead classifier:
-   - Beats the existing regex heuristic on a labelled 100-example set.
+4. Lead classifier (rules-based heuristic baseline; ML model planned in Phase 4):
+   - Tuned against the labelled 100-example seed set (the seed is trivially
+     length-separable — Pearson r between label and length is 0.92 — so on-seed
+     metrics are an upper bound, not a generalisation estimate).
+   - Honest held-out number: F1 = 0.86 on stratified 80/20 (TF-IDF + LogReg
+     baseline, fixed seed); ROC-AUC = 0.98 with a ±0.10 95% CI on 20 test rows.
+     See `Lumo_ML_Service/docs/eval/lead-classifier-v1.md` for full methodology.
+   - Production validation pending — requires ≥1,000 real-traffic labels with
+     inter-annotator κ ≥ 0.7 before publishing a production-grade metric.
    - Ships with confusion matrix, threshold, and fallback documented.
+   - **Do not quote F1 = 1.00 externally or in board/investor material.** The
+     prior on-seed 1.00 number was a dataset artefact, not a model quality
+     signal; see `docs/ops/lead-classifier-claim-sunset.md`.
 5. Sandbox demo:
    - Runs a harmless computation and emits stdout/artifact metadata.
    - Denies network by default.
@@ -457,7 +467,7 @@ Open acceptance items:
 | 1-2 | Scaffold `Lumo_ML_Service` repo with FastAPI, Dockerfile, health route, manifest route, OpenAPI route, service JWT validation, and local dev port `3010` |
 | 1-2 | Add `lumo-ml` to Lumo registry config as `system: true` and make the bridge include it for authenticated users |
 | 3 | Add pgvector migration for `content_embeddings`; build indexer cron over `connector_responses_archive` |
-| 4 | Train first lead classifier on 100 hand-labelled examples; wire `/api/workspace/inbox` to `classify` with heuristic fallback |
+| 4 | Ship first lead classifier (rules-based heuristic baseline; ML model planned in Phase 4) tuned against 100 hand-labelled seed examples; wire `/api/workspace/inbox` to `classify` with heuristic fallback. Honest held-out number: F1 = 0.86 on stratified 80/20 (TF-IDF + LogReg baseline, fixed seed); ROC-AUC = 0.98 ±0.10 on 20 test rows. Production validation pending — requires ≥1,000 real-traffic labels with inter-annotator κ ≥ 0.7 before publishing a production-grade metric. |
 | 5 | Wire `rank_agents` and `evaluate_agent_risk` into chat, mission planning, and marketplace risk badges |
 | 6 | Wire `recall` into chat; run and record the Vegas demo |
 | 7 | Add eval harness to CI, finish handoff docs, and update this ADR with implementation deltas |
