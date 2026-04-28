@@ -1,0 +1,19 @@
+# Generated Xcode project — regenerate via `xcodegen generate`
+Lumo.xcodeproj/
+
+# Xcode user-state and build artifacts
+*.xcuserstate
+xcuserdata/
+DerivedData/
+build/
+.build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager (we don't use SPM today, but guard against future use)
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
