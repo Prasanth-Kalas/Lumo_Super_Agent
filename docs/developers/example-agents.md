@@ -1,99 +1,114 @@
-# Example agents — a tour of the reference implementations
+# Example agents
 
-Four first-party agents ship with Lumo: Flight, Food, Hotel, and Restaurant. They're small, focused, and showcase the patterns you'd follow in your own agents. Source in the sibling repos under `../Lumo_*_Agent_Web/`.
+The Phase 4 SAMPLE-AGENTS sprint adds three local reference agents under
+`samples/`. They are the patterns external authors should copy before they
+read deeper docs.
 
-## Lumo Flights (`Lumo_Flight_Agent_Web`)
+Each sample has the same shape:
 
-- **Domain**: travel.
-- **Connect model**: `lumo_id` (first-party, no external OAuth).
-- **Tools**: `flight_search`, `flight_price`, `flight_book`, `flight_cancel`.
-- **Interesting patterns**:
-  - Returns `FlightOffersSelectCard`-shaped data so the Super Agent renders a native offers picker.
-  - `flight_book` uses the two-phase confirmation pattern — first call returns `requires_confirmation: true` with the exact fare and rules; second call with a confirmation token actually books.
-  - Supports the saga rollback protocol: if booked as part of a compound trip and a downstream leg fails, `flight_cancel` gets called with `x-lumo-rollback: true` and performs a refundable cancel.
+```text
+samples/<agent>/
+├── lumo-agent.json
+├── README.md
+├── package.json
+├── tsconfig.json
+├── src/index.ts
+└── tests/
+    ├── unit.test.mts
+    └── e2e.test.mts
+```
 
-Read: `../Lumo_Flight_Agent_Web/src/app/api/tools/`.
+Run all samples from the Super Agent repo:
 
-## Lumo Food (`Lumo_Food_Agent_Web`)
+```bash
+node --experimental-strip-types tests/sample-agents-ci.test.mjs
+```
 
-- **Domain**: food delivery.
-- **Connect model**: `lumo_id`.
-- **Tools**: `restaurant_search`, `menu_get`, `cart_add`, `cart_review`, `order_place`, `order_cancel`.
-- **Interesting patterns**:
-  - Multi-turn interaction — you browse restaurants, inspect a menu, add items, review, place. Each step is its own tool call; the Super Agent naturally chains them through conversation.
-  - Uses `FoodMenuSelectCard` for menu rendering.
-  - `order_place` is the one that actually charges — marked `x-lumo-autonomy: "spend"` and requires autonomy gate approval.
+## Weather Now
 
-Read: `../Lumo_Food_Agent_Web/src/app/api/tools/`.
+Path: `samples/weather-now/`
 
-## Lumo Hotels (`Lumo_Hotel_Agent_Web`)
+**Trust tier:** experimental
 
-- **Domain**: travel.
-- **Connect model**: `lumo_id`.
-- **Tools**: `hotel_search`, `hotel_rate`, `hotel_book`, `hotel_cancel`.
-- **Interesting patterns**:
-  - Search returns a grouped result (one card per property with multiple room types inside).
-  - Book uses confirmation and the saga pattern — for compound trips with both flight and hotel, if the hotel book fails after a flight is booked, the flight gets rolled back automatically.
+**What it demonstrates:** the smallest useful agent: one capability, one Brain
+recall call, one connector call, no write scopes, no confirmation card.
 
-Read: `../Lumo_Hotel_Agent_Web/src/app/api/tools/`.
+`whats_the_weather_now` asks `ctx.brain.lumo_recall_unified` for a recent
+location hint, calls the `open-weather` connector, and returns a compact weather
+summary with provenance.
 
-## Lumo Restaurants (`Lumo_Restaurant_Agent_Web`)
+Read next:
 
-- **Domain**: dining reservations.
-- **Connect model**: `lumo_id`.
-- **Tools**: `restaurant_search`, `restaurant_availability`, `reservation_create`, `reservation_cancel`.
-- **Interesting patterns**:
-  - Time-slot picker: `restaurant_availability` returns an array of open slots; the Super Agent renders `TimeSlotsSelectCard` for the user to pick one.
-  - `reservation_create` is `safe_write` (reversible — reservations can be cancelled for free within the window) so auto-approves in most autonomy tiers.
+- `samples/weather-now/lumo-agent.json`
+- `samples/weather-now/src/index.ts`
+- `samples/weather-now/README.md`
 
-Read: `../Lumo_Restaurant_Agent_Web/src/app/api/tools/`.
+## Daily Email Digest
 
-## The OAuth adapters (Google, Microsoft, Spotify)
+Path: `samples/summarize-emails-daily/`
 
-These live inside the Super Agent itself (under `lib/integrations/`) but behave like first-party agents from the user's perspective. They're the best reference for how to wire OAuth correctly:
+**Trust tier:** verified
 
-**Google** (`lib/integrations/google.ts`, `gmail.ts`, `calendar.ts`, `contacts.ts`):
-- Gmail search + get message (read-only, base64url-decoded, HTML-to-plain fallback).
-- Calendar list events + create event (create uses confirmation).
-- Contacts search via People API.
+**What it demonstrates:** scoped personal-data reads, Brain ranking, and
+per-user state. The sample reads unread Gmail, ranks messages by sender/action
+importance, groups them by sender, and caches the digest for 60 minutes via
+`ctx.state`.
 
-**Microsoft** (`lib/integrations/microsoft.ts`, `microsoft-handlers.ts`):
-- Outlook search messages (Graph `$search`) + get message.
-- Calendar list events (`calendarView`) + create event.
-- Contacts search.
+Capabilities:
 
-**Spotify** (`lib/integrations/spotify.ts`):
-- Current playback state, search, play / pause / skip / queue, recently played.
-- Returns 403 on Free-tier accounts with a clear "Premium required" error — good reference for handling provider-side restrictions gracefully.
+- `summarize_unread_inbox`
+- `prepare_morning_digest`
 
-These are worth reading front-to-back if you're building an OAuth'd agent. They show:
+Read next:
 
-- How to pull the token out of `agent_connections` cleanly.
-- How to call the provider API idempotently.
-- How to translate provider errors into `AgentError`.
-- How to format responses for the Super Agent's card components.
-- How to surface missing scopes and expired tokens.
+- `samples/summarize-emails-daily/lumo-agent.json`
+- `samples/summarize-emails-daily/src/index.ts`
+- `samples/summarize-emails-daily/README.md`
 
-## Shared patterns across all reference agents
+## Lumo Rentals Trip Planner
 
-- **Flat tool response shapes** — no nested "data" or "result" wrappers beyond what the domain needs.
-- **Currency as `{ amount_cents, currency }`** — never floats.
-- **Dates as strings** — `YYYY-MM-DD` for naive dates, ISO-8601 for timestamps.
-- **Structured errors** — `{ error: { code, message, retryable } }` shape always.
-- **Confirmation pattern for spend** — explicit two-phase call, not reliance on the autonomy engine alone.
+Path: `samples/lumo-rentals-trip-planner/`
 
-## Where to go from these examples
+**Trust tier:** official
 
-- Copy the shape of whichever agent is closest to yours.
-- Read its manifest first — it's the concentrated decision-making.
-- Read one tool handler end-to-end.
-- Read its health endpoint.
-- Write your first pass against that template.
+**What it demonstrates:** the full money-moving pattern. The agent finds a
+rental, returns a confirmation card before any side effect, then after approval
+charges Stripe, creates the rental reservation, and writes a calendar event.
 
-Most Lumo agents can be ~200–500 lines of code if the backend work is in an already-existing service you're wrapping. The ceremony is small; the value is in having thought through the contract.
+Capabilities:
+
+- `find_rental_for_trip`
+- `book_rental`
+- `confirm_booking`
+
+The `request_id` is used as the idempotency key across Stripe, Lumo Rentals,
+and Google Calendar so retries do not double-book. The final response carries a
+four-step provenance chain:
+
+1. Stripe charge
+2. Lumo Rentals reservation
+3. Google Calendar event
+4. Idempotency key hash
+
+Read next:
+
+- `samples/lumo-rentals-trip-planner/lumo-agent.json`
+- `samples/lumo-rentals-trip-planner/src/index.ts`
+- `samples/lumo-rentals-trip-planner/README.md`
+
+## How to choose a starting point
+
+- Building a public, read-only lookup? Start from **Weather Now**.
+- Building an OAuth or personal-data workflow? Start from **Daily Email
+  Digest**.
+- Building anything that spends money or writes to a third-party account? Start
+  from **Lumo Rentals Trip Planner** and keep the confirmation-card split.
 
 ## Related
 
 - [quickstart.md](quickstart.md) — your own first agent.
-- [authoring-guide.md](authoring-guide.md) — patterns beyond what the examples show.
-- [sdk-reference.md](sdk-reference.md) — the contracts the examples implement.
+- [authoring-guide.md](authoring-guide.md) — patterns beyond the samples.
+- [sdk-reference.md](sdk-reference.md) — manifest, OpenAPI, and confirmation
+  contracts.
+- [testing-your-agent.md](testing-your-agent.md) — local, sandbox, and CI
+  testing expectations.

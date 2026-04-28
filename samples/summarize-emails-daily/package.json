@@ -8,6 +8,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@lumo/agent-sdk": "0.4.1"
+    "@lumo/agent-sdk": "git+https://github.com/Prasanth-Kalas/Lumo_Agent_SDK.git#9ebf421de5093e9ae900c94d7b4e999be014cd70"
   }
 }
