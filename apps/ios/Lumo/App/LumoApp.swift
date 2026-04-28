@@ -16,7 +16,7 @@ struct LumoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ChatView(service: chatService)
+            RootView(chatService: chatService)
         }
     }
 }
