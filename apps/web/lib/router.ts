@@ -42,6 +42,7 @@ import {
   type PermissionCheckResult,
   type PermissionDeniedReason,
 } from "./permissions.js";
+import { permissionScopesForManifest } from "./permission-manifest.js";
 
 export interface DispatchContext {
   user_id: string;
@@ -405,7 +406,9 @@ type PermissionGateResult =
     };
 
 async function evaluatePermissionGate(input: PermissionGateInput): Promise<PermissionGateResult> {
-  const requiredScopes = requiredPermissionScopes(input.manifest, input.routing);
+  const requiredScopes = permissionScopesForManifest(input.manifest, input.routing).map(
+    (scope) => scope.scope,
+  );
 
   if (requiredScopes.length === 0) {
     // Scope-less public/read-only tools still pass through the kill-switch
@@ -472,43 +475,6 @@ function permissionDenied(
       consent_url: `/agents/${encodeURIComponent(input.manifest.agent_id)}/install`,
     },
   };
-}
-
-function requiredPermissionScopes(
-  manifest: AgentManifest,
-  routing: ToolRoutingEntry,
-): string[] {
-  const manifestRecord = manifest as AgentManifest & Record<string, unknown>;
-  const declared = [
-    ...stringArrayAt(manifestRecord, ["requires", "scopes"]),
-    ...stringArrayAt(manifestRecord, ["x_lumo", "requires", "scopes"]),
-    ...stringArrayAt(manifestRecord, ["x_lumo_sample", "requires", "scopes"]),
-  ];
-
-  const scopes = declared.length > 0 ? declared : oauthRequiredScopes(manifest);
-  if (scopes.length === 0 && routing.cost_tier === "money") {
-    scopes.push("write.financial.transfer");
-  }
-
-  return [...new Set(scopes)];
-}
-
-function oauthRequiredScopes(manifest: AgentManifest): string[] {
-  if (manifest.connect.model !== "oauth2") return [];
-  return manifest.connect.scopes
-    .filter((scope) => scope.required)
-    .map((scope) => scope.name)
-    .filter((scope) => scope.length > 0);
-}
-
-function stringArrayAt(record: Record<string, unknown>, path: string[]): string[] {
-  let cursor: unknown = record;
-  for (const key of path) {
-    if (!isRecord(cursor)) return [];
-    cursor = cursor[key];
-  }
-  if (!Array.isArray(cursor)) return [];
-  return cursor.filter((value): value is string => typeof value === "string" && value.length > 0);
 }
 
 function amountFromArgs(args: Record<string, unknown>): number | null {

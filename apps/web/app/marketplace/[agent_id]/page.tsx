@@ -157,9 +157,13 @@ export default function AgentDetailPage() {
 
   const toggleInstall = useCallback(async () => {
     if (!agent || connecting) return;
+    const installed = agent.install?.status === "installed";
+    if (!installed) {
+      router.push(`/agents/${encodeURIComponent(agent.agent_id)}/install`);
+      return;
+    }
     setConnecting(true);
     setError(null);
-    const installed = agent.install?.status === "installed";
     try {
       const res = await fetch("/api/apps/install", {
         method: installed ? "DELETE" : "POST",
@@ -181,7 +185,7 @@ export default function AgentDetailPage() {
     } finally {
       setConnecting(false);
     }
-  }, [agent, agent_id, connecting]);
+  }, [agent, agent_id, connecting, router]);
 
   const isConnected = agent?.connection?.status === "active";
   const isInstalled = agent?.install?.status === "installed";
