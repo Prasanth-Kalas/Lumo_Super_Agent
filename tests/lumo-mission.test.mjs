@@ -229,6 +229,68 @@ t("rank and risk enrichment lands on Vegas mission proposals", () => {
   assert.ok(plan.confirmation_points.length > 0);
 });
 
+t("missing open events agent does not substitute Google Calendar", () => {
+  const registryWithoutOpenEvents = {
+    ...registry,
+    agents: {
+      flight: registry.agents.flight,
+      hotel: registry.agents.hotel,
+      restaurant: entry(
+        "restaurant",
+        "Lumo Restaurants",
+        "restaurants",
+        "Find restaurants and book reservations.",
+        ["search_restaurants", "create_reservation"],
+        { model: "none" },
+        ["name", "email", "phone", "payment_method_id"],
+        true,
+      ),
+      google: entry(
+        "google",
+        "Google (Gmail · Calendar · Contacts · YouTube)",
+        "personal",
+        "Email, calendar events, contacts, and YouTube under one connection.",
+        ["list_calendar", "create_calendar_event", "search_email"],
+        {
+          model: "oauth2",
+          scopes: [
+            { name: "calendar", description: "Calendar access", required: true },
+          ],
+        },
+        ["name", "email"],
+        false,
+      ),
+    },
+    bridge: {
+      tools: [
+        { name: "flight_search", description: "Search flights and airfare." },
+        { name: "hotel_search", description: "Search hotels and rooms." },
+        { name: "restaurant_reserve", description: "Book restaurant reservations." },
+        { name: "google_calendar", description: "List and create personal calendar events." },
+      ],
+      routing: {
+        flight_search: { agent_id: "flight" },
+        hotel_search: { agent_id: "hotel" },
+        restaurant_reserve: { agent_id: "restaurant" },
+        google_calendar: { agent_id: "google" },
+      },
+    },
+  };
+  const plan = buildLumoMissionPlan({
+    request:
+      "Plan a quick weekend trip to Las Vegas next month — flights, hotel, two restaurant reservations.",
+    registry: registryWithoutOpenEvents,
+    user_id: "anon",
+  });
+  assert.deepEqual(
+    plan.required_agents.map((agent) => agent.agent_id).sort(),
+    ["flight", "hotel", "restaurant"],
+  );
+  assert.equal(plan.install_proposals.some((p) => p.agent_id === "google"), false);
+  assert.equal(plan.should_pause_for_permission, false);
+  assert.equal(plan.can_continue_now, true);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
 

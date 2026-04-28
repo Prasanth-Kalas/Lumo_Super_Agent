@@ -48,10 +48,10 @@ interface AgentRow {
 }
 
 const BASELINE_AGENTS: Array<Omit<AgentRow, "connection_status" | "registry_ok">> = [
-  { agent_id: "lumo.flight", display_name: "Flight", icon: "✈" },
-  { agent_id: "lumo.hotel", display_name: "Hotel", icon: "⌂" },
-  { agent_id: "lumo.food", display_name: "Food", icon: "◉" },
-  { agent_id: "lumo.restaurant", display_name: "Reservation", icon: "◆" },
+  { agent_id: "flight", display_name: "Flight", icon: "✈" },
+  { agent_id: "hotel", display_name: "Hotel", icon: "⌂" },
+  { agent_id: "food", display_name: "Food", icon: "◉" },
+  { agent_id: "restaurant", display_name: "Reservation", icon: "◆" },
 ];
 
 export interface MobileNavProps {
@@ -176,6 +176,8 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
       cancelled = true;
     };
   }, [open]);
+
+  if (!open) return null;
 
   return (
     <>

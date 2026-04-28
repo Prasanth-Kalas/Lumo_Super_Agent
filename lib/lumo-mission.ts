@@ -472,6 +472,7 @@ function bestAgentForCapability(
 ): MissionAgentCandidate | null {
   let best: { entry: RegistryEntry; score: number } | null = null;
   for (const entry of Object.values(registry.agents)) {
+    if (!agentCanServeCapability(entry.manifest, capability)) continue;
     const score = scoreAgentForCapability(
       entry,
       capability,
@@ -516,6 +517,24 @@ function bestAgentForCapability(
     state_reason: state.reason,
     rollback,
   };
+}
+
+function agentCanServeCapability(
+  manifest: AgentManifest,
+  capability: CapabilityDefinition,
+): boolean {
+  if (capability.preferred_agent_ids.includes(manifest.agent_id)) return true;
+
+  const capabilityNeedle = capability.id.replace(/_/g, " ");
+  const agentIdentity = normalizeText(
+    [manifest.agent_id, manifest.display_name, manifest.domain].join(" "),
+  );
+
+  // Avoid substituting a personal-data connector for a marketplace
+  // capability just because a broad keyword overlaps. In production,
+  // when Open Events was not loaded, Google Calendar was selected for
+  // the public "events" capability and blocked a Vegas trip on OAuth.
+  return includesPhrase(agentIdentity, capabilityNeedle);
 }
 
 function scoreAgentForCapability(

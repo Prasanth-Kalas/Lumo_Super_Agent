@@ -241,6 +241,7 @@ export default function Home() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const busyRef = useRef<boolean>(false);
   // Session identity for this tab.
   //
   // On first paint we read ?session=<uuid> from the URL and adopt it
@@ -392,11 +393,15 @@ export default function Home() {
   const isReplayLoading = replayPhase === "loading";
 
   async function sendText(text: string) {
-    if (!text || busy || isReplayLoading) return;
+    const trimmed = text.trim();
+    if (!trimmed || busyRef.current || isReplayLoading || !sessionIdRef.current) {
+      return;
+    }
+    busyRef.current = true;
     const next: UIMessage = {
       id: `u-${Date.now()}`,
       role: "user",
-      content: text,
+      content: trimmed,
     };
 
     const history = [...messages, next];
@@ -561,6 +566,7 @@ export default function Home() {
       ]);
       console.error(err);
     } finally {
+      busyRef.current = false;
       setBusy(false);
       // Bump memory refresh key — the orchestrator may have called
       // memory_save / profile_update / memory_forget during this
@@ -1041,7 +1047,7 @@ export default function Home() {
                   // Respect busy: a late STT result after the agent
                   // already started a new turn is dropped. The user
                   // can retry.
-                  if (!busy && !isReplayLoading) void sendText(t);
+                  if (!busyRef.current && !isReplayLoading) void sendText(t);
                 }}
                 spokenText={spokenStreamText}
                 busy={busy}
@@ -1065,7 +1071,7 @@ export default function Home() {
               placeholder="Ask Lumo to book a flight, order dinner, plan a trip…"
               className="block w-full resize-none bg-transparent px-5 pt-4 pb-1.5 text-[16.5px] leading-[1.5] text-lumo-fg placeholder:text-lumo-fg-low focus:outline-none"
               style={{ outline: "none" }}
-              disabled={busy || isReplayLoading}
+              disabled={busy || isReplayLoading || !sessionId}
             />
 
             {/* Composer toolbar — just the voice toggle and Send.
@@ -1097,7 +1103,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={send}
-                disabled={busy || isReplayLoading || !input.trim()}
+                disabled={busy || isReplayLoading || !sessionId || !input.trim()}
                 aria-label="Send"
                 className="h-9 px-4 rounded-full inline-flex items-center gap-2 text-[14px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low disabled:cursor-not-allowed transition-colors"
               >
@@ -1135,7 +1141,7 @@ export default function Home() {
                 text_preview: compactPreferenceText(t),
               },
             });
-            if (!busy && !isReplayLoading) void sendText(t);
+            if (!busyRef.current && !isReplayLoading) void sendText(t);
           }}
           memoryRefreshKey={memoryRefreshKey}
         />
