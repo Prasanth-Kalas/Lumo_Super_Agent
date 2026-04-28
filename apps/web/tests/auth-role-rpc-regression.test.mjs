@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import test from "node:test";
 
-const MIGRATIONS_DIR = "db/migrations";
+const MIGRATIONS_DIR = new URL("../../../db/migrations/", import.meta.url);
 
 // This helper intentionally reports the caller role as a diagnostic. Runtime
 // authorization must still be enforced by GRANT EXECUTE boundaries.
@@ -47,7 +46,7 @@ function readLatestFunctionDefinitions() {
   for (const file of readdirSync(MIGRATIONS_DIR).sort()) {
     if (!file.endsWith(".sql")) continue;
 
-    const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
+    const sql = readFileSync(new URL(file, MIGRATIONS_DIR), "utf8");
     for (const fn of extractFunctions(sql, file)) {
       latestByName.set(fn.name, fn);
     }
@@ -58,7 +57,7 @@ function readLatestFunctionDefinitions() {
 
 test("migration 036 redefines every active embedding/rollback claim RPC", () => {
   const sql = readFileSync(
-    join(MIGRATIONS_DIR, "036_embedding_rpc_auth_hardening.sql"),
+    new URL("036_embedding_rpc_auth_hardening.sql", MIGRATIONS_DIR),
     "utf8",
   );
   const names = new Set(extractFunctions(sql, "036_embedding_rpc_auth_hardening.sql").map((fn) => fn.name));
