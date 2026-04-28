@@ -27,7 +27,13 @@ import {
   logPreferenceEvent,
   preferenceTargetId,
 } from "@/lib/preference-events-client";
-import type { ProactiveMoment } from "@/lib/proactive-moment-card-helpers";
+import {
+  proactiveMomentCounts,
+  proactiveMomentMatchesFilter,
+  proactiveMomentSummary,
+  type ProactiveMoment,
+  type ProactiveMomentFilter,
+} from "@/lib/proactive-moment-card-helpers";
 
 type TabId = "today" | "content" | "inbox" | "copilot" | "operations";
 
@@ -656,6 +662,7 @@ function HeadsUpPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<ProactiveMomentFilter>("all");
 
   const refresh = useCallback(async () => {
     try {
@@ -701,12 +708,20 @@ function HeadsUpPanel() {
     [],
   );
 
+  const counts = useMemo(() => proactiveMomentCounts(moments), [moments]);
+  const summary = useMemo(() => proactiveMomentSummary(moments), [moments]);
+  const visibleMoments = useMemo(
+    () => moments.filter((moment) => proactiveMomentMatchesFilter(moment, filter)),
+    [filter, moments],
+  );
+
   return (
     <aside className="heads" aria-label="Proactive moments">
       <div className="heads__header">
         <div>
           <p className="heads__eyebrow">Heads-up</p>
-          <h3 className="heads__title">Lumo is watching for patterns.</h3>
+          <h3 className="heads__title">Proactive Lumo</h3>
+          <p className="heads__summary">{summary}</p>
         </div>
         <button className="heads__refresh" onClick={() => void refresh()} disabled={loading}>
           {loading ? "Checking" : "Refresh"}
@@ -715,13 +730,37 @@ function HeadsUpPanel() {
 
       {error ? <p className="heads__error">Couldn&apos;t load moments: {error}</p> : null}
 
+      {moments.length > 0 ? (
+        <>
+          <div className="heads__stats" aria-label="Proactive moment summary">
+            <HeadsStat label="Urgent" value={counts.urgent} />
+            <HeadsStat label="Actionable" value={counts.actionable} />
+            <HeadsStat label="Watching" value={counts.watching} />
+          </div>
+          <div className="heads__filters" aria-label="Proactive moment filters">
+            {(["all", "urgent", "actionable", "watching"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={filter === f ? "is-active" : ""}
+              >
+                {headsFilterLabel(f)}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+
       <div className="heads__stack">
         {loading && moments.length === 0 ? (
           <p className="heads__empty">Checking signals...</p>
         ) : moments.length === 0 ? (
           <p className="heads__empty">Lumo&apos;s watching for patterns — nothing to flag yet.</p>
+        ) : visibleMoments.length === 0 ? (
+          <p className="heads__empty">No signals in this view.</p>
         ) : (
-          moments.map((moment) => (
+          visibleMoments.map((moment) => (
             <ProactiveMomentCard
               key={moment.id}
               moment={moment}
@@ -758,6 +797,12 @@ function HeadsUpPanel() {
           font-weight: 600;
           line-height: 1.25;
         }
+        .heads__summary {
+          margin: 4px 0 0 0;
+          color: var(--lumo-muted);
+          font-size: 12.5px;
+          line-height: 1.4;
+        }
         .heads__refresh {
           border: 1px solid var(--lumo-border);
           background: transparent;
@@ -791,9 +836,81 @@ function HeadsUpPanel() {
           color: var(--lumo-err);
           margin-bottom: 10px;
         }
+        .heads__stats {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px;
+          margin-bottom: 10px;
+        }
+        .heads__stat {
+          border: 1px solid var(--lumo-border);
+          border-radius: 9px;
+          padding: 8px 9px;
+          background: var(--lumo-surface);
+        }
+        .heads__stat-value {
+          color: var(--lumo-fg);
+          font-size: 17px;
+          font-weight: 650;
+          line-height: 1;
+        }
+        .heads__stat-label {
+          margin-top: 4px;
+          color: var(--lumo-muted);
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .heads__filters {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          margin-bottom: 10px;
+        }
+        .heads__filters button {
+          height: 28px;
+          border: 1px solid var(--lumo-border);
+          background: transparent;
+          color: var(--lumo-muted);
+          border-radius: 8px;
+          padding: 0 9px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        .heads__filters button:hover {
+          color: var(--lumo-fg);
+          border-color: var(--lumo-edge);
+        }
+        .heads__filters button.is-active {
+          background: var(--lumo-fg);
+          border-color: var(--lumo-fg);
+          color: var(--lumo-bg);
+        }
       `}</style>
     </aside>
   );
+}
+
+function HeadsStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="heads__stat">
+      <div className="heads__stat-value">{value}</div>
+      <div className="heads__stat-label">{label}</div>
+    </div>
+  );
+}
+
+function headsFilterLabel(filter: ProactiveMomentFilter): string {
+  switch (filter) {
+    case "urgent":
+      return "Urgent";
+    case "actionable":
+      return "Actionable";
+    case "watching":
+      return "Watching";
+    default:
+      return "All";
+  }
 }
 
 function greetingForHour(h: number): string {

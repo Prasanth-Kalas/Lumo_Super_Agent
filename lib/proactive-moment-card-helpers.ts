@@ -119,3 +119,54 @@ export function formatMomentExpiry(
   const d = Math.floor(h / 24);
   return `expires in ${d}d`;
 }
+
+export type ProactiveMomentFilter = "all" | "urgent" | "actionable" | "watching";
+
+export function proactiveMomentNeedsAction(moment: ProactiveMoment): boolean {
+  return (
+    moment.urgency === "high" ||
+    moment.moment_type === "anomaly_alert" ||
+    moment.moment_type === "forecast_warning" ||
+    moment.moment_type === "time_to_act"
+  );
+}
+
+export function proactiveMomentMatchesFilter(
+  moment: ProactiveMoment,
+  filter: ProactiveMomentFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "urgent") return moment.urgency === "high";
+  if (filter === "actionable") return proactiveMomentNeedsAction(moment);
+  if (filter === "watching") return !proactiveMomentNeedsAction(moment);
+  return true;
+}
+
+export function proactiveMomentCounts(moments: ProactiveMoment[]) {
+  let urgent = 0;
+  let actionable = 0;
+  let watching = 0;
+  for (const moment of moments) {
+    if (moment.urgency === "high") urgent++;
+    if (proactiveMomentNeedsAction(moment)) actionable++;
+    else watching++;
+  }
+  return {
+    total: moments.length,
+    urgent,
+    actionable,
+    watching,
+  };
+}
+
+export function proactiveMomentSummary(moments: ProactiveMoment[]): string {
+  const counts = proactiveMomentCounts(moments);
+  if (counts.total === 0) return "Nothing to flag yet";
+  if (counts.urgent > 0) {
+    return `${counts.urgent} urgent signal${counts.urgent === 1 ? "" : "s"}`;
+  }
+  if (counts.actionable > 0) {
+    return `${counts.actionable} suggested action${counts.actionable === 1 ? "" : "s"}`;
+  }
+  return `${counts.watching} background pattern${counts.watching === 1 ? "" : "s"}`;
+}

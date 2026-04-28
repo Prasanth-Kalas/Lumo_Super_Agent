@@ -12,6 +12,10 @@ import {
   formatMomentExpiry,
   formatMomentRelative,
   momentTypeIcon,
+  proactiveMomentCounts,
+  proactiveMomentMatchesFilter,
+  proactiveMomentNeedsAction,
+  proactiveMomentSummary,
   urgencyAccent,
 } from "../lib/proactive-moment-card-helpers.ts";
 
@@ -98,5 +102,38 @@ t("formatMomentExpiry produces hours-then-days format", () => {
   assert.equal(formatMomentExpiry("2026-04-26T12:30:00Z", now), "expires soon");
 });
 
+t("proactive moment rollups separate urgent, actionable, and watching signals", () => {
+  const moments = [
+    moment("m1", "anomaly_alert", "high"),
+    moment("m2", "time_to_act", "medium"),
+    moment("m3", "pattern_observation", "low"),
+  ];
+  assert.deepEqual(proactiveMomentCounts(moments), {
+    total: 3,
+    urgent: 1,
+    actionable: 2,
+    watching: 1,
+  });
+  assert.equal(proactiveMomentNeedsAction(moments[0]), true);
+  assert.equal(proactiveMomentNeedsAction(moments[2]), false);
+  assert.equal(proactiveMomentMatchesFilter(moments[0], "urgent"), true);
+  assert.equal(proactiveMomentMatchesFilter(moments[1], "actionable"), true);
+  assert.equal(proactiveMomentMatchesFilter(moments[2], "watching"), true);
+  assert.equal(proactiveMomentSummary(moments), "1 urgent signal");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);
+
+function moment(id, moment_type, urgency) {
+  return {
+    id,
+    moment_type,
+    urgency,
+    title: id,
+    body: "body",
+    valid_from: "2026-04-26T12:00:00Z",
+    valid_until: null,
+    created_at: "2026-04-26T12:00:00Z",
+  };
+}
