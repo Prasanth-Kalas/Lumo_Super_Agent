@@ -20,10 +20,17 @@
  * Approval happens in /admin/review-queue.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import {
+  buildDeveloperLaunchSteps,
+  developerLaunchStatusLabel,
+  developerPlatformStats,
+  developerPlatformSummary,
+  type DeveloperLaunchStep,
+} from "@/lib/developer-platform-ui";
 
 interface Submission {
   id: string;
@@ -99,6 +106,20 @@ export default function PublisherPage() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const launchSteps = useMemo(
+    () =>
+      buildDeveloperLaunchSteps({
+        submissions: submissions ?? [],
+        manifestUrl,
+        preflight,
+      }),
+    [manifestUrl, preflight, submissions],
+  );
+  const platformStats = useMemo(
+    () => developerPlatformStats(submissions ?? []),
+    [submissions],
+  );
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -188,6 +209,12 @@ export default function PublisherPage() {
             the marketplace and users can connect them.
           </p>
         </div>
+
+        <DeveloperLaunchpad
+          steps={launchSteps}
+          stats={platformStats}
+          summary={developerPlatformSummary(submissions ?? [])}
+        />
 
         <form
           onSubmit={submit}
@@ -306,6 +333,81 @@ export default function PublisherPage() {
       </div>
     </main>
   );
+}
+
+function DeveloperLaunchpad({
+  steps,
+  stats,
+  summary,
+}: {
+  steps: DeveloperLaunchStep[];
+  stats: ReturnType<typeof developerPlatformStats>;
+  summary: string;
+}) {
+  return (
+    <section className="mb-8 rounded-xl border border-lumo-hair bg-lumo-surface p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-[14px] font-semibold">Developer launchpad</h2>
+          <p className="mt-1 text-[12.5px] text-lumo-fg-mid">{summary}</p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-right">
+          <Metric label="Live" value={stats.approved} />
+          <Metric label="Review" value={stats.inReview} />
+          <Metric label="Blocked" value={stats.blocked} />
+        </div>
+      </div>
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-2.5">
+        {steps.map((step) => (
+          <div
+            key={step.id}
+            className="rounded-lg border border-lumo-hair bg-lumo-bg/45 p-3"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="text-[12.5px] font-semibold text-lumo-fg">
+                {step.title}
+              </h3>
+              <span
+                className={
+                  "shrink-0 rounded-full border px-2 py-0.5 text-[9.5px] uppercase tracking-[0.13em] " +
+                  launchStepTone(step.status)
+                }
+              >
+                {developerLaunchStatusLabel(step.status)}
+              </span>
+            </div>
+            <p className="mt-2 text-[11.5px] leading-5 text-lumo-fg-mid">
+              {step.detail}
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="min-w-16 rounded-md border border-lumo-hair bg-lumo-bg px-3 py-2">
+      <div className="text-[15px] font-semibold num">{value}</div>
+      <div className="text-[10px] uppercase tracking-[0.13em] text-lumo-fg-low">
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function launchStepTone(status: DeveloperLaunchStep["status"]): string {
+  switch (status) {
+    case "done":
+      return "border-emerald-500/25 bg-emerald-500/10 text-emerald-400";
+    case "active":
+      return "border-sky-500/25 bg-sky-500/10 text-sky-400";
+    case "blocked":
+      return "border-red-500/25 bg-red-500/10 text-red-400";
+    case "idle":
+      return "border-lumo-hair bg-lumo-elevated text-lumo-fg-low";
+  }
 }
 
 function Shell() {
