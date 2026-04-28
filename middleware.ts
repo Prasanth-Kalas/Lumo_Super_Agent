@@ -10,7 +10,7 @@
  *      Without this, a user whose access token lapsed between clicks
  *      would hit a 401 on the next server-side read.
  *
- *   2. Gate app-store, publisher/admin, memory, ops, MCP, and user-data
+ *   2. Gate publisher/admin, memory, ops, MCP, and user-data
  *      routes behind an authenticated user. Logged-out visitors to pages
  *      get redirected to /login?next=... . Unauth'd protected API
  *      requests get a 401.
@@ -27,7 +27,7 @@
  *
  * Protected:
  *
- *   - /marketplace, /connections, /memory, /intents, /autonomy, /ops,
+ *   - /connections, /memory, /intents, /autonomy, /ops,
  *     /history, /onboarding, /publisher, /admin
  *   - protected /api/* surfaces for user data, publisher/admin, MCP, and ops
  *
@@ -39,7 +39,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseMiddlewareClient } from "@/lib/auth";
 
 const PROTECTED_PAGE_PREFIXES = [
-  "/marketplace",
   "/connections",
   "/memory",
   "/intents",

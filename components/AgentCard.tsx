@@ -9,7 +9,7 @@
  * Kept dumb: all behavior lives in the parent. This just draws.
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { logPreferenceEvent } from "@/lib/preference-events-client";
 
@@ -235,7 +235,9 @@ function Logo({
   logo_url?: string | null;
   alt: string;
 }) {
-  if (logo_url) {
+  const [failed, setFailed] = useState(false);
+
+  if (logo_url && !failed) {
     // eslint-disable-next-line @next/next/no-img-element
     return (
       <img
@@ -244,11 +246,8 @@ function Logo({
         className="h-10 w-10 rounded-lg border border-lumo-hair bg-lumo-bg object-cover shrink-0"
         loading="lazy"
         onError={(e) => {
-          // If the URL 404s or CORS errors, hide the broken image —
-          // the parent already renders the fallback tile underneath
-          // for any agent whose logo_url is absent, but here we just
-          // silently drop the broken pixel rather than show a glyph.
-          (e.currentTarget as HTMLImageElement).style.display = "none";
+          e.currentTarget.style.display = "none";
+          setFailed(true);
         }}
       />
     );

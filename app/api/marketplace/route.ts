@@ -93,7 +93,6 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
     listing: {
       category: "Creator",
       pricing_note: "Free · in Meta App Review",
-      logo_url: "/logos/instagram.svg",
     } as NonNullable<AgentManifest["listing"]>,
     connect_model: "coming_soon",
     required_scopes: [],
@@ -128,7 +127,6 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
     listing: {
       category: "Creator",
       pricing_note: "Free · in Meta App Review",
-      logo_url: "/logos/facebook.svg",
     } as NonNullable<AgentManifest["listing"]>,
     connect_model: "coming_soon",
     required_scopes: [],
@@ -163,7 +161,6 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
     listing: {
       category: "Creator",
       pricing_note: "Free · LinkedIn MDP review pending",
-      logo_url: "/logos/linkedin.svg",
     } as NonNullable<AgentManifest["listing"]>,
     connect_model: "coming_soon",
     required_scopes: [],
@@ -198,7 +195,6 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
     listing: {
       category: "Creator",
       pricing_note: "Free",
-      logo_url: "/logos/newsletter.svg",
     } as NonNullable<AgentManifest["listing"]>,
     connect_model: "coming_soon",
     required_scopes: [],
@@ -232,7 +228,6 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
     listing: {
       category: "Creator",
       pricing_note: "Deferred · API tier review",
-      logo_url: "/logos/x.svg",
     } as NonNullable<AgentManifest["listing"]>,
     connect_model: "coming_soon",
     required_scopes: [],

@@ -58,7 +58,7 @@ interface MarketplaceAgent {
   agent_id: string;
   display_name: string;
   one_liner: string;
-  source?: "lumo" | "mcp";
+  source?: "lumo" | "mcp" | "coming_soon";
   listing: {
     category?: string;
     logo_url?: string;
@@ -300,7 +300,9 @@ function AgentLogo({
   logoUrl: string | null;
   source?: MarketplaceAgent["source"];
 }) {
-  if (logoUrl) {
+  const [failed, setFailed] = useState(false);
+
+  if (logoUrl && !failed) {
     // eslint-disable-next-line @next/next/no-img-element
     return (
       <img
@@ -309,11 +311,8 @@ function AgentLogo({
         className="h-8 w-8 rounded-md border border-lumo-hair bg-lumo-bg object-cover shrink-0"
         loading="lazy"
         onError={(e) => {
-          // If the URL 404s or CORS errors, drop the img so the
-          // initial-tile fallback renders. We do this by clearing
-          // src and applying a class on the parent — simpler:
-          // just hide the broken image. The initial sits underneath.
-          (e.currentTarget as HTMLImageElement).style.display = "none";
+          e.currentTarget.style.display = "none";
+          setFailed(true);
         }}
       />
     );

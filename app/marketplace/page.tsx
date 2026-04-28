@@ -7,7 +7,8 @@
  * button kicks off an OAuth round-trip by POSTing to
  * /api/connections/start and navigating to the returned authorize_url.
  *
- * Middleware guarantees the user is authenticated.
+ * The catalog is public. Connect/install actions stay auth-gated by
+ * their API routes.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -119,11 +120,37 @@ export default function MarketplacePage() {
     return ["all", ...Array.from(set).sort()];
   }, [agents]);
 
+  const sortedAgents = useMemo(() => {
+    if (!agents) return [];
+    return [...agents].sort((a, b) => {
+      const rank = (agent: MarketplaceAgent) => {
+        if (
+          agent.connection?.status === "active" ||
+          agent.install?.status === "installed"
+        ) {
+          return 0;
+        }
+        if (agent.source !== "coming_soon") return 1;
+        return 2;
+      };
+      return rank(a) - rank(b) || a.display_name.localeCompare(b.display_name);
+    });
+  }, [agents]);
+
   const filtered = useMemo(() => {
     if (!agents) return [];
-    if (filter === "all") return agents;
-    return agents.filter((a) => a.listing?.category === filter);
-  }, [agents, filter]);
+    if (filter === "all") return sortedAgents;
+    return sortedAgents.filter((a) => a.listing?.category === filter);
+  }, [agents, filter, sortedAgents]);
+
+  const availableAgents = useMemo(
+    () => filtered.filter((a) => a.source !== "coming_soon"),
+    [filtered],
+  );
+  const upcomingAgents = useMemo(
+    () => filtered.filter((a) => a.source === "coming_soon"),
+    [filtered],
+  );
 
   const startConnect = useCallback(
     async (agent: MarketplaceAgent) => {
@@ -224,11 +251,11 @@ export default function MarketplacePage() {
       <div className="mx-auto w-full max-w-5xl px-5 py-8">
         <div className="mb-6 space-y-2">
           <h1 className="text-[28px] font-semibold tracking-[-0.022em] text-lumo-fg">
-            The Lumo Appstore
+            Apps for Lumo
           </h1>
           <p className="text-[13.5px] text-lumo-fg-mid max-w-2xl">
-            Connect the apps you already use. Lumo orchestrates them from a
-            single chat — flights, food, hotels, whatever lives here next.
+            Connect the services Lumo can use from chat. Available apps are
+            shown first; review-only integrations stay tucked below.
           </p>
         </div>
 
@@ -259,54 +286,60 @@ export default function MarketplacePage() {
         ) : null}
 
         {!agents ? (
-          <div className="text-[13px] text-lumo-fg-mid py-10">Loading…</div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-44 animate-pulse rounded-xl border border-lumo-hair bg-lumo-surface"
+              />
+            ))}
+          </div>
         ) : filtered.length === 0 ? (
           <div className="text-[13px] text-lumo-fg-mid py-10">
             No apps in this category yet.
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((a) => (
-              <AgentCard
-                key={a.agent_id}
-                agent_id={a.agent_id}
-                display_name={a.display_name}
-                one_liner={a.one_liner}
-                category={a.listing?.category ?? null}
-                logo_url={a.listing?.logo_url ?? null}
-                pricing_note={a.listing?.pricing_note ?? null}
-                connected={
-                  a.connection?.status === "active" ||
-                  a.install?.status === "installed"
-                }
-                status_label={
-                  a.connection?.status === "active" ? "Connected" : "Installed"
-                }
-                connecting={connecting === a.agent_id}
-                action_label={
-                  a.connect_model === "none"
-                    ? a.install?.status === "installed"
-                      ? "Remove"
-                      : "Install"
-                    : undefined
-                }
-                source={a.source}
-                coming_soon_label={a.coming_soon?.eta_label}
-                coming_soon_rationale={a.coming_soon?.rationale}
-                risk_badge={a.risk_badge}
-                onConnect={
-                  a.source === "coming_soon"
-                    ? undefined
-                    : a.connect_model === "none" && a.source !== "mcp"
-                    ? () => void toggleInstall(a)
-                    : a.connect_model === "oauth2" ||
-                        a.connect_model === "mcp_bearer"
-                      ? () => void startConnect(a)
-                      : undefined
-                }
-                linkToDetail={a.source !== "mcp"}
-              />
-            ))}
+          <div className="space-y-8">
+            {availableAgents.length > 0 ? (
+              <section>
+                <SectionHeading
+                  title="Available now"
+                  count={availableAgents.length}
+                />
+                <AgentGrid
+                  agents={availableAgents}
+                  connecting={connecting}
+                  onStartConnect={startConnect}
+                  onToggleInstall={toggleInstall}
+                />
+              </section>
+            ) : filter === "all" ? (
+              <div className="rounded-xl border border-lumo-hair bg-lumo-surface px-4 py-5">
+                <div className="text-[13.5px] font-medium text-lumo-fg">
+                  No connectable apps are online in this dev session.
+                </div>
+                <div className="mt-1 max-w-2xl text-[12.5px] leading-relaxed text-lumo-fg-mid">
+                  Start the local agent services or configure the production
+                  registry env vars and the live Lumo apps will appear here.
+                  Review-only integrations are still shown below.
+                </div>
+              </div>
+            ) : null}
+
+            {upcomingAgents.length > 0 ? (
+              <section>
+                <SectionHeading
+                  title="Coming soon"
+                  count={upcomingAgents.length}
+                />
+                <AgentGrid
+                  agents={upcomingAgents}
+                  connecting={connecting}
+                  onStartConnect={startConnect}
+                  onToggleInstall={toggleInstall}
+                />
+              </section>
+            ) : null}
           </div>
         )}
 
@@ -333,5 +366,76 @@ export default function MarketplacePage() {
         }}
       />
     </main>
+  );
+}
+
+function SectionHeading({ title, count }: { title: string; count: number }) {
+  return (
+    <div className="mb-3 flex items-center gap-2">
+      <h2 className="text-[12px] font-semibold uppercase tracking-[0.14em] text-lumo-fg-low">
+        {title}
+      </h2>
+      <span className="rounded-full border border-lumo-hair px-2 py-0.5 text-[11px] text-lumo-fg-low">
+        {count}
+      </span>
+    </div>
+  );
+}
+
+function AgentGrid({
+  agents,
+  connecting,
+  onStartConnect,
+  onToggleInstall,
+}: {
+  agents: MarketplaceAgent[];
+  connecting: string | null;
+  onStartConnect: (agent: MarketplaceAgent) => Promise<void>;
+  onToggleInstall: (agent: MarketplaceAgent) => Promise<void>;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {agents.map((a) => (
+        <AgentCard
+          key={a.agent_id}
+          agent_id={a.agent_id}
+          display_name={a.display_name}
+          one_liner={a.one_liner}
+          category={a.listing?.category ?? null}
+          logo_url={a.listing?.logo_url ?? null}
+          pricing_note={a.listing?.pricing_note ?? null}
+          connected={
+            a.connection?.status === "active" ||
+            a.install?.status === "installed"
+          }
+          status_label={
+            a.connection?.status === "active" ? "Connected" : "Installed"
+          }
+          connecting={connecting === a.agent_id}
+          action_label={
+            a.connect_model === "none"
+              ? a.install?.status === "installed"
+                ? "Remove"
+                : "Install"
+              : undefined
+          }
+          source={a.source}
+          coming_soon_label={a.coming_soon?.eta_label}
+          coming_soon_rationale={a.coming_soon?.rationale}
+          risk_badge={a.risk_badge}
+          onConnect={
+            a.source === "coming_soon"
+              ? undefined
+              : a.connect_model === "none" && a.source !== "mcp"
+                ? () => void onToggleInstall(a)
+                : a.connect_model === "oauth2" ||
+                    a.connect_model === "mcp_bearer"
+                  ? () => void onStartConnect(a)
+                  : undefined
+          }
+          linkToDetail={a.source !== "mcp"}
+        />
+      ))}
+    </div>
   );
 }
