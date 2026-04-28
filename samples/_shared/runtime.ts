@@ -17,7 +17,7 @@ export interface ProvenanceSource {
   hash?: string;
 }
 
-export interface SampleAgentResult<TOutputs = Record<string, unknown>> {
+export interface SampleAgentResult<TOutputs = unknown> {
   status: SampleAgentStatus;
   outputs?: TOutputs;
   confirmation_card?: SampleConfirmationCard;
@@ -75,7 +75,7 @@ export interface SampleAgentContext {
 export type SampleCapabilityHandler = (
   inputs: Record<string, unknown>,
   ctx: SampleAgentContext,
-) => Promise<SampleAgentResult> | SampleAgentResult;
+) => Promise<SampleAgentResult<unknown>> | SampleAgentResult<unknown>;
 
 export interface SampleAgent {
   manifest: AgentManifest & {
@@ -159,7 +159,7 @@ export class MemoryStateStore implements SampleStateStore {
 }
 
 export function createSampleContext(
-  overrides: Partial<SampleAgentContext> & {
+  overrides: Omit<Partial<SampleAgentContext>, "brain" | "connectors"> & {
     brain?: Partial<SampleBrainTools>;
     connectors?: Record<string, Record<string, (...args: unknown[]) => Promise<unknown>>>;
   } = {},

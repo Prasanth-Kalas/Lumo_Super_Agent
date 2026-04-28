@@ -1,0 +1,51 @@
+{
+  "agent_id": "weather-now",
+  "version": "1.0.0",
+  "domain": "weather",
+  "display_name": "Weather Now",
+  "one_liner": "Answer the user's current-weather question from recall plus an open weather connector.",
+  "intents": ["weather.now", "weather.current"],
+  "example_utterances": [
+    "What's the weather where I am?",
+    "Do I need a jacket right now?",
+    "What's it like outside in the city I asked about?"
+  ],
+  "openapi_url": "https://samples.lumo.rentals/weather-now/openapi.json",
+  "ui": { "components": [] },
+  "health_url": "https://samples.lumo.rentals/weather-now/health",
+  "sla": {
+    "p50_latency_ms": 400,
+    "p95_latency_ms": 1200,
+    "availability_target": 0.995
+  },
+  "pii_scope": [],
+  "requires_payment": false,
+  "supported_regions": ["US"],
+  "capabilities": {
+    "sdk_version": "0.4.1",
+    "supports_compound_bookings": false,
+    "implements_cancellation": false
+  },
+  "connect": { "model": "none" },
+  "listing": {
+    "category": "Weather",
+    "pricing_note": "Free sample",
+    "about_paragraphs": [
+      "Minimal reference agent for read-only tool calls.",
+      "Uses Lumo recall to infer location, then calls a weather connector."
+    ]
+  },
+  "owner_team": "Lumo Samples",
+  "x_lumo_sample": {
+    "trust_tier_target": "experimental",
+    "runtime": "e2b",
+    "requires": {
+      "brain_tools": ["lumo_recall_unified"],
+      "connectors": ["open-weather"],
+      "scopes": ["read.recall", "read.location.current"]
+    },
+    "cost_model": {
+      "max_cost_usd_per_invocation": 0.005
+    }
+  }
+}
