@@ -1,0 +1,55 @@
+{
+  "agent_id": "lumo-rentals-trip-planner",
+  "version": "1.0.0",
+  "domain": "travel",
+  "display_name": "Lumo Rentals Trip Planner",
+  "one_liner": "Find, confirm, and book a rental car for a Lumo-planned trip.",
+  "intents": ["rental.find_for_trip", "rental.book", "trip.transportation"],
+  "example_utterances": [
+    "Find me a rental car for my Vegas trip",
+    "Book the compact EV for my trip",
+    "Confirm the rental and add it to my calendar"
+  ],
+  "openapi_url": "https://samples.lumo.rentals/lumo-rentals-trip-planner/openapi.json",
+  "ui": { "components": ["TripConfirmationCard"] },
+  "health_url": "https://samples.lumo.rentals/lumo-rentals-trip-planner/health",
+  "sla": {
+    "p50_latency_ms": 1200,
+    "p95_latency_ms": 4500,
+    "availability_target": 0.997
+  },
+  "pii_scope": ["name", "email", "phone", "payment_method_id", "traveler_profile"],
+  "requires_payment": true,
+  "supported_regions": ["US"],
+  "capabilities": {
+    "sdk_version": "0.4.1",
+    "supports_compound_bookings": true,
+    "implements_cancellation": true
+  },
+  "connect": { "model": "lumo_id", "audience": "lumo-rentals-trip-planner" },
+  "listing": {
+    "category": "Travel",
+    "pricing_note": "Sample only",
+    "about_paragraphs": [
+      "Official-tier reference agent for a confirmation-gated booking flow.",
+      "Demonstrates Brain optimization, payment confirmation, reservation, and calendar write provenance."
+    ]
+  },
+  "owner_team": "Lumo Samples",
+  "x_lumo_sample": {
+    "trust_tier_target": "official",
+    "runtime": "node18",
+    "requires": {
+      "brain_tools": ["lumo_recall_unified", "lumo_personalize_rank", "lumo_optimize_trip"],
+      "connectors": ["lumo-rentals", "stripe", "google-calendar"],
+      "scopes": [
+        "read.calendar.events",
+        "write.calendar.events",
+        "write.financial.transfer.up_to_per_invocation:500_usd:per_day:1500_usd"
+      ]
+    },
+    "cost_model": {
+      "max_cost_usd_per_invocation": 0.25
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "charge_id": "ch_sample_lumo_rental_001",
+  "amount_cents": 24800,
+  "currency": "usd",
+  "status": "succeeded"
+}
