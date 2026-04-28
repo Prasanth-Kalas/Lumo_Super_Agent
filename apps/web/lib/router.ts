@@ -472,7 +472,10 @@ function permissionDenied(
       tool_name: input.toolName,
       operation_id: input.routing.operation_id,
       required_scope: scope,
-      consent_url: `/agents/${encodeURIComponent(input.manifest.agent_id)}/install`,
+      consent_url:
+        result.reason === "reconsent_required"
+          ? `/agents/${encodeURIComponent(input.manifest.agent_id)}/reconsent`
+          : `/agents/${encodeURIComponent(input.manifest.agent_id)}/install`,
     },
   };
 }
@@ -538,6 +541,7 @@ function permissionCodeForReason(reason: PermissionDeniedReason): string {
 function mapPermissionToAgentError(reason: PermissionDeniedReason): LumoAgentError["code"] {
   if (
     reason === "agent_not_installed" ||
+    reason === "reconsent_required" ||
     reason === "scope_not_granted" ||
     reason === "scope_expired" ||
     reason === "specific_to_mismatch"

@@ -20,6 +20,7 @@ export type PermissionDeniedReason =
   | "persistence_unavailable"
   | "agent_killed"
   | "agent_not_installed"
+  | "reconsent_required"
   | "scope_not_granted"
   | "scope_expired"
   | "specific_to_mismatch"
@@ -161,6 +162,18 @@ export async function checkPermission(
   }
   if (!snapshot.install || snapshot.install.state !== "installed") {
     const result = deny("agent_not_installed", "Agent is not installed for this user.");
+    await maybeAuditDenial(input, result);
+    return result;
+  }
+  if (input.agentVersion && snapshot.install.agent_version !== input.agentVersion) {
+    const result = deny(
+      "reconsent_required",
+      "This agent changed its permission contract. Re-consent before using it again.",
+      {
+        installed_version: snapshot.install.agent_version,
+        current_version: input.agentVersion,
+      },
+    );
     await maybeAuditDenial(input, result);
     return result;
   }
