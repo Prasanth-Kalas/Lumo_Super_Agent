@@ -33,7 +33,10 @@ const USER_A = "00000000-0000-0000-0000-000000000aaa";
 const USER_B = "00000000-0000-0000-0000-000000000bbb";
 const synthetic = JSON.parse(fs.readFileSync("tests/fixtures/vegas-kg-synthetic.json", "utf8"));
 const knowledgeGraphSource = fs.readFileSync("lib/knowledge-graph.ts", "utf8");
-const migration035 = fs.readFileSync("db/migrations/035_kg_embedding_seed_rpc.sql", "utf8");
+const migration035 = fs.readFileSync(
+  new URL("../../../db/migrations/035_kg_embedding_seed_rpc.sql", import.meta.url),
+  "utf8",
+);
 
 function node(id, user_id = USER_A, extra = {}) {
   return {
