@@ -389,6 +389,16 @@ operator explicitly starts a manual retry with a new attempt group.
 Duplicate requests with the same key return the existing transaction
 or leg result. They do not call the provider again.
 
+There are two idempotency keys in play. The platform-constructed key
+above is the **ledger key** and is the only key used for Lumo-side
+transaction and leg uniqueness. The manifest's
+`idempotency_key_field` names the provider-facing input field the
+platform copies into the provider request when the provider supports
+idempotency. Provider call uniqueness uses that provider-facing key;
+ledger uniqueness uses the platform key. The two should usually share
+the same stable source values, but they do not have to be byte-for-byte
+identical.
+
 ### 5.4 State machine
 
 The transaction-level state is derived from leg state:
@@ -591,7 +601,7 @@ floors:
 | Test-mode or mock merchant with no real money | `community` |
 | Any transaction touching > $0 | `verified` |
 | Travel, healthcare, financial, insurance, or regulated category | `official` |
-| Any agent using Lumo-owned provider master credentials directly | `official` |
+| Any agent requesting an exemption from the provider-proxy boundary | `official` plus escalated security review |
 
 Community merchant agents may exist only against mock providers or
 test-mode payment rails. They cannot touch production provider
