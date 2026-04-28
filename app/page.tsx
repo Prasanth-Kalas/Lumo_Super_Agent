@@ -689,13 +689,13 @@ export default function Home() {
   }, [messages, legStatusesByMsg]);
 
   return (
-    <main className="flex h-dvh flex-col bg-lumo-bg text-lumo-fg-high">
+    <main className="lumo-app-shell flex h-dvh flex-col bg-lumo-bg text-lumo-fg-high">
       {/* ─── Header ─────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/80 backdrop-blur-md">
+      <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/85 backdrop-blur-md">
         {/* Full-bleed: logo hugs the absolute left edge, nav hugs the
             absolute right edge. The chat thread keeps its own
             mx-auto max-w-4xl below; the header doesn't need to. */}
-        <div className="flex w-full items-center justify-between px-3 sm:px-4 py-3">
+        <div className="flex w-full items-center justify-between px-4 sm:px-5 py-3">
           <div className="flex items-center gap-2.5">
             {/* Mobile-only hamburger. Hidden on lg+ where LeftRail is visible. */}
             <button
@@ -839,7 +839,7 @@ export default function Home() {
         ref={scrollRef}
         className="thread flex-1 overflow-y-auto"
       >
-        <div className="mx-auto w-full max-w-4xl px-6 pt-8 pb-12 space-y-6">
+        <div className="mx-auto w-full max-w-[780px] px-4 sm:px-6 lg:px-8 pt-7 sm:pt-10 pb-12 space-y-7">
           {replayPhase !== "idle" ? (
             <div
               className="inline-flex items-center gap-2 rounded-full border border-lumo-hair bg-lumo-elevated/70 px-3 py-1.5 text-[12px] text-lumo-fg-mid"
@@ -872,18 +872,18 @@ export default function Home() {
                   isUser ? (
                     // User — right-aligned, soft elevated surface, tight.
                     <div className="flex justify-end">
-                      <div className="max-w-[82%] rounded-2xl bg-lumo-elevated text-lumo-fg px-4 py-2.5 text-[16px] leading-[1.55] whitespace-pre-wrap border border-lumo-hair">
+                      <div className="lumo-user-message max-w-[88%] sm:max-w-[76%] rounded-[20px] px-4 py-3 text-[15.5px] leading-[1.55] text-lumo-fg whitespace-pre-wrap">
                         {m.content}
                       </div>
                     </div>
                   ) : (
                     // Assistant — typographic. Small "Lumo" label, then prose.
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-low num">
+                    <div className="space-y-2">
+                      <div className="lumo-assistant-label flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-low num">
                         <BrandMark size={12} className="text-lumo-fg-low" monochrome />
                         <span>Lumo</span>
                       </div>
-                      <div className="pl-[18px]">
+                      <div className="pl-[18px] max-w-[700px]">
                         <ChatMarkdown>{m.content}</ChatMarkdown>
                       </div>
                     </div>
@@ -995,20 +995,13 @@ export default function Home() {
               assistant "hello" message (rendered by the normal
               message loop above) IS the greeting; this block is
               just the ambient backdrop for the thread before the
-              user speaks. */}
+              user speaks. The spacer preserves a little breathing room
+              without adding decorative effects. */}
           {isEmpty && (
             <div
-              className="pt-10 pb-2 animate-fade-in relative"
+              className="pt-10 pb-2 animate-fade-in"
               aria-hidden
-            >
-              <div
-                className="pointer-events-none absolute -top-20 -left-20 h-80 w-[120%] rounded-full opacity-[0.10] blur-3xl -z-10"
-                style={{
-                  background:
-                    "radial-gradient(ellipse at 20% 30%, var(--lumo-accent) 0%, transparent 65%)",
-                }}
-              />
-            </div>
+            />
           )}
 
           {/* ─── "Thinking" indicator ─────────────────────────────── */}
@@ -1032,8 +1025,8 @@ export default function Home() {
       </div>
 
       {/* ─── Composer ───────────────────────────────────────────────── */}
-      <div className="border-t border-lumo-hair bg-lumo-bg">
-        <div className="mx-auto w-full max-w-4xl px-6 pb-5 pt-3">
+      <div className="border-t border-lumo-hair bg-lumo-bg/90 backdrop-blur-md">
+        <div className="mx-auto w-full max-w-[780px] px-4 sm:px-6 lg:px-8 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
           {voiceEnabled ? (
             <div className="mb-2">
               <VoiceMode
@@ -1056,7 +1049,7 @@ export default function Home() {
             </div>
           ) : null}
 
-          <div className="group rounded-2xl border border-lumo-hair bg-gradient-to-br from-lumo-surface to-lumo-bg focus-within:border-lumo-edge focus-within:shadow-[0_0_0_3px_rgba(94,234,172,0.08)] transition-all">
+          <div className="lumo-composer group rounded-[24px] border border-lumo-hair transition-all">
             <textarea
               ref={textareaRef}
               value={input}
@@ -1069,7 +1062,7 @@ export default function Home() {
               }}
               rows={1}
               placeholder="Ask Lumo to book a flight, order dinner, plan a trip…"
-              className="block w-full resize-none bg-transparent px-5 pt-4 pb-1.5 text-[16.5px] leading-[1.5] text-lumo-fg placeholder:text-lumo-fg-low focus:outline-none"
+              className="block w-full resize-none bg-transparent px-5 pt-4 pb-2 text-[16px] leading-[1.5] text-lumo-fg placeholder:text-lumo-fg-low focus:outline-none"
               style={{ outline: "none" }}
               disabled={busy || isReplayLoading || !sessionId}
             />
@@ -1080,7 +1073,7 @@ export default function Home() {
                 added visual noise once the composer got bigger.
                 If you need the keyboard shortcut, it's ↵ to send,
                 ⇧↵ for newline. */}
-            <div className="flex items-center justify-between px-4 pb-3 pt-1">
+            <div className="flex items-center justify-between px-4 pb-3 pt-0.5">
               <button
                 type="button"
                 aria-pressed={voiceEnabled}
@@ -1105,9 +1098,8 @@ export default function Home() {
                 onClick={send}
                 disabled={busy || isReplayLoading || !sessionId || !input.trim()}
                 aria-label="Send"
-                className="h-9 px-4 rounded-full inline-flex items-center gap-2 text-[14px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low disabled:cursor-not-allowed transition-colors"
+                className="h-10 w-10 rounded-full inline-flex items-center justify-center text-[14px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low disabled:cursor-not-allowed transition-colors"
               >
-                <span>Send</span>
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
                   <path d="M3 7h8m0 0-3-3m3 3-3 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
