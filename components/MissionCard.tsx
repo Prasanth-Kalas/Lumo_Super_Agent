@@ -136,6 +136,7 @@ export function MissionCard({
                         : step.status === "succeeded"
                           ? "text-emerald-400"
                           : step.status === "failed" ||
+                              step.status === "rollback_failed" ||
                               step.status === "rolled_back"
                             ? "text-red-400"
                             : "text-lumo-fg-low")
@@ -176,7 +177,7 @@ export function MissionCard({
         </div>
       ) : null}
 
-      {/* Footer: Cancel button (disabled placeholder until D5 ships the endpoint) */}
+      {/* Footer: user-triggered rollback/cancel path */}
       <footer className="flex items-center justify-end gap-2 mt-3">
         <button
           type="button"

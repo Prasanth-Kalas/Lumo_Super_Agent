@@ -283,6 +283,82 @@ export function isMissionCancellable(state: MissionStateOrRollingBack | string):
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Mission Control rollups — workspace panel filters + status counts
+// ──────────────────────────────────────────────────────────────────────────
+
+export type MissionControlFilter = "all" | "needs_attention" | "active" | "done";
+
+const ACTIVE_MISSION_STATES: ReadonlySet<string> = new Set([
+  "draft",
+  "awaiting_permissions",
+  "awaiting_user_input",
+  "awaiting_confirmation",
+  "ready",
+  "executing",
+  "rolling_back",
+]);
+
+const DONE_MISSION_STATES: ReadonlySet<string> = new Set([
+  "completed",
+  "failed",
+  "rolled_back",
+]);
+
+export function missionNeedsAttention(mission: MissionCardData): boolean {
+  if (
+    mission.state === "awaiting_permissions" ||
+    mission.state === "awaiting_user_input" ||
+    mission.state === "awaiting_confirmation" ||
+    mission.state === "failed"
+  ) {
+    return true;
+  }
+  return (mission.steps ?? []).some((step) => {
+    return Boolean(step.error_text) || step.status === "failed" || step.status === "rollback_failed";
+  });
+}
+
+export function missionMatchesControlFilter(
+  mission: MissionCardData,
+  filter: MissionControlFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "needs_attention") return missionNeedsAttention(mission);
+  if (filter === "active") return ACTIVE_MISSION_STATES.has(mission.state);
+  if (filter === "done") return DONE_MISSION_STATES.has(mission.state);
+  return true;
+}
+
+export function missionControlCounts(missions: MissionCardData[]) {
+  let needs_attention = 0;
+  let active = 0;
+  let done = 0;
+  for (const mission of missions) {
+    if (missionNeedsAttention(mission)) needs_attention++;
+    if (ACTIVE_MISSION_STATES.has(mission.state)) active++;
+    if (DONE_MISSION_STATES.has(mission.state)) done++;
+  }
+  return {
+    total: missions.length,
+    needs_attention,
+    active,
+    done,
+  };
+}
+
+export function missionControlSummary(missions: MissionCardData[]): string {
+  const counts = missionControlCounts(missions);
+  if (counts.total === 0) return "No active missions";
+  if (counts.needs_attention > 0) {
+    return `${counts.needs_attention} mission${counts.needs_attention === 1 ? "" : "s"} need your attention`;
+  }
+  if (counts.active > 0) {
+    return `${counts.active} mission${counts.active === 1 ? "" : "s"} in flight`;
+  }
+  return `${counts.done} mission${counts.done === 1 ? "" : "s"} recently finished`;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Agent-tool human label
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -355,6 +431,8 @@ export function stepStatusIcon(status: MissionStepStatus | string): {
       return { glyph: "⏸", label: "Awaiting confirmation" };
     case "failed":
       return { glyph: "✗", label: "Failed" };
+    case "rollback_failed":
+      return { glyph: "!", label: "Rollback failed" };
     case "rolled_back":
       return { glyph: "✗", label: "Rolled back" };
     case "skipped":

@@ -11,6 +11,10 @@ import assert from "node:assert/strict";
 import {
   formatMissionRelative,
   isMissionCancellable,
+  missionControlCounts,
+  missionControlSummary,
+  missionMatchesControlFilter,
+  missionNeedsAttention,
   missionStateAccent,
   readableAgentTool,
   stepStatusIcon,
@@ -196,6 +200,28 @@ t("isMissionCancellable allows in-flight states and rejects terminal ones", () =
   }
 });
 
+t("mission control rollups highlight attention, active, and done missions", () => {
+  const missions = [
+    mission("a", "awaiting_user_input", [step("a1", 0, "pending")]),
+    mission("b", "executing", [step("b1", 0, "running")]),
+    mission("c", "completed", [step("c1", 0, "succeeded")]),
+    mission("d", "executing", [step("d1", 0, "failed", "tool timed out")]),
+  ];
+  assert.deepEqual(missionControlCounts(missions), {
+    total: 4,
+    needs_attention: 2,
+    active: 3,
+    done: 1,
+  });
+  assert.equal(missionNeedsAttention(missions[0]), true);
+  assert.equal(missionNeedsAttention(missions[1]), false);
+  assert.equal(missionNeedsAttention(missions[3]), true);
+  assert.equal(missionMatchesControlFilter(missions[0], "needs_attention"), true);
+  assert.equal(missionMatchesControlFilter(missions[1], "active"), true);
+  assert.equal(missionMatchesControlFilter(missions[2], "done"), true);
+  assert.equal(missionControlSummary(missions), "2 missions need your attention");
+});
+
 t("readableAgentTool produces friendly labels for known agents", () => {
   assert.equal(
     readableAgentTool("hotel", "mission.book_hotel"),
@@ -228,6 +254,7 @@ t("stepStatusIcon covers every MissionStepStatus with non-empty glyphs", () => {
     "failed",
     "rolled_back",
     "skipped",
+    "rollback_failed",
   ];
   for (const s of statuses) {
     const icon = stepStatusIcon(s);
@@ -240,6 +267,7 @@ t("stepStatusIcon covers every MissionStepStatus with non-empty glyphs", () => {
   assert.equal(stepStatusIcon("pending").glyph, "○");
   assert.equal(stepStatusIcon("awaiting_confirmation").glyph, "⏸");
   assert.equal(stepStatusIcon("failed").glyph, "✗");
+  assert.equal(stepStatusIcon("rollback_failed").glyph, "!");
   assert.equal(stepStatusIcon("rolled_back").glyph, "✗");
   assert.equal(stepStatusIcon("skipped").glyph, "↷");
 });
@@ -251,7 +279,7 @@ process.exit(fail > 0 ? 1 : 0);
 // Test fixtures
 // ──────────────────────────────────────────────────────────────────────────
 
-function step(id, order, status) {
+function step(id, order, status, errorText = null) {
   return {
     id,
     step_order: order,
@@ -262,6 +290,17 @@ function step(id, order, status) {
     confirmation_card_id: null,
     started_at: null,
     finished_at: null,
-    error_text: null,
+    error_text: errorText,
+  };
+}
+
+function mission(id, state, steps) {
+  return {
+    id,
+    state,
+    intent_text: "plan a trip",
+    created_at: "2026-04-26T11:00:00Z",
+    updated_at: "2026-04-26T12:00:00Z",
+    steps,
   };
 }

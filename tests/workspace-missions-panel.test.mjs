@@ -50,6 +50,13 @@ t("panel fetches the recent mission endpoint and renders MissionCard", () => {
   assert.match(panelSource, /No active missions/);
 });
 
+t("panel renders mission-control counts and filters", () => {
+  assert.match(panelSource, /missionControlCounts/);
+  assert.match(panelSource, /missionMatchesControlFilter/);
+  assert.match(panelSource, /Mission Control/);
+  assert.match(panelSource, /Needs you/);
+});
+
 t("panel posts cancel actions to the D5 rollback route", () => {
   assert.match(panelSource, /\/api\/missions\/\$\{encodeURIComponent\(id\)\}\/cancel/);
   assert.match(panelSource, /method: "POST"/);
