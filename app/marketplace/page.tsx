@@ -18,6 +18,14 @@ import { AgentCard } from "@/components/AgentCard";
 import { LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import McpConnectModal from "@/components/McpConnectModal";
+import {
+  marketplaceAgentMatchesQuery,
+  marketplaceAgentMatchesSegment,
+  marketplaceCounts,
+  marketplaceSegmentLabel,
+  sortMarketplaceAgents,
+  type MarketplaceSegment,
+} from "@/lib/marketplace-ui";
 
 interface MarketplaceAgent {
   agent_id: string;
@@ -72,6 +80,8 @@ interface MarketplaceAgent {
 export default function MarketplacePage() {
   const [agents, setAgents] = useState<MarketplaceAgent[] | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  const [segment, setSegment] = useState<MarketplaceSegment>("all");
+  const [query, setQuery] = useState("");
   const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mcpModalFor, setMcpModalFor] = useState<MarketplaceAgent | null>(null);
@@ -122,26 +132,21 @@ export default function MarketplacePage() {
 
   const sortedAgents = useMemo(() => {
     if (!agents) return [];
-    return [...agents].sort((a, b) => {
-      const rank = (agent: MarketplaceAgent) => {
-        if (
-          agent.connection?.status === "active" ||
-          agent.install?.status === "installed"
-        ) {
-          return 0;
-        }
-        if (agent.source !== "coming_soon") return 1;
-        return 2;
-      };
-      return rank(a) - rank(b) || a.display_name.localeCompare(b.display_name);
-    });
+    return sortMarketplaceAgents(agents);
   }, [agents]);
 
+  const counts = useMemo(() => marketplaceCounts(agents ?? []), [agents]);
+
   const filtered = useMemo(() => {
-    if (!agents) return [];
-    if (filter === "all") return sortedAgents;
-    return sortedAgents.filter((a) => a.listing?.category === filter);
-  }, [agents, filter, sortedAgents]);
+    return sortedAgents.filter((agent) => {
+      const categoryMatches = filter === "all" || agent.listing?.category === filter;
+      return (
+        categoryMatches &&
+        marketplaceAgentMatchesSegment(agent, segment) &&
+        marketplaceAgentMatchesQuery(agent, query)
+      );
+    });
+  }, [filter, query, segment, sortedAgents]);
 
   const availableAgents = useMemo(
     () => filtered.filter((a) => a.source !== "coming_soon"),
@@ -259,6 +264,47 @@ export default function MarketplacePage() {
           </p>
         </div>
 
+        <section className="mb-5 grid gap-3 sm:grid-cols-4">
+          <MarketplaceStat label="Total apps" value={counts.total} />
+          <MarketplaceStat label="Connected" value={counts.connected} />
+          <MarketplaceStat label="Live apps" value={counts.available} />
+          <MarketplaceStat label="Review only" value={counts.review} />
+        </section>
+
+        <section className="mb-5 rounded-xl border border-lumo-hair bg-lumo-surface p-3">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <label className="block">
+              <span className="sr-only">Search marketplace apps</span>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search apps, skills, or services..."
+                className="h-9 w-full rounded-lg border border-lumo-hair bg-lumo-bg px-3 text-[13px] text-lumo-fg outline-none transition-colors placeholder:text-lumo-fg-low focus:border-lumo-accent"
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-1">
+              {(["all", "connected", "available", "mcp", "review"] as const).map(
+                (s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setSegment(s)}
+                    className={
+                      "h-8 rounded-md border px-2.5 text-[12px] transition-colors " +
+                      (segment === s
+                        ? "border-lumo-fg bg-lumo-fg text-lumo-bg"
+                        : "border-lumo-hair text-lumo-fg-mid hover:border-lumo-edge hover:text-lumo-fg")
+                    }
+                  >
+                    {marketplaceSegmentLabel(s)}
+                    {s === "mcp" && counts.mcp > 0 ? ` ${counts.mcp}` : ""}
+                  </button>
+                ),
+              )}
+            </div>
+          </div>
+        </section>
+
         {categories.length > 2 ? (
           <div className="mb-5 flex flex-wrap items-center gap-1.5">
             {categories.map((c) => (
@@ -295,8 +341,19 @@ export default function MarketplacePage() {
             ))}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-[13px] text-lumo-fg-mid py-10">
-            No apps in this category yet.
+          <div className="rounded-xl border border-lumo-hair bg-lumo-surface px-4 py-8 text-[13px] text-lumo-fg-mid">
+            No apps match this view.
+            <button
+              type="button"
+              onClick={() => {
+                setQuery("");
+                setFilter("all");
+                setSegment("all");
+              }}
+              className="ml-2 text-lumo-accent hover:underline"
+            >
+              Reset filters
+            </button>
           </div>
         ) : (
           <div className="space-y-8">
@@ -366,6 +423,19 @@ export default function MarketplacePage() {
         }}
       />
     </main>
+  );
+}
+
+function MarketplaceStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-lumo-hair bg-lumo-surface px-3 py-2.5">
+      <div className="text-[20px] font-semibold tracking-[-0.02em] text-lumo-fg">
+        {value}
+      </div>
+      <div className="mt-0.5 text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-low">
+        {label}
+      </div>
+    </div>
   );
 }
 
