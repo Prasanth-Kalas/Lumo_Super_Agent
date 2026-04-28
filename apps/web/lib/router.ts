@@ -5,20 +5,22 @@
  * 1. Look up the routing entry for a tool name.
  * 2. Check the circuit breaker for that agent.
  * 3. Run the confirmation gate for money-moving tools.
- * 4. Resolve the user's OAuth connection to this agent (if the manifest
+ * 4. Check PERM-1 install, grant, budget, and kill-switch state.
+ * 5. Resolve the user's OAuth connection to this agent (if the manifest
  *    declares connect.model === "oauth2") and attach Authorization:
  *    Bearer <access_token>. Auto-refresh on near-expiry. If the user
  *    has no active connection, surface a `connection_required` error
  *    so the orchestrator can tell the user to hit /marketplace.
- * 5. Inject only the PII fields the agent was granted.
- * 6. Call the agent over HTTP with an idempotency key.
- * 7. Record success/failure into the breaker.
+ * 6. Inject only the PII fields the agent was granted.
+ * 7. Call the agent over HTTP with an idempotency key.
+ * 8. Record success/failure into the breaker.
  */
 
 import {
   evaluateConfirmation,
   LumoAgentError,
   type AgentError,
+  type AgentManifest,
   type ConfirmationSummary,
   type ToolRoutingEntry,
 } from "@lumo/agent-sdk";
@@ -35,6 +37,11 @@ import {
   recordRuntimeUsage,
 } from "./runtime-policy.js";
 import { signLumoServiceJwt } from "./service-jwt.js";
+import {
+  checkPermission,
+  type PermissionCheckResult,
+  type PermissionDeniedReason,
+} from "./permissions.js";
 
 export interface DispatchContext {
   user_id: string;
@@ -196,6 +203,23 @@ export async function dispatchToolCall(
     );
   }
 
+  const permissionGate = await evaluatePermissionGate({
+    manifest: agent.manifest,
+    routing,
+    toolName,
+    args,
+    ctx,
+    systemAgent: agent.system === true,
+  });
+  if (!permissionGate.ok) {
+    return failure(
+      mapPermissionToAgentError(permissionGate.reason),
+      permissionGate.message,
+      started,
+      permissionGate.detail,
+    );
+  }
+
   const finish = (outcome: DispatchOutcome): DispatchOutcome => {
     void recordRuntimeUsage({
       user_id: ctx.user_id,
@@ -259,7 +283,15 @@ export async function dispatchToolCall(
   const body =
     routing.http_method === "GET" || routing.http_method === "DELETE"
       ? undefined
-      : JSON.stringify({ ...args, _pii: piiPayload, _ctx: { region: ctx.region, device: ctx.device_kind } });
+      : JSON.stringify({
+          ...args,
+          _pii: piiPayload,
+          _ctx: {
+            region: ctx.region,
+            device: ctx.device_kind,
+            granted_scopes: permissionGate.grantedScopes,
+          },
+        });
 
   try {
     const res = await fetchWithTimeout(url, {
@@ -351,6 +383,202 @@ function mapPolicyToAgentError(
 ): LumoAgentError["code"] {
   if (code === "rate_limited") return "rate_limited";
   if (code === "app_not_installed") return "connection_required";
+  return "not_available";
+}
+
+interface PermissionGateInput {
+  manifest: AgentManifest;
+  routing: ToolRoutingEntry;
+  toolName: string;
+  args: Record<string, unknown>;
+  ctx: DispatchContext;
+  systemAgent: boolean;
+}
+
+type PermissionGateResult =
+  | { ok: true; grantedScopes: string[] }
+  | {
+      ok: false;
+      reason: PermissionDeniedReason;
+      message: string;
+      detail: Record<string, unknown>;
+    };
+
+async function evaluatePermissionGate(input: PermissionGateInput): Promise<PermissionGateResult> {
+  const requiredScopes = requiredPermissionScopes(input.manifest, input.routing);
+
+  if (requiredScopes.length === 0) {
+    // Scope-less public/read-only tools still pass through the kill-switch
+    // boundary, but do not require an install row until the manifest declares
+    // a PERM-1 scope.
+    const result = await checkPermission({
+      userId: input.ctx.user_id,
+      agentId: input.manifest.agent_id,
+      scope: "agent.invoke",
+      agentVersion: input.manifest.version,
+      capabilityId: input.routing.operation_id,
+      requestId: input.ctx.idempotency_key,
+      systemAgent: true,
+      auditDenials: false,
+    });
+    if (result.status === "DENIED") {
+      return permissionDenied(input, "agent.invoke", result);
+    }
+    return { ok: true, grantedScopes: [] };
+  }
+
+  const amountUsd = amountFromArgs(input.args);
+  const target = targetFromArgs(input.args);
+  const grantedScopes: string[] = [];
+  for (const scope of requiredScopes) {
+    const result = await checkPermission({
+      userId: input.ctx.user_id,
+      agentId: input.manifest.agent_id,
+      scope,
+      agentVersion: input.manifest.version,
+      capabilityId: input.routing.operation_id,
+      requestId: input.ctx.idempotency_key,
+      amountUsd,
+      target,
+      systemAgent: input.systemAgent,
+    });
+    if (result.status === "DENIED") {
+      return permissionDenied(input, scope, result);
+    }
+    grantedScopes.push(scope);
+  }
+
+  return { ok: true, grantedScopes };
+}
+
+function permissionDenied(
+  input: PermissionGateInput,
+  scope: string,
+  result: Extract<PermissionCheckResult, { status: "DENIED" }>,
+): PermissionGateResult {
+  return {
+    ok: false,
+    reason: result.reason,
+    message: result.message,
+    detail: {
+      ...(result.detail ?? {}),
+      permission_code: permissionCodeForReason(result.reason),
+      permission_reason: result.reason,
+      agent_id: input.manifest.agent_id,
+      display_name: input.manifest.display_name,
+      tool_name: input.toolName,
+      operation_id: input.routing.operation_id,
+      required_scope: scope,
+      consent_url: `/agents/${encodeURIComponent(input.manifest.agent_id)}/install`,
+    },
+  };
+}
+
+function requiredPermissionScopes(
+  manifest: AgentManifest,
+  routing: ToolRoutingEntry,
+): string[] {
+  const manifestRecord = manifest as AgentManifest & Record<string, unknown>;
+  const declared = [
+    ...stringArrayAt(manifestRecord, ["requires", "scopes"]),
+    ...stringArrayAt(manifestRecord, ["x_lumo", "requires", "scopes"]),
+    ...stringArrayAt(manifestRecord, ["x_lumo_sample", "requires", "scopes"]),
+  ];
+
+  const scopes = declared.length > 0 ? declared : oauthRequiredScopes(manifest);
+  if (scopes.length === 0 && routing.cost_tier === "money") {
+    scopes.push("write.financial.transfer");
+  }
+
+  return [...new Set(scopes)];
+}
+
+function oauthRequiredScopes(manifest: AgentManifest): string[] {
+  if (manifest.connect.model !== "oauth2") return [];
+  return manifest.connect.scopes
+    .filter((scope) => scope.required)
+    .map((scope) => scope.name)
+    .filter((scope) => scope.length > 0);
+}
+
+function stringArrayAt(record: Record<string, unknown>, path: string[]): string[] {
+  let cursor: unknown = record;
+  for (const key of path) {
+    if (!isRecord(cursor)) return [];
+    cursor = cursor[key];
+  }
+  if (!Array.isArray(cursor)) return [];
+  return cursor.filter((value): value is string => typeof value === "string" && value.length > 0);
+}
+
+function amountFromArgs(args: Record<string, unknown>): number | null {
+  const amount = findNumericValue(args, new Set([
+    "amount_usd",
+    "amountUsd",
+    "total_usd",
+    "totalUsd",
+    "price_usd",
+    "priceUsd",
+    "fare_usd",
+    "cost_usd",
+  ]));
+  return amount !== null && amount >= 0 ? amount : null;
+}
+
+function findNumericValue(
+  value: unknown,
+  keys: Set<string>,
+  depth = 0,
+): number | null {
+  if (depth > 3 || !isRecord(value)) return null;
+  for (const [key, inner] of Object.entries(value)) {
+    if (keys.has(key)) {
+      const numeric = typeof inner === "number" ? inner : typeof inner === "string" ? Number(inner) : NaN;
+      if (Number.isFinite(numeric)) return numeric;
+    }
+    const nested = findNumericValue(inner, keys, depth + 1);
+    if (nested !== null) return nested;
+  }
+  return null;
+}
+
+function targetFromArgs(args: Record<string, unknown>): string | null {
+  const targetKeys = [
+    "target_resource",
+    "targetResource",
+    "resource_id",
+    "resourceId",
+    "calendar_id",
+    "calendarId",
+    "recipient",
+    "recipient_email",
+    "email",
+  ];
+  for (const key of targetKeys) {
+    const value = args[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return null;
+}
+
+function permissionCodeForReason(reason: PermissionDeniedReason): string {
+  if (reason === "agent_killed") return "AGENT_KILLED";
+  if (reason === "per_invocation_cap_exceeded" || reason === "per_day_cap_exceeded") {
+    return "BUDGET_EXCEEDED";
+  }
+  return "SCOPE_NOT_GRANTED";
+}
+
+function mapPermissionToAgentError(reason: PermissionDeniedReason): LumoAgentError["code"] {
+  if (
+    reason === "agent_not_installed" ||
+    reason === "scope_not_granted" ||
+    reason === "scope_expired" ||
+    reason === "specific_to_mismatch"
+  ) {
+    return "connection_required";
+  }
+  if (reason === "persistence_unavailable") return "upstream_error";
   return "not_available";
 }
 
