@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
 const SUBSUITES = [
   "phase3-knowledge-graph.test.mjs",
@@ -52,7 +53,7 @@ t("all sub-suite files exist", () => {
 });
 
 t("master spec sealed (phase-3-master.md present)", () => {
-  const r = spawnSync("test", ["-f", path.join(__dirname, "..", "docs", "specs", "phase-3-master.md")]);
+  const r = spawnSync("test", ["-f", path.join(repoRoot, "docs", "specs", "phase-3-master.md")]);
   assert.equal(r.status, 0, "phase-3-master.md missing");
 });
 
@@ -65,14 +66,14 @@ t("ADRs 008-012 present", () => {
     "adr-012-voice-cloning-biometric-consent.md",
   ];
   for (const a of adrs) {
-    const r = spawnSync("test", ["-f", path.join(__dirname, "..", "docs", "specs", a)]);
+    const r = spawnSync("test", ["-f", path.join(repoRoot, "docs", "specs", a)]);
     assert.equal(r.status, 0, `missing: ${a}`);
   }
 });
 
 t("phase 3 migrations 027-034 scaffolded", () => {
   for (let n = 27; n <= 34; n++) {
-    const r = spawnSync("ls", [path.join(__dirname, "..", "db", "migrations")]);
+    const r = spawnSync("ls", [path.join(repoRoot, "db", "migrations")]);
     assert.equal(r.status, 0);
     const files = r.stdout.toString();
     assert.ok(files.includes(`0${n}_`), `missing migration 0${n}_*`);
