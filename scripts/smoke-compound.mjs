@@ -31,7 +31,7 @@ import url from "node:url";
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
-const libDir = path.join(repoRoot, "lib");
+const libDir = path.join(repoRoot, "apps", "web", "lib");
 const buildDir = path.join(repoRoot, ".smoke-build");
 
 const require_ = createRequire(import.meta.url);

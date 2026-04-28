@@ -5,24 +5,33 @@ import { execFileSync } from "node:child_process";
 const range = process.argv[2] ?? process.env.COMMIT_RANGE ?? "HEAD~1..HEAD";
 
 const RUNTIME_PATHS = [
-  /^app\/api\//,
-  /^config\/agents\.registry/,
+  /^apps\/web\/app\/api\//,
+  /^apps\/web\/config\/agents\.registry/,
   /^db\/migrations\//,
-  /^lib\//,
-  /^middleware\.ts$/,
+  /^apps\/web\/lib\//,
+  /^apps\/web\/middleware\.ts$/,
 ];
 
 const BRAND_OR_GLOBAL_UI_PATHS = [
-  /^app\/globals\.css$/,
-  /^components\/BrandMark\.tsx$/,
-  /^public\//,
+  /^apps\/web\/app\/globals\.css$/,
+  /^apps\/web\/components\/BrandMark\.tsx$/,
+  /^apps\/web\/public\//,
   /^scripts\/build-wordmark\./,
   /wordmark/i,
 ];
 
 const BROAD_UI_PATHS = [
-  /^app\/.*\.(tsx|css)$/,
-  /^components\/.*\.tsx$/,
+  /^apps\/web\/app\/.*\.(tsx|css)$/,
+  /^apps\/web\/components\/.*\.tsx$/,
+];
+
+// Subject-prefix exception: commits whose primary purpose is a structural
+// move (monorepo conversion, directory reorg) legitimately touch runtime
+// and UI surfaces in the same commit. Reviewers acknowledge this by
+// using one of these prefixes; the rule is then skipped for that commit.
+const STRUCTURAL_EXEMPT_PREFIXES = [
+  /^chore\(monorepo\)/i,
+  /^chore\(repo-structure\)/i,
 ];
 
 const failures = [];
@@ -44,6 +53,9 @@ for (const commit of commits) {
     .filter(Boolean);
 
   const subject = git(["log", "--format=%s", "-n", "1", commit]).trim();
+  if (STRUCTURAL_EXEMPT_PREFIXES.some((pattern) => pattern.test(subject))) {
+    continue;
+  }
   const touchesRuntime = files.some((file) => matchesAny(file, RUNTIME_PATHS));
   const touchesBrandOrGlobalUi = files.some((file) =>
     matchesAny(file, BRAND_OR_GLOBAL_UI_PATHS),

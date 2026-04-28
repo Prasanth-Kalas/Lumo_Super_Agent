@@ -30,7 +30,7 @@ jobs:
       - run: npm ci
 
       - name: Run held-out classifier eval
-        run: node --experimental-strip-types eval/held-out-classifier/run.mjs
+        run: node --experimental-strip-types apps/web/eval/held-out-classifier/run.mjs
 
       - name: Run held-out classifier eval (JSON, for log archival)
-        run: node --experimental-strip-types eval/held-out-classifier/run.mjs --json
+        run: node --experimental-strip-types apps/web/eval/held-out-classifier/run.mjs --json

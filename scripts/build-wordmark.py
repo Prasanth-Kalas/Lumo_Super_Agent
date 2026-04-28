@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageChops
 
-OUT_DIR = Path(__file__).resolve().parent.parent / "public"
+OUT_DIR = Path(__file__).resolve().parent.parent / "apps" / "web" / "public"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Render at 2x then downsample for antialiasing.

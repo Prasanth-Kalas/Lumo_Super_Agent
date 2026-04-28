@@ -11,15 +11,15 @@ import assert from "node:assert/strict";
 import {
   rankAgentsFallback,
   riskBadgeFallback,
-} from "../lib/marketplace-intelligence-core.ts";
+} from "../apps/web/lib/marketplace-intelligence-core.ts";
 import {
   recallArchiveCore,
   recallArchiveFallback,
-} from "../lib/archive-recall-core.ts";
+} from "../apps/web/lib/archive-recall-core.ts";
 import {
   LEAD_SCORE_THRESHOLD,
   scoreLeadHeuristic,
-} from "../lib/lead-scoring.ts";
+} from "../apps/web/lib/lead-scoring.ts";
 
 const results = [];
 
