@@ -46,6 +46,8 @@ import { CostCard } from "@/components/admin/intelligence/CostCard";
 import { CircuitBreakerStatus } from "@/components/admin/intelligence/CircuitBreakerStatus";
 import { EndpointTable } from "@/components/admin/intelligence/EndpointTable";
 import { EndpointDrillDown } from "@/components/admin/intelligence/EndpointDrillDown";
+import { BrainCapabilityPanel } from "@/components/admin/intelligence/BrainCapabilityPanel";
+import { buildBrainCapabilityChecklist } from "@/lib/brain-capabilities";
 
 const REFRESH_MS = 60_000;
 
@@ -103,6 +105,10 @@ export default function AdminIntelligencePage() {
   }, [refresh, drillEndpoint]);
 
   const isFixture = !!(series?.is_fixture || summary?.is_fixture);
+  const capabilities = useMemo(
+    () => buildBrainCapabilityChecklist(summary?.endpoints ?? []),
+    [summary?.endpoints],
+  );
 
   if (state === "forbidden") {
     return (
@@ -178,6 +184,11 @@ export default function AdminIntelligencePage() {
         />
         <CostCard data={null} />
       </section>
+
+      <BrainCapabilityPanel
+        capabilities={capabilities}
+        isFixture={summary?.is_fixture}
+      />
 
       {/* Row 2: time-series charts */}
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
