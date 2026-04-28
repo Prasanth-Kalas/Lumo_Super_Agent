@@ -19,3 +19,4 @@
 - 2026-04-29 — SAMPLE-AGENTS reviewer approved; lane marked closed for main fast-forward
 - 2026-04-29 — ADR-017 merchant-of-record draft merged to main after reviewer approval
 - 2026-04-29 — worktree-aware lane format adopted; Codex moves to PERM-1 in `Lumo_Super_Agent_codex`
+- 2026-04-29 — claude-code/ios-bootstrap ready for review: monorepo conversion + apps/ios/ SwiftUI scaffold + chat-stream impl + CI; web build and iOS build+tests both green
