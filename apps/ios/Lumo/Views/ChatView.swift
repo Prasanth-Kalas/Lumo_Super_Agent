@@ -1,173 +1,201 @@
 import SwiftUI
 
-struct ChatView: View {
-    private let service: ChatService
+/// The Chat tab's primary view. Backed by `ChatViewModel` for state;
+/// renders the message list with `MessageBubble`, a typing indicator
+/// while the assistant is forming a response, an error banner above
+/// the input bar, and the send/retry/regenerate affordances per
+/// message via context menus.
 
-    @State private var input: String = ""
-    @State private var streamedResponse: String = ""
-    @State private var isStreaming: Bool = false
-    @State private var errorMessage: String?
-    @State private var lastSentMessage: String?
-    @State private var streamingTask: Task<Void, Never>?
-    @State private var sessionID: String = UUID().uuidString
+struct ChatView: View {
+    @StateObject private var viewModel: ChatViewModel
+    @FocusState private var inputFocused: Bool
 
     init(service: ChatService) {
-        self.service = service
+        _viewModel = StateObject(wrappedValue: ChatViewModel(service: service))
     }
 
     var body: some View {
-        VStack(spacing: 12) {
-            header
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let lastSentMessage {
-                        userBubble(text: lastSentMessage)
-                    }
-                    if !streamedResponse.isEmpty || isStreaming {
-                        assistantBubble(text: streamedResponse, isStreaming: isStreaming)
-                    }
-                    if let errorMessage {
-                        errorBubble(text: errorMessage)
-                    }
-                    if streamedResponse.isEmpty && !isStreaming && lastSentMessage == nil && errorMessage == nil {
-                        emptyState
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-            }
+        VStack(spacing: 0) {
+            messageList
+            errorBanner
             inputBar
         }
-        .padding(.vertical, 16)
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(LumoColors.background.ignoresSafeArea())
+        .onDisappear { viewModel.cancelStream() }
     }
 
-    private var header: some View {
-        VStack(spacing: 4) {
-            Text("Lumo")
-                .font(.title2).bold()
-            Text("hello iOS — streaming /api/chat")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+    // MARK: - Message list
+
+    @ViewBuilder
+    private var messageList: some View {
+        if viewModel.messages.isEmpty {
+            emptyState
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: LumoSpacing.lg) {
+                        ForEach(viewModel.messages) { message in
+                            MessageBubble(
+                                message: message,
+                                onCopy: { copyToPasteboard(message.text) },
+                                onShare: nil,
+                                onRegenerate: regenerateAction(for: message),
+                                onRetry: retryAction(for: message)
+                            )
+                            .id(message.id)
+                        }
+                        if showTypingIndicator {
+                            typingBubble
+                                .id("typing-indicator")
+                        }
+                    }
+                    .padding(.horizontal, LumoSpacing.md)
+                    .padding(.top, LumoSpacing.lg)
+                    .padding(.bottom, LumoSpacing.md)
+                }
+                .refreshable {
+                    // Pull-to-refresh stub. Real history sync lands when
+                    // server-side persistence ships in MOBILE-CHAT-2.
+                    try? await Task.sleep(nanoseconds: 400_000_000)
+                }
+                .onChange(of: viewModel.messages.last?.id) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: viewModel.messages.last?.text) { _, _ in scrollToBottom(proxy) }
+                .onChange(of: viewModel.isStreaming) { _, _ in scrollToBottom(proxy) }
+            }
         }
-        .frame(maxWidth: .infinity)
     }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        let target: AnyHashable? = showTypingIndicator
+            ? "typing-indicator"
+            : viewModel.messages.last?.id
+        guard let target else { return }
+        withAnimation(LumoAnimation.standard) {
+            proxy.scrollTo(target, anchor: .bottom)
+        }
+    }
+
+    private var showTypingIndicator: Bool {
+        guard viewModel.isStreaming, let last = viewModel.messages.last else { return false }
+        return last.role == .assistant && last.text.isEmpty
+    }
+
+    private var typingBubble: some View {
+        HStack {
+            TypingIndicator()
+                .padding(.horizontal, LumoSpacing.md)
+                .padding(.vertical, LumoSpacing.sm + 2)
+                .background(
+                    RoundedRectangle(cornerRadius: LumoRadius.bubble)
+                        .fill(LumoColors.assistantBubble)
+                )
+            Spacer(minLength: LumoSpacing.xxxl)
+        }
+    }
+
+    // MARK: - Empty state
 
     private var emptyState: some View {
-        VStack(alignment: .center, spacing: 8) {
-            Text("Type a message to test the chat stream.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Text("Make sure `npm run dev` is running in apps/web.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+        VStack(spacing: LumoSpacing.lg) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 56))
+                .foregroundStyle(LumoColors.cyan)
+            Text("Hi, I'm Lumo")
+                .font(LumoFonts.title)
+                .foregroundStyle(LumoColors.label)
+            Text("Ask me to plan a trip, find a restaurant, or anything else.")
+                .font(LumoFonts.body)
+                .foregroundStyle(LumoColors.labelSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, LumoSpacing.xl)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    // MARK: - Error banner
+
+    @ViewBuilder
+    private var errorBanner: some View {
+        if let error = viewModel.error {
+            HStack(spacing: LumoSpacing.sm) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text(error)
+                    .font(LumoFonts.footnote)
+                    .lineLimit(2)
+                Spacer()
+                Button("Dismiss") { viewModel.clearError() }
+                    .font(LumoFonts.footnote.weight(.medium))
+            }
+            .foregroundStyle(LumoColors.error)
+            .padding(.horizontal, LumoSpacing.md)
+            .padding(.vertical, LumoSpacing.sm)
+            .background(LumoColors.error.opacity(0.1))
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
+    // MARK: - Input bar
 
     private var inputBar: some View {
-        HStack(spacing: 8) {
-            TextField("Ask Lumo…", text: $input, axis: .horizontal)
-                .textFieldStyle(.roundedBorder)
-                .disabled(isStreaming)
-                .submitLabel(.send)
-                .onSubmit(sendMessage)
-            Button(action: sendMessage) {
-                if isStreaming {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "paperplane.fill")
-                }
+        HStack(spacing: LumoSpacing.sm) {
+            LumoTextField(
+                "Ask Lumo…",
+                text: $viewModel.input,
+                submitLabel: .send,
+                onSubmit: viewModel.send
+            )
+            .focused($inputFocused)
+
+            Button(action: handleSendTap) {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(sendButtonBackground)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty || isStreaming)
+            .accessibilityLabel("Send message")
+            .disabled(!canSend)
         }
-        .padding(.horizontal, 16)
+        .padding(LumoSpacing.md)
+        .background(
+            LumoColors.surface
+                .overlay(
+                    Rectangle()
+                        .fill(LumoColors.separator)
+                        .frame(height: 0.5),
+                    alignment: .top
+                )
+        )
     }
 
-    private func userBubble(text: String) -> some View {
-        HStack {
-            Spacer(minLength: 32)
-            Text(text)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-        }
+    private var canSend: Bool {
+        !viewModel.input.trimmingCharacters(in: .whitespaces).isEmpty && !viewModel.isStreaming
     }
 
-    private func assistantBubble(text: String, isStreaming: Bool) -> some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(text.isEmpty ? " " : text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                if isStreaming {
-                    Text("streaming…")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, 12)
-                }
-            }
-            Spacer(minLength: 32)
-        }
+    private var sendButtonBackground: some View {
+        Circle().fill(canSend ? LumoColors.cyan : LumoColors.labelTertiary)
     }
 
-    private func errorBubble(text: String) -> some View {
-        HStack {
-            Text("Error: \(text)")
-                .font(.footnote)
-                .foregroundStyle(.red)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.red.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            Spacer(minLength: 0)
-        }
+    private func handleSendTap() {
+        viewModel.send()
+        inputFocused = false
     }
 
-    private func sendMessage() {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isStreaming else { return }
-        lastSentMessage = trimmed
-        streamedResponse = ""
-        errorMessage = nil
-        isStreaming = true
-        input = ""
+    // MARK: - Action wiring
 
-        streamingTask = Task {
-            do {
-                for try await event in service.stream(message: trimmed, sessionID: sessionID) {
-                    switch event {
-                    case .text(let chunk):
-                        streamedResponse += chunk
-                    case .error(let detail):
-                        errorMessage = detail
-                    case .done:
-                        break
-                    case .other:
-                        break
-                    }
-                }
-            } catch is CancellationError {
-                // user dismissed or restarted; nothing to do
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isStreaming = false
-        }
+    private func retryAction(for message: ChatMessage) -> (() -> Void)? {
+        guard message.status == .failed, message.role == .user else { return nil }
+        return { [weak viewModel] in viewModel?.retry() }
+    }
+
+    private func regenerateAction(for message: ChatMessage) -> (() -> Void)? {
+        guard message.role == .assistant, !viewModel.isStreaming else { return nil }
+        guard message.id == viewModel.messages.last?.id else { return nil }
+        return { [weak viewModel] in viewModel?.regenerate() }
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        UIPasteboard.general.string = text
     }
 }
 
-#Preview {
-    if let service = ChatService.makeFromBundle() {
-        ChatView(service: service)
-    } else {
-        Text("Bad LumoAPIBase config")
-    }
-}
