@@ -218,41 +218,6 @@ body {
   font-synthesis: none;
 }
 
-.lumo-app-shell {
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--lumo-surface) 38%, var(--lumo-bg)) 0%,
-      var(--lumo-bg) 34%,
-      var(--lumo-bg) 100%
-    );
-}
-
-.lumo-user-message {
-  background:
-    color-mix(in srgb, var(--lumo-accent) 7%, var(--lumo-elevated));
-  border: 1px solid
-    color-mix(in srgb, var(--lumo-accent) 16%, var(--lumo-hair));
-  box-shadow: 0 10px 28px -24px #000;
-}
-
-.lumo-assistant-label {
-  opacity: 0.82;
-}
-
-.lumo-composer {
-  background:
-    color-mix(in srgb, var(--lumo-surface) 88%, var(--lumo-bg));
-  box-shadow: var(--lumo-shadow);
-}
-
-.lumo-composer:focus-within {
-  border-color: color-mix(in srgb, var(--lumo-accent) 42%, var(--lumo-edge));
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--lumo-accent) 13%, transparent),
-    var(--lumo-shadow);
-}
-
 ::selection {
   background: var(--lumo-selection);
   color: var(--lumo-fg);
