@@ -40,9 +40,18 @@ import { signLumoServiceJwt } from "./service-jwt.js";
 import {
   checkPermission,
   type PermissionCheckResult,
+  type PermissionConstraints,
   type PermissionDeniedReason,
 } from "./permissions.js";
 import { permissionScopesForManifest } from "./permission-manifest.js";
+import {
+  checkBudgetCap,
+  estimateCostForRouting,
+  extractInvocationCostActuals,
+  recordInvocationCost,
+  type BudgetCapCheckResult,
+  type CostEvidence,
+} from "./cost.js";
 
 export interface DispatchContext {
   user_id: string;
@@ -221,6 +230,35 @@ export async function dispatchToolCall(
     );
   }
 
+  const costForecast = estimateCostForRouting(agent.manifest, routing);
+  const budgetGate = await checkBudgetCap({
+    userId: ctx.user_id,
+    agentId: agent.manifest.agent_id,
+    projectedCostUsd: costForecast.projectedCostUsd,
+    manifestMaxCostUsd: costForecast.maxCostUsdPerInvocation,
+    userGrantMaxCostUsd: permissionGate.maxGrantPerInvocationUsd,
+    requestId: ctx.idempotency_key,
+  });
+  if (!budgetGate.ok) {
+    void recordInvocationCost({
+      requestId: ctx.idempotency_key,
+      userId: ctx.user_id,
+      agentId: agent.manifest.agent_id,
+      agentVersion: agent.manifest.version,
+      capabilityId: routing.operation_id,
+      modelUsed: costForecast.modelUsed,
+      costUsdTotal: 0,
+      status: "aborted_budget",
+      evidence: budgetGate.evidence,
+    });
+    return failure(
+      "not_available",
+      budgetGate.message,
+      started,
+      budgetErrorDetail(agent.manifest, toolName, routing.operation_id, budgetGate),
+    );
+  }
+
   const finish = (outcome: DispatchOutcome): DispatchOutcome => {
     void recordRuntimeUsage({
       user_id: ctx.user_id,
@@ -231,6 +269,35 @@ export async function dispatchToolCall(
       error_code: outcome.ok ? undefined : outcome.error.code,
       latency_ms: outcome.latency_ms,
       system_agent: agent.system === true,
+    });
+    const actuals = extractInvocationCostActuals(outcome.ok ? outcome.result : null, {
+      manifest: agent.manifest,
+      routing,
+      forecast: costForecast,
+      status: outcome.ok ? "completed" : "aborted_error",
+      budgetEvidence: budgetGate.evidence,
+    });
+    void recordInvocationCost({
+      requestId: ctx.idempotency_key,
+      userId: ctx.user_id,
+      agentId: agent.manifest.agent_id,
+      agentVersion: agent.manifest.version,
+      capabilityId: routing.operation_id,
+      modelUsed: actuals.modelUsed,
+      promptTokens: actuals.promptTokens,
+      completionTokens: actuals.completionTokens,
+      brainCallsUsd: actuals.brainCallsUsd,
+      brainCallCount: actuals.brainCallCount,
+      modelTokensInput: actuals.modelTokensInput,
+      modelTokensOutput: actuals.modelTokensOutput,
+      modelTokensCostUsd: actuals.modelTokensCostUsd,
+      connectorCalls: actuals.connectorCalls,
+      connectorCallsUsd: actuals.connectorCallsUsd,
+      costUsdTotal: actuals.costUsdTotal,
+      costUsdPlatform: actuals.costUsdPlatform,
+      costUsdDeveloperShare: actuals.costUsdDeveloperShare,
+      status: outcome.ok ? "completed" : "aborted_error",
+      evidence: actuals.evidence,
     });
     return outcome;
   };
@@ -397,7 +464,11 @@ interface PermissionGateInput {
 }
 
 type PermissionGateResult =
-  | { ok: true; grantedScopes: string[] }
+  | {
+      ok: true;
+      grantedScopes: string[];
+      maxGrantPerInvocationUsd: number | null;
+    }
   | {
       ok: false;
       reason: PermissionDeniedReason;
@@ -427,12 +498,17 @@ async function evaluatePermissionGate(input: PermissionGateInput): Promise<Permi
     if (result.status === "DENIED") {
       return permissionDenied(input, "agent.invoke", result);
     }
-    return { ok: true, grantedScopes: [] };
+    return {
+      ok: true,
+      grantedScopes: [],
+      maxGrantPerInvocationUsd: null,
+    };
   }
 
   const amountUsd = amountFromArgs(input.args);
   const target = targetFromArgs(input.args);
   const grantedScopes: string[] = [];
+  let maxGrantPerInvocationUsd: number | null = null;
   for (const scope of requiredScopes) {
     const result = await checkPermission({
       userId: input.ctx.user_id,
@@ -449,9 +525,13 @@ async function evaluatePermissionGate(input: PermissionGateInput): Promise<Permi
       return permissionDenied(input, scope, result);
     }
     grantedScopes.push(scope);
+    maxGrantPerInvocationUsd = minNullable(
+      maxGrantPerInvocationUsd,
+      perInvocationCapFromConstraints(result.constraints),
+    );
   }
 
-  return { ok: true, grantedScopes };
+  return { ok: true, grantedScopes, maxGrantPerInvocationUsd };
 }
 
 function permissionDenied(
@@ -550,6 +630,40 @@ function mapPermissionToAgentError(reason: PermissionDeniedReason): LumoAgentErr
   }
   if (reason === "persistence_unavailable") return "upstream_error";
   return "not_available";
+}
+
+function perInvocationCapFromConstraints(
+  constraints: PermissionConstraints,
+): number | null {
+  const raw = constraints.up_to_per_invocation_usd;
+  return typeof raw === "number" && Number.isFinite(raw) && raw >= 0 ? raw : null;
+}
+
+function minNullable(...values: Array<number | null | undefined>): number | null {
+  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  return finite.length === 0 ? null : Math.min(...finite);
+}
+
+function budgetErrorDetail(
+  manifest: AgentManifest,
+  toolName: string,
+  operationId: string,
+  result: Extract<BudgetCapCheckResult, { ok: false }>,
+): CostEvidence & Record<string, unknown> {
+  return {
+    ...result.evidence,
+    permission_code: "BUDGET_EXCEEDED",
+    budget_code: "BUDGET_EXCEEDED",
+    budget_reason: result.reason,
+    agent_id: manifest.agent_id,
+    display_name: manifest.display_name,
+    tool_name: toolName,
+    operation_id: operationId,
+    projected_cost_usd: result.projectedCostUsd,
+    cap_usd: result.capUsd,
+    remaining_daily_usd: result.remainingDailyUsd,
+    remaining_monthly_usd: result.remainingMonthlyUsd,
+  };
 }
 
 function filterPii(

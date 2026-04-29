@@ -59,6 +59,7 @@ import {
   linkConfirmationCardForLatestMissionSteps,
 } from "./mission-execution.ts";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
+import { estimateModelTokenCost, recordInvocationCost } from "./cost.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
 import { dispatchMcpTool, isMcpToolName } from "./mcp/dispatch.js";
 import { dispatchWithRetry } from "./retry.js";
@@ -598,6 +599,29 @@ export async function runTurn(
       system,
       tools: toolsForClaude,
       messages: [...messages, ...loopAssistantMessages],
+    });
+    const inputTokens = response.usage?.input_tokens ?? 0;
+    const outputTokens = response.usage?.output_tokens ?? 0;
+    void recordInvocationCost({
+      requestId: `${input.session_id}:orchestrator:${i}:${response.id ?? Date.now()}`,
+      userId: input.user_id,
+      agentId: "lumo-super-agent",
+      agentVersion: "orchestrator",
+      capabilityId: "orchestrator.messages.create",
+      modelUsed: model,
+      promptTokens: inputTokens,
+      completionTokens: outputTokens,
+      modelTokensInput: inputTokens,
+      modelTokensOutput: outputTokens,
+      modelTokensCostUsd: estimateModelTokenCost(model, inputTokens, outputTokens),
+      costUsdTotal: estimateModelTokenCost(model, inputTokens, outputTokens),
+      status: "completed",
+      evidence: {
+        actual_source: "anthropic_usage",
+        forecast_source: "anthropic_usage",
+        fallback_model_used: false,
+        loop_index: i,
+      },
     });
 
     // Collect any text Claude emitted this pass — and stream it live.
