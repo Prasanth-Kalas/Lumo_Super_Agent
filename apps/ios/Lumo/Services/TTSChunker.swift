@@ -79,11 +79,23 @@ final class TTSChunker {
 
     /// Find the index *after* the next valid chunk boundary, or nil if
     /// the buffer doesn't yet have a flushable chunk.
+    ///
+    /// Semantics:
+    ///   * Wait until the buffer has at least `minChunkLength`
+    ///     characters before considering a flush. Below that, the
+    ///     buffer is "too short to make a natural-sounding TTS unit"
+    ///     even if it ends in a terminator — let it accumulate.
+    ///   * Once at or above the floor, flush up through the *latest*
+    ///     sentence terminator in the buffer. This emits whole
+    ///     multi-sentence runs in one chunk (good prosody) rather
+    ///     than splitting them at every period.
+    ///   * If the buffer is at or above `maxChunkLength` without any
+    ///     terminator, force-flush at the last whitespace before the
+    ///     ceiling. Bounds end-to-end TTS latency.
     private func nextChunkCut(in text: String) -> String.Index? {
-        // Force-flush at max length.
+        // Force-flush at max length first — it's a hard ceiling that
+        // bounds latency for run-on text.
         if text.count >= maxChunkLength {
-            // Cut at the last whitespace before the limit if possible
-            // so we don't split mid-word.
             let limit = text.index(text.startIndex, offsetBy: maxChunkLength)
             if let space = text[..<limit].lastIndex(where: { $0.isWhitespace }) {
                 return text.index(after: space)
@@ -91,18 +103,16 @@ final class TTSChunker {
             return limit
         }
 
-        // Otherwise look for a sentence-end boundary >= minChunkLength.
         guard text.count >= minChunkLength else { return nil }
-        let earliest = text.index(text.startIndex, offsetBy: minChunkLength)
-        var idx = earliest
-        while idx < text.endIndex {
-            let ch = text[idx]
-            if Self.isSentenceTerminator(ch) {
-                let next = text.index(after: idx)
-                // Include the punctuation in the chunk — and any
-                // trailing whitespace/quotes that belong to the same
-                // sentence.
-                var swept = next
+
+        // Walk backwards from the end looking for the latest terminator.
+        var search = text.endIndex
+        while search > text.startIndex {
+            search = text.index(before: search)
+            if Self.isSentenceTerminator(text[search]) {
+                // Cut after the terminator and any trailing close-
+                // quotes / whitespace that belong to the same sentence.
+                var swept = text.index(after: search)
                 while swept < text.endIndex,
                       let s = text[swept].unicodeScalars.first,
                       Self.followingPunctuation.contains(s) {
@@ -110,7 +120,6 @@ final class TTSChunker {
                 }
                 return swept
             }
-            idx = text.index(after: idx)
         }
         return nil
     }

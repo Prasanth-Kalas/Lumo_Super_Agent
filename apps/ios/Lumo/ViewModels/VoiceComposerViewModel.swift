@@ -71,6 +71,29 @@ final class VoiceComposerViewModel: ObservableObject {
     init(speech: SpeechRecognitionServicing) {
         self.speech = speech
         Task { await observeSpeech() }
+        applyDebugFixtureIfPresent()
+    }
+
+    /// DEBUG-only path that pre-seeds the composer state from a launch
+    /// argument (`-LumoVoiceFixture {listening|transcript|denied}`).
+    /// Used by `scripts/ios-capture-screenshots.sh` to render the
+    /// listening / live-transcript / permission-denied states
+    /// deterministically without a real mic on the simulator.
+    /// Compiled out in Release.
+    private func applyDebugFixtureIfPresent() {
+        #if DEBUG
+        let raw = (UserDefaults.standard.string(forKey: "LumoVoiceFixture") ?? "").lowercased()
+        switch raw {
+        case "listening":
+            state = .listening(partial: "")
+        case "transcript":
+            state = .listening(partial: "Plan a Vegas trip for May 5 to 12, around two thousand all-in.")
+        case "denied":
+            state = .permissionDenied(reason: .microphone)
+        default:
+            break
+        }
+        #endif
     }
 
     private func observeSpeech() async {

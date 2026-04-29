@@ -20,6 +20,9 @@ bundle_id="${LUMO_BUNDLE_ID:-com.lumo.rentals.ios.dev}"
 sim_id="${LUMO_SIM_ID:-12CA8A97-CB46-49E5-95EB-88B072FF57CD}"
 sim_label="${LUMO_SIM_LABEL:-iPhone 17 / iOS 26.4}"
 runs="${LUMO_PERF_RUNS:-5}"
+# Caller can override the JSON path per sprint. Keep the 1B path as
+# default for backwards-compat; voice sprint passes
+# LUMO_PERF_OUT=docs/notes/mobile-voice-1-perf.json.
 out_path="${LUMO_PERF_OUT:-docs/notes/mobile-chat-1b-perf.json}"
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
