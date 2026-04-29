@@ -35,3 +35,4 @@
 - 2026-04-29 — COST-1 middle layer drafted: cost library, dispatch budget gate, model-call ledger writes, daily/monthly digest crons
 - 2026-04-29 — COST-1 dashboards and cost-core regression tests ready for full review; gates green locally
 - 2026-04-29 — COST-1 merged to main; Codex queued for DEV-DASH
+- 2026-04-29 — claude-code/mobile-chat-1b ready for review: 5 of 6 deliverable groups done (auth, Settings, 23 new tests bringing total to 34, cold-start 1443 ms / memory 32.9 MB, full light+dark screenshots); dark-mode artifact §5 unresolved with detailed investigation report — recommend MOBILE-POLISH-1 follow-up
