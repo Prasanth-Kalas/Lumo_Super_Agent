@@ -436,3 +436,98 @@ bake into GitHub Actions.
   auth. Real-device test deferred until CI signing lands.
 - ✅ STATUS.md — lane stays Active until reviewer fast-forward,
   then closed.
+
+## Hand-off to MERCHANT-1 — explicit swap path
+
+This is the file MERCHANT-1's author should read first when wiring
+the real backend. Each item is a flag flip or single-method swap, not
+a refactor.
+
+### Server-side (the bigger half)
+
+1. **Add server env vars** to `apps/web/.env`:
+   - `STRIPE_SECRET_KEY_TEST` (then `STRIPE_SECRET_KEY_LIVE`).
+   - `STRIPE_WEBHOOK_SIGNING_SECRET`.
+   - `STRIPE_MERCHANT_ACCOUNT_ID` (the merchant-of-record account).
+2. **Add migration** for `payments_customers` (1:1 with auth users,
+   stores Stripe `customerId`), `payment_methods` (mirror of Stripe
+   PaymentMethod plus our flags), `transactions` (the source of
+   truth for receipts), `confirmation_keys` (per-device public keys
+   registered at sign-in for ECDSA verification).
+3. **Replace each route body in `apps/web/app/api/payments/*`**:
+   - `setup-intent` → call `stripe.setupIntents.create({ customer,
+     usage: 'off_session' })`, return `{ stub: false, clientSecret,
+     setupIntentId, customerId }`. Drop the `stub: true` flag.
+   - `methods` GET → `stripe.paymentMethods.list({ customer, type:
+     'card' })`, project to our shape.
+   - `methods` POST → delete this route. iOS PaymentSheet path
+     attaches PaymentMethods directly via Stripe; our stub-only
+     synthetic-add endpoint is no longer needed.
+   - `methods/[id]/set-default` → `stripe.customers.update({
+     invoice_settings: { default_payment_method: id } })`.
+   - `methods/[id]` DELETE → `stripe.paymentMethods.detach(id)`.
+   - `confirm-transaction` →
+     (a) verify the `signedConfirmationToken` against the user's
+     registered ECDSA public key for this device,
+     (b) re-derive the canonical digest from `{ paymentMethodId,
+     amountCents, currency, lineItems }` and compare,
+     (c) `stripe.paymentIntents.create({ confirm: true,
+     payment_method: paymentMethodId, customer, amount,
+     currency, off_session: true })`,
+     (d) on success, INSERT into `transactions`, return the row.
+4. **Delete `apps/web/lib/payments-stub.ts`** and its
+   `resolvePaymentsUserId` helper; switch routes to
+   `requireServerUser()` (drop the `x-lumo-user-id` header
+   fallback — production requires real auth).
+5. **Add Stripe webhook handler** at
+   `/api/payments/webhooks/stripe` for `payment_intent.succeeded`,
+   `payment_intent.payment_failed`, and `setup_intent.succeeded`
+   to reconcile state if iOS misses a return trip.
+
+### iOS-side (smaller half — mostly works automatically)
+
+The iOS client switches to real PaymentSheet behavior **the moment
+the server returns a non-null `clientSecret`** in the setup-intent
+response. To complete the swap:
+
+1. **Replace the synthetic add-card sheet body** in
+   `PaymentMethodsView.AddPaymentMethodSheet` with a call to
+   `PaymentSheet(setupIntentClientSecret:configuration:)` followed
+   by `paymentSheet.present(from: presentingViewController)`. The
+   surrounding view + form state machine stay; only the inner
+   "input collection" widget changes from our SwiftUI form to
+   Stripe's drop-in.
+2. **Add ECDSA-P256 keypair generation at first sign-in.** New
+   `BiometricConfirmationService.makeToken(...)` body uses
+   `SecKeyCreateSignature` with the Secure Enclave-backed private
+   key gated by `kSecAccessControlBiometryCurrentSet`. Send the
+   public key to `/api/payments/register-device-key` once at first
+   sign-in. The `SignedConfirmationToken` shape (digest + signature)
+   stays the same; only the crypto primitive changes.
+3. **Drop the `isStripeLiveMode` test-mode banner branch** in
+   `PaymentMethodsView` once a live `pk_live_*` is provisioned.
+4. **Wire `MOBILE-API-1` sync layer** to write through `ReceiptStore`
+   from server `transactions` rows. The local store stays as a
+   write-through cache + offline-history surface.
+
+### Contract surface that should NOT change
+
+Things MERCHANT-1 should preserve to keep the iOS client
+unchanged:
+
+- `PaymentMethod` JSON shape: `{ id, brand, last4, expMonth,
+  expYear, isDefault, addedAt }`. Same field names, same types.
+- `Receipt` JSON shape: `{ id, transactionId, amountCents, currency,
+  paymentMethodId, paymentMethodLabel, lineItems, createdAt,
+  status }`.
+- `confirm-transaction` request body shape: `{ paymentMethodId,
+  amountCents, currency, lineItems, transactionDigest (hex),
+  signedConfirmationToken (base64) }`.
+- HTTP status codes: 201 for created PaymentMethod, 404 for
+  not-found, 4xx for validation errors. The iOS error decoder
+  expects these.
+- ISO 8601 with fractional seconds for all timestamps.
+
+If MERCHANT-1 needs to break any of these for legitimate reasons,
+file an issue at the same time the PR opens so the iOS client can
+land its compatibility change in lockstep.
