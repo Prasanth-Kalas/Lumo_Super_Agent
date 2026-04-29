@@ -10,6 +10,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { getSupabase } from "./db.js";
 import {
+  enqueueIdentityVerificationReview,
+  enqueuePromotionReview,
+} from "./trust/queue.js";
+import {
   buildDeveloperMetricsRollupRows,
   evaluatePromotionEligibility,
   int,
@@ -459,7 +463,24 @@ export async function requestPromotion(input: {
     .select("id, agent_id, agent_version, target_tier, state, reason, decision_note, submitted_at, decided_at")
     .single();
   if (error) return { ok: false, error: error.message, status: 409 };
-  return { ok: true, request: toPromotionRequest(data as Record<string, unknown>) };
+  const request = toPromotionRequest(data as Record<string, unknown>);
+  try {
+    await enqueuePromotionReview({
+      db,
+      promotionRequestId: request.id,
+      agentId: request.agent_id,
+      version: request.agent_version,
+      targetTier: request.target_tier,
+      eligibilityReport: {
+        eligible: true,
+        identity_tier: identity.verification_tier,
+        current_tier: agent.trust_tier,
+      },
+    });
+  } catch (err) {
+    console.warn("[developer-dashboard] enqueuePromotionReview failed:", err instanceof Error ? err.message : String(err));
+  }
+  return { ok: true, request };
 }
 
 export async function getIdentityVerification(
@@ -522,7 +543,20 @@ export async function submitIdentityEvidence(input: {
     .select("*")
     .single();
   if (error) return { ok: false, error: error.message, status: 409 };
-  return { ok: true, identity: toIdentityVerification(data as Record<string, unknown>) };
+  const identity = toIdentityVerification(data as Record<string, unknown>);
+  try {
+    await enqueueIdentityVerificationReview({
+      db,
+      userId: input.userId,
+      evidence: {
+        legal_entity_name: legalEntityName,
+        registration_country: country,
+      },
+    });
+  } catch (err) {
+    console.warn("[developer-dashboard] enqueueIdentityVerificationReview failed:", err instanceof Error ? err.message : String(err));
+  }
+  return { ok: true, identity };
 }
 
 export async function listDeveloperWebhooks(

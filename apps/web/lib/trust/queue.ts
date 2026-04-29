@@ -44,25 +44,23 @@ export async function enqueueSubmissionReview(input: {
 }): Promise<ReviewQueueItem> {
   const db = input.db ?? getSupabase();
   if (!db) throw new Error("db_unavailable");
-  const { data, error } = await db
-    .from("agent_review_queue")
-    .upsert(
-      {
-        request_type: "submission",
-        agent_id: input.agentId,
-        agent_version: input.version,
-        target_tier: input.targetTier,
-        state: "pending",
-        priority: input.targetTier === "official" ? "high" : "normal",
-        sla_due_at: slaForTier(input.targetTier),
-        automated_checks: input.automatedChecks,
-      },
-      { onConflict: "agent_id,agent_version,request_type" },
-    )
-    .select("*")
-    .single();
-  if (error) throw new Error(`review_queue_enqueue_failed:${error.message}`);
-  return data as ReviewQueueItem;
+  const row = {
+    request_type: "submission",
+    agent_id: input.agentId,
+    agent_version: input.version,
+    target_tier: input.targetTier,
+    state: "pending",
+    priority: input.targetTier === "official" ? "high" : "normal",
+    sla_due_at: slaForTier(input.targetTier),
+    automated_checks: input.automatedChecks,
+  };
+  return insertQueueRow(db, row, (query) =>
+    query
+      .eq("request_type", "submission")
+      .eq("agent_id", input.agentId)
+      .eq("agent_version", input.version)
+      .in("state", ["pending", "in_review"]),
+  );
 }
 
 export async function enqueueDemotionReview(input: {
@@ -76,26 +74,68 @@ export async function enqueueDemotionReview(input: {
   if (!db) throw new Error("db_unavailable");
   const due = new Date();
   due.setHours(due.getHours() + (input.severity === "P0" ? 1 : 24));
-  const { data, error } = await db
-    .from("agent_review_queue")
-    .upsert(
-      {
-        request_type: "demotion_review",
-        agent_id: input.agentId,
-        agent_version: input.version,
-        state: "pending",
-        priority: input.severity === "P0" ? "p0" : input.severity === "P1" ? "high" : "normal",
-        sla_due_at: due.toISOString(),
-        health_report: input.healthReport,
-      },
-      { onConflict: "agent_id,agent_version,request_type" },
-    )
-    .select("*")
-    .single();
-  if (error && !error.message.toLowerCase().includes("duplicate")) {
-    throw new Error(`demotion_review_enqueue_failed:${error.message}`);
-  }
-  return (data as ReviewQueueItem | null) ?? null;
+  return insertQueueRow(db, {
+    request_type: "demotion_review",
+    agent_id: input.agentId,
+    agent_version: input.version,
+    state: "pending",
+    priority: input.severity === "P0" ? "p0" : input.severity === "P1" ? "high" : "normal",
+    sla_due_at: due.toISOString(),
+    health_report: input.healthReport,
+  }, (query) =>
+    query
+      .eq("request_type", "demotion_review")
+      .eq("agent_id", input.agentId)
+      .eq("agent_version", input.version)
+      .in("state", ["pending", "in_review"]),
+  );
+}
+
+export async function enqueuePromotionReview(input: {
+  promotionRequestId: number;
+  agentId: string;
+  version: string;
+  targetTier: MarketplaceTrustTier;
+  eligibilityReport?: Record<string, unknown>;
+  db?: SupabaseClient | null;
+}): Promise<ReviewQueueItem> {
+  const db = input.db ?? getSupabase();
+  if (!db) throw new Error("db_unavailable");
+  return insertQueueRow(db, {
+    request_type: "promotion",
+    agent_id: input.agentId,
+    agent_version: input.version,
+    promotion_request_id: input.promotionRequestId,
+    target_tier: input.targetTier,
+    state: "pending",
+    priority: input.targetTier === "official" ? "high" : "normal",
+    sla_due_at: slaForTier(input.targetTier),
+    eligibility_report: input.eligibilityReport ?? {},
+  }, (query) => query.eq("promotion_request_id", input.promotionRequestId));
+}
+
+export async function enqueueIdentityVerificationReview(input: {
+  userId: string;
+  evidence?: Record<string, unknown>;
+  db?: SupabaseClient | null;
+}): Promise<ReviewQueueItem> {
+  const db = input.db ?? getSupabase();
+  if (!db) throw new Error("db_unavailable");
+  const due = new Date();
+  due.setDate(due.getDate() + 3);
+  return insertQueueRow(db, {
+    request_type: "identity_verification",
+    identity_user_id: input.userId,
+    state: "pending",
+    priority: "normal",
+    sla_due_at: due.toISOString(),
+    eligibility_report: input.evidence ?? {},
+  }, (query) =>
+    query
+      .eq("request_type", "identity_verification")
+      .eq("identity_user_id", input.userId)
+      .in("state", ["pending", "in_review"]),
+  );
 }
 
 export async function listReviewQueue(input: {
@@ -115,6 +155,31 @@ export async function listReviewQueue(input: {
   const { data, error } = await query;
   if (error) throw new Error(`review_queue_list_failed:${error.message}`);
   return (data ?? []) as ReviewQueueItem[];
+}
+
+async function insertQueueRow(
+  db: SupabaseClient,
+  row: Record<string, unknown>,
+  existingQuery: (query: any) => any,
+): Promise<ReviewQueueItem> {
+  const { data, error } = await db
+    .from("agent_review_queue")
+    .insert(row)
+    .select("*")
+    .single();
+  if (!error) return data as ReviewQueueItem;
+  if (!/duplicate|unique/i.test(error.message)) {
+    throw new Error(`review_queue_enqueue_failed:${error.message}`);
+  }
+  const { data: existing, error: existingError } = await existingQuery(
+    db.from("agent_review_queue").select("*"),
+  )
+    .limit(1)
+    .maybeSingle();
+  if (existingError || !existing) {
+    throw new Error(`review_queue_existing_lookup_failed:${existingError?.message ?? error.message}`);
+  }
+  return existing as ReviewQueueItem;
 }
 
 export async function getReviewQueueItem(
