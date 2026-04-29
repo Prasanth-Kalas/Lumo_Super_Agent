@@ -7,11 +7,24 @@ import SwiftUI
 struct RootView: View {
     private let chatService: ChatService
     private let onSignOut: () -> Void
-    @State private var selection: Tab = .chat
+    @State private var selection: Tab
 
     init(chatService: ChatService, onSignOut: @escaping () -> Void) {
         self.chatService = chatService
         self.onSignOut = onSignOut
+        // DEBUG-only `-LumoStartTab` launch arg lets the screenshot
+        // script select Trips / Settings on cold-launch without
+        // simulating a tap. Default is Chat. Compiled out in Release.
+        #if DEBUG
+        let raw = (UserDefaults.standard.string(forKey: "LumoStartTab") ?? "").lowercased()
+        switch raw {
+        case "trips":    self._selection = State(initialValue: .trips)
+        case "settings": self._selection = State(initialValue: .settings)
+        default:         self._selection = State(initialValue: .chat)
+        }
+        #else
+        self._selection = State(initialValue: .chat)
+        #endif
     }
 
     enum Tab: Hashable {

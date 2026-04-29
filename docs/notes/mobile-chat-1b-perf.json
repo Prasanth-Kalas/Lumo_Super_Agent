@@ -1,0 +1,13 @@
+{
+  "device": "iPhone 17 / iOS 26.4",
+  "sim_id": "12CA8A97-CB46-49E5-95EB-88B072FF57CD",
+  "bundle_id": "com.lumo.rentals.ios.dev",
+  "runs": 7,
+  "cold_start_ms_samples": [1470,1295,1824,1358,1484,1385,1518],
+  "cold_start_ms_avg_trimmed": 1443,
+  "cold_start_budget_ms": 1500,
+  "memory_post_launch_kb": 33690,
+  "memory_post_launch_human": "Physical footprint:         32.9M",
+  "memory_budget_mb": 100,
+  "captured_at": "2026-04-29T11:06:19Z"
+}

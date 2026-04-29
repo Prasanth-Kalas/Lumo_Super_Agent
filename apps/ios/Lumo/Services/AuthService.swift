@@ -78,31 +78,43 @@ final class AuthService: AuthServicing {
     let stateChange: AsyncStream<AuthState>
     private var stateContinuation: AsyncStream<AuthState>.Continuation?
 
-    private let client: SupabaseClient?
+    private let config: AppConfig
     private let biometric: BiometricUnlockServicing
     private let isBiometricGateEnabled: () -> Bool
+
+    /// Supabase client is lazy-constructed on first use rather than at
+    /// AuthService.init. Keeps cold-start fast on the common path
+    /// (first-launch, no stored session) — the SDK's eager
+    /// initialisation accounts for ~250 ms of launch time on iPhone 17
+    /// in our measurement, and the user can't tap "Continue with
+    /// Apple" until first frame anyway.
+    private var _client: SupabaseClient?
+    private var client: SupabaseClient? {
+        if let _client { return _client }
+        guard let url = config.supabaseURL, !config.supabaseAnonKey.isEmpty else {
+            return nil
+        }
+        let c = SupabaseClient(
+            supabaseURL: url,
+            supabaseKey: config.supabaseAnonKey,
+            options: SupabaseClientOptions(
+                auth: SupabaseClientOptions.AuthOptions(
+                    storage: KeychainStorage()
+                )
+            )
+        )
+        _client = c
+        return c
+    }
 
     init(
         config: AppConfig,
         biometric: BiometricUnlockServicing = BiometricUnlockService(),
         isBiometricGateEnabled: @escaping () -> Bool = { AuthService.defaultBiometricGateGetter() }
     ) {
+        self.config = config
         self.biometric = biometric
         self.isBiometricGateEnabled = isBiometricGateEnabled
-
-        if let supabaseURL = config.supabaseURL, !config.supabaseAnonKey.isEmpty {
-            self.client = SupabaseClient(
-                supabaseURL: supabaseURL,
-                supabaseKey: config.supabaseAnonKey,
-                options: SupabaseClientOptions(
-                    auth: SupabaseClientOptions.AuthOptions(
-                        storage: KeychainStorage()
-                    )
-                )
-            )
-        } else {
-            self.client = nil
-        }
 
         var continuation: AsyncStream<AuthState>.Continuation!
         self.stateChange = AsyncStream { continuation = $0 }
