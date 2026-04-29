@@ -3,6 +3,7 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-voice-1 | 2026-04-29 | MOBILE-VOICE-1 (Apple Speech STT + ElevenLabs TTS + push-to-talk composer) |
+| Codex | Lumo_Super_Agent_codex | codex/trust-1-review-pipeline | 2026-04-29 | TRUST-1 review pipeline |
 
 ## Closed lanes
 
@@ -44,3 +45,4 @@
 - 2026-04-29 — DEV-DASH backend checkpoint drafted: developer library, API routes, and metrics rollup cron
 - 2026-04-29 — DEV-DASH UI and regression tests drafted for full review
 - 2026-04-29 — DEV-DASH merged to main; Codex queued for TRUST-1
+- 2026-04-29 — TRUST-1 branch opened; migration 041 drafted for early schema review
