@@ -577,6 +577,55 @@ export async function registerDeveloperWebhook(input: {
   return { ok: true, webhook: toWebhook(data as Record<string, unknown>) };
 }
 
+export async function updateDeveloperWebhook(input: {
+  userId: string;
+  webhookId: string;
+  label?: string | null;
+  url?: string | null;
+  eventTypes?: unknown;
+  active?: boolean | null;
+}): Promise<
+  | { ok: true; webhook: DeveloperWebhookRegistration }
+  | { ok: false; error: string; status: number }
+> {
+  const db = getSupabase();
+  if (!db) return { ok: false, error: "db_unavailable", status: 503 };
+  const patch: Record<string, unknown> = {};
+  if (input.label !== undefined) {
+    const label = input.label?.trim() ?? "";
+    if (!label) return { ok: false, error: "missing_label", status: 400 };
+    patch.label = label;
+  }
+  if (input.url !== undefined) {
+    const url = normalizeWebhookUrl(input.url);
+    if (!url) return { ok: false, error: "invalid_webhook_url", status: 400 };
+    patch.url = url;
+  }
+  if (input.eventTypes !== undefined) {
+    const eventTypes = normalizeWebhookEvents(input.eventTypes);
+    if (eventTypes.length === 0) {
+      return { ok: false, error: "missing_event_types", status: 400 };
+    }
+    patch.event_types = eventTypes;
+  }
+  if (input.active !== undefined && input.active !== null) {
+    patch.active = input.active === true;
+  }
+  if (Object.keys(patch).length === 0) {
+    return { ok: false, error: "empty_update", status: 400 };
+  }
+  const { data, error } = await db
+    .from("developer_webhooks")
+    .update(patch)
+    .eq("user_id", input.userId)
+    .eq("id", input.webhookId)
+    .select("id, label, url, event_types, active, last_delivery_at, last_delivery_state, created_at, updated_at")
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message, status: 409 };
+  if (!data) return { ok: false, error: "webhook_not_found", status: 404 };
+  return { ok: true, webhook: toWebhook(data as Record<string, unknown>) };
+}
+
 export async function runDeveloperMetricsRollup(args: {
   limit?: number;
 } = {}): Promise<DeveloperMetricsRollupResult> {
