@@ -3,7 +3,7 @@
 /**
  * Tab bar for /admin pages.
  *
- * Five tabs: Overview, Queue, Apps, Settings, Health. Active tab
+ * Six tabs: Overview, Queue, Apps, Cost, Settings, Health. Active tab
  * uses the current pathname so deep-links highlight correctly.
  *
  * Kept dumb — no data fetches, no badges, no counts. The pages
@@ -24,6 +24,7 @@ const TABS: Tab[] = [
   { href: "/admin", label: "Overview" },
   { href: "/admin/review-queue", label: "Queue" },
   { href: "/admin/apps", label: "Apps" },
+  { href: "/admin/cost", label: "Cost" },
   { href: "/admin/settings", label: "Settings" },
   { href: "/admin/health", label: "Health" },
 ];
