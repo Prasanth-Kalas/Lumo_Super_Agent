@@ -3,7 +3,6 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Codex | Lumo_Super_Agent_codex | codex/marketplace-1-distribution | 2026-04-29 | MARKETPLACE-1 distribution |
-| Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chat-1 | 2026-04-29 | MOBILE-CHAT-1 native iOS chat |
 
 ## Closed lanes
 
@@ -13,6 +12,7 @@
 | Codex | Lumo_Super_Agent | codex/adr-017-draft | 2026-04-29 | 2026-04-29 | ADR-017 merchant-of-record agent track |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-bootstrap | 2026-04-29 | 2026-04-29 | iOS bootstrap (monorepo + hello iOS) |
 | Codex | Lumo_Super_Agent_codex | codex/perm-1-permissions-and-consent | 2026-04-29 | 2026-04-29 | PERM-1 permissions and consent |
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chat-1 | 2026-04-29 | 2026-04-29 | MOBILE-CHAT-1A foundation (auth/perf deferred to 1B) |
 
 ## Last push
 
@@ -25,3 +25,4 @@
 - 2026-04-29 — claude-code/ios-bootstrap merged to main; Claude Code moves to MOBILE-CHAT-1
 - 2026-04-29 — PERM-1 migration 037 drafted and pushed for early schema review
 - 2026-04-29 — PERM-1 merged to main after reviewer approval; Codex moves to MARKETPLACE-1
+- 2026-04-29 — claude-code/mobile-chat-1 (1A foundation) merged to main; Claude Code queued for MOBILE-CHAT-1B
