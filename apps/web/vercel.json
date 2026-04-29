@@ -47,6 +47,9 @@
     },
     "app/api/cron/agent-health-monitor/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/docs-weekly-digest/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -105,6 +108,10 @@
     {
       "path": "/api/cron/agent-health-monitor",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/docs-weekly-digest",
+      "schedule": "0 14 * * 1"
     }
   ]
 }

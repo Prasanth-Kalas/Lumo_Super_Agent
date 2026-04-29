@@ -86,6 +86,7 @@ const KNOWN_CRONS = [
   "/api/cron/cost-monthly-digest",
   "/api/cron/developer-metrics-rollup",
   "/api/cron/agent-health-monitor",
+  "/api/cron/docs-weekly-digest",
 ] as const;
 
 /**
