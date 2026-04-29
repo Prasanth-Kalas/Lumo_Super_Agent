@@ -1,0 +1,13 @@
+{
+  "name": "@lumo/sample-stub-merchant-1",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-strip-types tests/unit.test.mts && node --experimental-strip-types tests/e2e.test.mts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@lumo/agent-sdk": "git+https://github.com/Prasanth-Kalas/Lumo_Agent_SDK.git#9ebf421de5093e9ae900c94d7b4e999be014cd70"
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "agent_id": "stub-merchant-1",
+  "version": "1.0.0",
+  "agent_class": "merchant_of_record",
+  "domain": "commerce",
+  "display_name": "Stub Merchant 1",
+  "one_liner": "Book a synthetic $1 reservation through the merchant-of-record path.",
+  "intents": ["merchant.book_test_reservation", "merchant.refund_test_reservation"],
+  "example_utterances": [
+    "Book a test reservation",
+    "Run a one dollar merchant payment",
+    "Refund my test reservation"
+  ],
+  "openapi_url": "https://samples.lumo.rentals/stub-merchant-1/openapi.json",
+  "ui": { "components": ["PaymentConfirmationCard"] },
+  "health_url": "https://samples.lumo.rentals/stub-merchant-1/health",
+  "sla": {
+    "p50_latency_ms": 650,
+    "p95_latency_ms": 1800,
+    "availability_target": 0.995
+  },
+  "pii_scope": ["payment_method_id", "email"],
+  "requires_payment": true,
+  "supported_regions": ["US"],
+  "capabilities": {
+    "sdk_version": "0.4.5",
+    "supports_compound_bookings": false,
+    "implements_cancellation": true
+  },
+  "connect": { "model": "lumo_id", "audience": "stub-merchant-1" },
+  "listing": {
+    "category": "Developer tools",
+    "pricing_note": "Test mode only",
+    "about_paragraphs": [
+      "Reference merchant-of-record agent for MERCHANT-1.",
+      "Demonstrates per-transaction confirmation, idempotency, Stripe PaymentIntent creation, and synthetic reservation provenance."
+    ]
+  },
+  "owner_team": "Lumo Samples",
+  "merchant_provider": "stripe_payments",
+  "commerce": {
+    "provider": "stripe_payments",
+    "settlement_currency": "USD",
+    "test_mode": true,
+    "requires_confirmation": true
+  },
+  "transaction_capabilities": [
+    {
+      "id": "book_test_reservation",
+      "kind": "book_test_reservation",
+      "idempotency_key_field": "idempotency_key",
+      "max_single_transaction_amount": {
+        "amount": 1,
+        "currency": "USD"
+      },
+      "refund_eligibility_window": "P7D",
+      "compensation_action_capability_id": "refund_test_reservation",
+      "requires_confirmation": true
+    },
+    {
+      "id": "refund_test_reservation",
+      "kind": "refund_payment",
+      "idempotency_key_field": "idempotency_key",
+      "max_single_transaction_amount": {
+        "amount": 1,
+        "currency": "USD"
+      },
+      "refund_eligibility_window": "P7D",
+      "requires_confirmation": true
+    }
+  ],
+  "x_lumo_sample": {
+    "trust_tier_target": "verified",
+    "runtime": "e2b",
+    "requires": {
+      "brain_tools": [],
+      "connectors": ["stripe-payments", "mock-merchant"],
+      "scopes": [
+        "write.financial.transfer.up_to_per_invocation:1_usd:per_day:5_usd",
+        "write.merchant.reservation"
+      ]
+    },
+    "cost_model": {
+      "max_cost_usd_per_invocation": 0.08
+    }
+  }
+}

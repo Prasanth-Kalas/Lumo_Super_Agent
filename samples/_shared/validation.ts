@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parseManifest, type AgentManifest } from "@lumo/agent-sdk";
 import type { SampleManifestExtension } from "./runtime.ts";
+import { validateMerchantManifest } from "../../packages/lumo-agent-sdk/src/manifest.ts";
 
 export interface SampleManifestValidation {
   manifest: AgentManifest;
@@ -20,6 +21,11 @@ export function validateSampleManifestFile(path: string): SampleManifestValidati
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
     manifest = {} as AgentManifest;
+  }
+
+  if (raw.agent_class === "merchant_of_record") {
+    const merchantValidation = validateMerchantManifest(raw);
+    errors.push(...merchantValidation.errors);
   }
 
   const extension = raw.x_lumo_sample as SampleManifestExtension | undefined;

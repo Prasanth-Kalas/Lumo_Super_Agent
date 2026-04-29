@@ -14,6 +14,7 @@ import emailAgent, {
 import rentalsAgent, {
   fixtureRental,
 } from "../../../samples/lumo-rentals-trip-planner/src/index.ts";
+import stubMerchantAgent from "../../../samples/stub-merchant-1/src/index.ts";
 import {
   createSampleContext,
   invokeSampleAgent,
@@ -57,6 +58,12 @@ const samples = [
     agent: rentalsAgent,
     capability: "book_rental",
     expectedTier: "official",
+  },
+  {
+    dir: `${samplesRoot}/samples/stub-merchant-1`,
+    agent: stubMerchantAgent,
+    capability: "book_test_reservation",
+    expectedTier: "verified",
   },
 ];
 
@@ -196,6 +203,56 @@ await t("lumo-rentals-trip-planner confirms booking with provenance chain", asyn
   );
   assertCostWithinManifest(
     validateSampleManifestFile(`${samplesRoot}/samples/lumo-rentals-trip-planner/lumo-agent.json`),
+    result.cost_actuals.usd,
+  );
+});
+
+await t("stub-merchant-1 returns merchant confirmation before charging", async () => {
+  const result = await invokeSampleAgent(
+    stubMerchantAgent,
+    "book_test_reservation",
+    { idempotency_key: "merchant_ci" },
+    createSampleContext({ request_id: "merchant_ci" }),
+  );
+  assert.equal(result.status, "needs_confirmation");
+  assert.equal(result.confirmation_card?.amount_cents, 100);
+  assert.equal(result.confirmation_card?.currency, "USD");
+  assert.match(result.confirmation_card?.side_effect_summary ?? "", /Stripe/);
+});
+
+await t("stub-merchant-1 executes deterministic test reservation", async () => {
+  const ctx = createSampleContext({
+    request_id: "merchant_ci",
+    connectors: {
+      "stripe-payments": {
+        createPaymentIntent: async () => ({
+          payment_intent_id: "pi_stub_merchant_ci",
+          transaction_id: "txn_stub_merchant_ci",
+        }),
+      },
+      "mock-merchant": {
+        reserve: async () => ({ reservation_id: "res_stub_merchant_ci" }),
+      },
+    },
+  });
+  const result = await invokeSampleAgent(
+    stubMerchantAgent,
+    "book_test_reservation",
+    {
+      confirmed: true,
+      idempotency_key: "merchant_ci",
+      payment_method_id: "pm_card_visa_lumo_test",
+    },
+    ctx,
+  );
+  assert.equal(result.status, "succeeded");
+  assert.equal(
+    (result.outputs ?? {}).payment_intent_id,
+    "pi_stub_merchant_ci",
+  );
+  assert.equal((result.outputs ?? {}).reservation_id, "res_stub_merchant_ci");
+  assertCostWithinManifest(
+    validateSampleManifestFile(`${samplesRoot}/samples/stub-merchant-1/lumo-agent.json`),
     result.cost_actuals.usd,
   );
 });
