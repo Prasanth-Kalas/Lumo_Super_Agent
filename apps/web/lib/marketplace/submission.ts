@@ -19,6 +19,8 @@ import {
   type TyposquatResult,
 } from "./typosquatting.js";
 import { signatureRequirementError } from "./submission-policy.js";
+import { runChecks } from "../trust/check-pipeline.js";
+import { enqueueSubmissionReview } from "../trust/queue.js";
 
 export interface SubmitMarketplaceAgentInput {
   manifest: unknown;
@@ -35,12 +37,13 @@ export interface MarketplaceSubmissionResult {
   agent_id: string;
   version: string;
   state: "pending_review" | "published";
-  review_state: "pending_review" | "automated_passed";
+  review_state: "pending_review" | "automated_passed" | "approved" | "rejected";
   trust_tier: MarketplaceTrustTier;
   bundle_path: string;
   bundle_sha256: string;
   bundle_size_bytes: number;
   signature_verified: boolean;
+  automated_checks: unknown;
   status_url: string;
 }
 
@@ -95,10 +98,8 @@ export async function submitMarketplaceAgent(
     }
   }
   const now = new Date().toISOString();
-  const autoPublish = trustTier === "experimental";
-  const state = autoPublish ? "published" : "pending_review";
-  const reviewState = autoPublish ? "automated_passed" : "pending_review";
-  const publishedAt = autoPublish ? now : null;
+  const state = "pending_review";
+  const reviewState = "pending_review";
   const category = categoryFromManifest(manifest);
 
   // TRUST-1 owns static analysis, malware scanning, and signature verification
@@ -121,7 +122,7 @@ export async function submitMarketplaceAgent(
       support_url: safeStringAt(manifest, ["listing", "support_url"]) ?? safeStringAt(manifest, ["support_url"]),
       data_retention_policy: safeStringAt(manifest, ["data_retention_policy"]),
       tags: tagsFromManifest(manifest),
-      published_at: publishedAt,
+      published_at: null,
       updated_at: now,
     },
     { onConflict: "agent_id" },
@@ -148,7 +149,7 @@ export async function submitMarketplaceAgent(
       signature_verified_at: signatureVerified ? now : null,
       signature_verification_error: signatureVerificationError,
       review_state: reviewState,
-      published_at: publishedAt,
+      published_at: null,
       updated_at: now,
       yanked: false,
       yanked_reason: null,
@@ -162,16 +163,70 @@ export async function submitMarketplaceAgent(
     });
   }
 
+  const checkReport = await runChecks({
+    agentId: manifest.agent_id,
+    agentVersion: manifest.version,
+    manifest,
+    bundleBytes: input.bundleBytes,
+  });
+
+  let finalState: "pending_review" | "published" = "pending_review";
+  let finalReviewState: "automated_passed" | "approved" | "rejected" =
+    checkReport.passed ? "automated_passed" : "rejected";
+  if (!checkReport.passed) {
+    await db
+      .from("marketplace_agent_versions")
+      .update({ review_state: "rejected", updated_at: new Date().toISOString() })
+      .eq("agent_id", manifest.agent_id)
+      .eq("version", manifest.version);
+  } else if (trustTier === "experimental") {
+    finalState = "published";
+    finalReviewState = "approved";
+    const publishedNow = new Date().toISOString();
+    await db
+      .from("marketplace_agent_versions")
+      .update({
+        review_state: "approved",
+        published_at: publishedNow,
+        updated_at: publishedNow,
+      })
+      .eq("agent_id", manifest.agent_id)
+      .eq("version", manifest.version);
+    await db
+      .from("marketplace_agents")
+      .update({
+        state: "published",
+        current_version: manifest.version,
+        published_at: publishedNow,
+        updated_at: publishedNow,
+      })
+      .eq("agent_id", manifest.agent_id);
+  } else {
+    await db
+      .from("marketplace_agent_versions")
+      .update({ review_state: "automated_passed", updated_at: new Date().toISOString() })
+      .eq("agent_id", manifest.agent_id)
+      .eq("version", manifest.version);
+    await enqueueSubmissionReview({
+      db,
+      agentId: manifest.agent_id,
+      version: manifest.version,
+      targetTier: trustTier,
+      automatedChecks: checkReport as unknown as Record<string, unknown>,
+    });
+  }
+
   return {
     agent_id: manifest.agent_id,
     version: manifest.version,
-    state,
-    review_state: reviewState,
+    state: finalState,
+    review_state: finalReviewState,
     trust_tier: trustTier,
     bundle_path: stored.path,
     bundle_sha256: stored.sha256,
     bundle_size_bytes: stored.sizeBytes,
     signature_verified: signatureVerified,
+    automated_checks: checkReport,
     status_url: `/api/marketplace/submissions/${encodeURIComponent(manifest.agent_id)}/status?version=${encodeURIComponent(manifest.version)}`,
   };
 }
