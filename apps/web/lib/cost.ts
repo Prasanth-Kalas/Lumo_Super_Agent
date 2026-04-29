@@ -1,33 +1,56 @@
 /**
  * COST-1 metering and budget enforcement.
  *
- * This is the application boundary for migration 039. It intentionally keeps
- * cost evidence structured and boring so dashboards, cron digests, and future
- * billing reconciliation can all read the same payload without shape guessing.
+ * DB-facing application boundary for migration 039. Pure math and shaping
+ * live in cost-core.ts so tests can exercise them without Supabase.
  */
 
-import { createHash, randomUUID } from "node:crypto";
-import type { AgentManifest, ToolRoutingEntry } from "@lumo/agent-sdk";
 import { getSupabase } from "./db.js";
 import { deliver } from "./notifications.js";
+import {
+  buildCostLogRow,
+  buildCostRollupRows,
+  deterministicUuid,
+  digestBody,
+  evaluateBudgetCap,
+  estimateCostForRouting,
+  extractInvocationCostActuals,
+  estimateModelTokenCost,
+  chooseFallbackModel,
+  int,
+  isoDate,
+  isoMonthStart,
+  money,
+  nullableMoney,
+  previousUtcMonth,
+  utcDayRange,
+  utcMonthRange,
+  type ActualCostEstimate,
+  type BudgetCapCheckResult,
+  type BudgetTier,
+  type BudgetWindow,
+  type CostEvidence,
+  type CostLogStatus,
+  type CostModelEstimate,
+  type CostRollupSourceRow,
+} from "./cost-core.js";
 
-export type CostLogStatus = "completed" | "aborted_budget" | "aborted_error";
-export type BudgetWindow = "daily" | "monthly";
-export type BudgetTier = "free" | "pro" | "enterprise";
-
-export interface CostEvidence {
-  forecast_usd?: number;
-  forecast_source?: string;
-  actual_source?: string;
-  fallback_model_used?: string | false;
-  budget_code?: string;
-  budget_reason?: string;
-  cap_usd?: number | null;
-  remaining_daily_usd?: number | null;
-  remaining_monthly_usd?: number | null;
-  original_request_id?: string;
-  [key: string]: unknown;
-}
+export {
+  chooseFallbackModel,
+  deterministicUuid,
+  digestBody,
+  estimateCostForRouting,
+  estimateModelTokenCost,
+  evaluateBudgetCap,
+  extractInvocationCostActuals,
+  type ActualCostEstimate,
+  type BudgetCapCheckResult,
+  type BudgetTier,
+  type BudgetWindow,
+  type CostEvidence,
+  type CostLogStatus,
+  type CostModelEstimate,
+};
 
 export interface InvocationCostInput {
   requestId?: string;
@@ -83,58 +106,6 @@ export interface BudgetCapCheckInput {
   requestId?: string;
 }
 
-export type BudgetCapCheckResult =
-  | {
-      ok: true;
-      projectedCostUsd: number;
-      capUsd: number | null;
-      remainingDailyUsd: number | null;
-      remainingMonthlyUsd: number | null;
-      tier: BudgetTier | null;
-      softCap: boolean;
-      evidence: CostEvidence;
-    }
-  | {
-      ok: false;
-      reason:
-        | "persistence_unavailable"
-        | "per_invocation_cap_exceeded"
-        | "daily_budget_exceeded"
-        | "monthly_budget_exceeded";
-      message: string;
-      projectedCostUsd: number;
-      capUsd: number | null;
-      remainingDailyUsd: number | null;
-      remainingMonthlyUsd: number | null;
-      tier: BudgetTier | null;
-      softCap: boolean;
-      evidence: CostEvidence;
-    };
-
-export interface CostModelEstimate {
-  projectedCostUsd: number;
-  maxCostUsdPerInvocation: number | null;
-  modelUsed: string | null;
-  forecastSource: string;
-}
-
-export interface ActualCostEstimate {
-  promptTokens: number;
-  completionTokens: number;
-  brainCallsUsd: number;
-  brainCallCount: number;
-  modelTokensInput: number;
-  modelTokensOutput: number;
-  modelTokensCostUsd: number;
-  connectorCalls: number;
-  connectorCallsUsd: number;
-  costUsdTotal: number;
-  costUsdPlatform: number;
-  costUsdDeveloperShare: number;
-  modelUsed: string | null;
-  evidence: CostEvidence;
-}
-
 export class BudgetExceededError extends Error {
   readonly code = "BUDGET_EXCEEDED";
   readonly detail: Record<string, unknown>;
@@ -144,23 +115,6 @@ export class BudgetExceededError extends Error {
     this.name = "BudgetExceededError";
     this.detail = detail;
   }
-}
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const DEFAULT_TIER_DAILY_CAP_USD = 0.5;
-const DEFAULT_TIER_MONTHLY_CAP_USD = 5;
-
-export function deterministicUuid(input?: string | null): string {
-  if (input && UUID_RE.test(input)) return input.toLowerCase();
-  if (!input) return randomUUID();
-  const hex = createHash("sha256").update(input).digest("hex").slice(0, 32).split("");
-  hex[12] = "5";
-  const variant = Number.parseInt(hex[16] ?? "0", 16);
-  hex[16] = ((variant & 0x3) | 0x8).toString(16);
-  const joined = hex.join("");
-  return `${joined.slice(0, 8)}-${joined.slice(8, 12)}-${joined.slice(12, 16)}-${joined.slice(16, 20)}-${joined.slice(20)}`;
 }
 
 export async function recordInvocationCost(input: InvocationCostInput): Promise<{
@@ -176,51 +130,7 @@ export async function recordInvocationCost(input: InvocationCostInput): Promise<
   const requestId = deterministicUuid(input.requestId);
   if (!db) return { ok: false, requestId, error: "cost_persistence_unavailable" };
 
-  const promptTokens = int(input.promptTokens);
-  const completionTokens = int(input.completionTokens);
-  const modelTokensInput = int(input.modelTokensInput ?? promptTokens);
-  const modelTokensOutput = int(input.modelTokensOutput ?? completionTokens);
-  const brainCallsUsd = money(input.brainCallsUsd);
-  const modelTokensCostUsd = money(input.modelTokensCostUsd);
-  const connectorCallsUsd = money(input.connectorCallsUsd);
-  const computedTotal = money(brainCallsUsd + modelTokensCostUsd + connectorCallsUsd);
-  const total = money(input.costUsdTotal ?? computedTotal);
-  const developerShare = money(input.costUsdDeveloperShare);
-  const platformShare = money(input.costUsdPlatform ?? Math.max(0, total - developerShare));
-  const evidence: CostEvidence = {
-    ...(input.evidence ?? {}),
-    fallback_model_used: input.evidence?.fallback_model_used ?? false,
-  };
-  if (input.requestId && input.requestId !== requestId) {
-    evidence.original_request_id = input.requestId;
-  }
-
-  const row = {
-    request_id: requestId,
-    user_id: input.userId,
-    agent_id: input.agentId,
-    agent_version: input.agentVersion,
-    capability_id: input.capabilityId ?? null,
-    mission_id: input.missionId ?? null,
-    mission_step_id: input.missionStepId ?? null,
-    model_used: input.modelUsed ?? null,
-    prompt_tokens: promptTokens,
-    completion_tokens: completionTokens,
-    brain_calls_usd: brainCallsUsd,
-    brain_call_count: int(input.brainCallCount),
-    model_tokens_input: modelTokensInput,
-    model_tokens_output: modelTokensOutput,
-    model_tokens_cost_usd: modelTokensCostUsd,
-    connector_calls: int(input.connectorCalls),
-    connector_calls_usd: connectorCallsUsd,
-    cost_usd_total: Math.max(total, platformShare + developerShare),
-    cost_usd_platform: platformShare,
-    cost_usd_developer_share: developerShare,
-    total_usd: Math.max(total, brainCallsUsd + modelTokensCostUsd + connectorCallsUsd),
-    status: input.status ?? "completed",
-    evidence,
-  };
-
+  const row = buildCostLogRow(input);
   const { error } = await db.from("agent_cost_log").upsert(row, { onConflict: "request_id" });
   if (error) {
     console.error("[cost] recordInvocationCost failed:", error.message);
@@ -276,101 +186,51 @@ export async function getUserCurrentSpend(
 export async function checkBudgetCap(
   input: BudgetCapCheckInput,
 ): Promise<BudgetCapCheckResult> {
-  const projectedCostUsd = money(input.projectedCostUsd);
-  const manifestCap = nullableMoney(input.manifestMaxCostUsd);
-  const grantCap = nullableMoney(input.userGrantMaxCostUsd);
-  const perInvocationCap = minNullable(manifestCap, grantCap);
-
-  if (!input.userId || input.userId === "anon" || projectedCostUsd <= 0) {
-    return {
-      ok: true,
-      projectedCostUsd,
-      capUsd: perInvocationCap,
-      remainingDailyUsd: null,
-      remainingMonthlyUsd: null,
-      tier: null,
-      softCap: false,
-      evidence: {
-        forecast_usd: projectedCostUsd,
-        forecast_source: projectedCostUsd <= 0 ? "zero_cost" : "anonymous_skip",
-        cap_usd: perInvocationCap,
-      },
-    };
-  }
-
-  if (perInvocationCap !== null && projectedCostUsd > perInvocationCap) {
-    return deniedBudget({
-      reason: "per_invocation_cap_exceeded",
-      message: "This agent call would exceed the per-invocation budget cap.",
-      projectedCostUsd,
-      capUsd: perInvocationCap,
-      remainingDailyUsd: null,
-      remainingMonthlyUsd: null,
-      tier: null,
-      softCap: false,
+  if (!input.userId || input.userId === "anon" || money(input.projectedCostUsd) <= 0) {
+    return evaluateBudgetCap({
+      userId: input.userId,
+      projectedCostUsd: input.projectedCostUsd,
+      manifestMaxCostUsd: input.manifestMaxCostUsd,
+      userGrantMaxCostUsd: input.userGrantMaxCostUsd,
     });
   }
 
+  const manifestCap = nullableMoney(input.manifestMaxCostUsd);
+  const grantCap = nullableMoney(input.userGrantMaxCostUsd);
+  const perInvocationOnly = evaluateBudgetCap({
+    userId: input.userId,
+    projectedCostUsd: input.projectedCostUsd,
+    manifestMaxCostUsd: manifestCap,
+    userGrantMaxCostUsd: grantCap,
+  });
+  if (!perInvocationOnly.ok) return perInvocationOnly;
+
   const db = getSupabase();
   if (!db) {
-    return {
-      ok: false,
-      reason: "persistence_unavailable",
-      message: "Cost persistence is unavailable, so Lumo cannot safely check this budget.",
-      projectedCostUsd,
-      capUsd: perInvocationCap,
-      remainingDailyUsd: null,
-      remainingMonthlyUsd: null,
-      tier: null,
-      softCap: false,
-      evidence: {
-        forecast_usd: projectedCostUsd,
-        forecast_source: "cost_persistence_unavailable",
-        budget_code: "PERSISTENCE_UNAVAILABLE",
-        cap_usd: perInvocationCap,
-      },
-    };
+    return evaluateBudgetCap({
+      userId: input.userId,
+      projectedCostUsd: input.projectedCostUsd,
+      manifestMaxCostUsd: manifestCap,
+      userGrantMaxCostUsd: grantCap,
+      persistenceAvailable: false,
+    });
   }
 
   const budget = await getBudgetTier(input.userId);
   const dailySpend = await getUserCurrentSpend(input.userId, "daily");
   const monthlySpend = await getUserCurrentSpend(input.userId, "monthly");
-  const dailyCap = budget.effectiveDailyCapUsd;
-  const monthlyCap = budget.effectiveMonthlyCapUsd;
-  const remainingDaily = dailyCap === null ? null : money(dailyCap - dailySpend.costUsdTotal);
-  const remainingMonthly = monthlyCap === null ? null : money(monthlyCap - monthlySpend.costUsdTotal);
-  const effectiveCap = minNullable(perInvocationCap, remainingDaily, remainingMonthly);
-  const common = {
-    projectedCostUsd,
-    capUsd: effectiveCap,
-    remainingDailyUsd: remainingDaily,
-    remainingMonthlyUsd: remainingMonthly,
+  return evaluateBudgetCap({
+    userId: input.userId,
+    projectedCostUsd: input.projectedCostUsd,
+    manifestMaxCostUsd: manifestCap,
+    userGrantMaxCostUsd: grantCap,
+    dailyCapUsd: budget.effectiveDailyCapUsd,
+    monthlyCapUsd: budget.effectiveMonthlyCapUsd,
+    dailySpendUsd: dailySpend.costUsdTotal,
+    monthlySpendUsd: monthlySpend.costUsdTotal,
     tier: budget.tier,
     softCap: budget.softCap,
-  };
-
-  if (remainingDaily !== null && projectedCostUsd > remainingDaily) {
-    if (budget.softCap) {
-      return allowedWithEvidence(common, "daily_soft_cap_exceeded");
-    }
-    return deniedBudget({
-      ...common,
-      reason: "daily_budget_exceeded",
-      message: "This call would exceed your daily Lumo agent budget.",
-    });
-  }
-  if (remainingMonthly !== null && projectedCostUsd > remainingMonthly) {
-    if (budget.softCap) {
-      return allowedWithEvidence(common, "monthly_soft_cap_exceeded");
-    }
-    return deniedBudget({
-      ...common,
-      reason: "monthly_budget_exceeded",
-      message: "This call would exceed your monthly Lumo agent budget.",
-    });
-  }
-
-  return allowedWithEvidence(common, "budget_checked");
+  });
 }
 
 export async function enforceCap(input: BudgetCapCheckInput): Promise<BudgetCapCheckResult> {
@@ -385,120 +245,27 @@ export async function enforceCap(input: BudgetCapCheckInput): Promise<BudgetCapC
   return result;
 }
 
-export function estimateCostForRouting(
-  manifest: AgentManifest,
-  routing: ToolRoutingEntry,
-): CostModelEstimate {
-  const manifestRecord = manifest as AgentManifest & Record<string, unknown>;
-  const maxCostUsdPerInvocation = firstNumberAt(manifestRecord, [
-    ["cost_model", "max_cost_usd_per_invocation"],
-    ["x_lumo", "cost_model", "max_cost_usd_per_invocation"],
-    ["x_lumo_sample", "cost_model", "max_cost_usd_per_invocation"],
-    ["pricing", "max_cost_usd_per_invocation"],
-  ]);
-  const declaredProjected = firstNumberAt(manifestRecord, [
-    ["cost_model", "per_invocation_usd"],
-    ["cost_model", "projected_cost_usd"],
-    ["x_lumo", "cost_model", "per_invocation_usd"],
-    ["x_lumo_sample", "cost_model", "per_invocation_usd"],
-    ["pricing", "per_invocation_usd"],
-  ]);
-  const projectedCostUsd = money(declaredProjected ?? defaultProjectedCostForTier(routing.cost_tier));
-  const modelUsed =
-    stringAt(manifestRecord, ["cost_model", "model"]) ??
-    stringAt(manifestRecord, ["x_lumo", "cost_model", "model"]) ??
-    stringAt(manifestRecord, ["x_lumo_sample", "cost_model", "model"]);
-
-  return {
-    projectedCostUsd,
-    maxCostUsdPerInvocation: nullableMoney(maxCostUsdPerInvocation),
-    modelUsed,
-    forecastSource: declaredProjected === null ? `cost_tier:${routing.cost_tier}` : "manifest_cost_model",
+export interface RollupApplyResult {
+  ok: boolean;
+  counts: {
+    scanned: number;
+    users: number;
+    upserted: number;
+    errors: number;
   };
+  errors: string[];
 }
 
-export function extractInvocationCostActuals(
-  result: unknown,
-  context: {
-    manifest: AgentManifest;
-    routing: ToolRoutingEntry;
-    forecast: CostModelEstimate;
-    status?: CostLogStatus;
-    budgetEvidence?: CostEvidence;
-  },
-): ActualCostEstimate {
-  const costActuals = isRecord(result) ? findCostActuals(result) : null;
-  const promptTokens = int(
-    numberAt(costActuals, ["model_tokens_input"]) ??
-      numberAt(costActuals, ["prompt_tokens"]) ??
-      numberAt(result, ["usage", "input_tokens"]),
-  );
-  const completionTokens = int(
-    numberAt(costActuals, ["model_tokens_output"]) ??
-      numberAt(costActuals, ["completion_tokens"]) ??
-      numberAt(result, ["usage", "output_tokens"]),
-  );
-  const modelTokensCostUsd = money(
-    numberAt(costActuals, ["model_tokens_cost_usd"]) ??
-      numberAt(costActuals, ["token_usd"]) ??
-      (context.forecast.modelUsed
-        ? estimateModelTokenCost(context.forecast.modelUsed, promptTokens, completionTokens)
-        : 0),
-  );
-  const brainCallsUsd = money(numberAt(costActuals, ["brain_calls_usd"]) ?? 0);
-  const connectorCallsUsd = money(numberAt(costActuals, ["connector_calls_usd"]) ?? 0);
-  const explicitTotal = numberAt(costActuals, ["total_usd"]) ?? numberAt(costActuals, ["usd"]);
-  const fallbackTotal =
-    brainCallsUsd + modelTokensCostUsd + connectorCallsUsd > 0
-      ? brainCallsUsd + modelTokensCostUsd + connectorCallsUsd
-      : context.status === "completed"
-        ? context.forecast.projectedCostUsd
-        : 0;
-  const total = money(explicitTotal ?? fallbackTotal);
-  const developerShare = money(numberAt(costActuals, ["developer_share_usd"]) ?? 0);
-
-  return {
-    promptTokens,
-    completionTokens,
-    brainCallsUsd,
-    brainCallCount: int(numberAt(costActuals, ["brain_call_count"]) ?? (brainCallsUsd > 0 ? 1 : 0)),
-    modelTokensInput: promptTokens,
-    modelTokensOutput: completionTokens,
-    modelTokensCostUsd,
-    connectorCalls: int(numberAt(costActuals, ["connector_calls"]) ?? (connectorCallsUsd > 0 ? 1 : 0)),
-    connectorCallsUsd,
-    costUsdTotal: total,
-    costUsdPlatform: money(Math.max(0, total - developerShare)),
-    costUsdDeveloperShare: developerShare,
-    modelUsed: stringAt(costActuals, ["model_used"]) ?? context.forecast.modelUsed,
-    evidence: {
-      ...(context.budgetEvidence ?? {}),
-      forecast_usd: context.forecast.projectedCostUsd,
-      forecast_source: context.forecast.forecastSource,
-      actual_source: costActuals
-        ? "agent_cost_actuals"
-        : context.status === "completed"
-          ? "forecast_fallback"
-          : "no_result",
-      fallback_model_used:
-        context.budgetEvidence?.fallback_model_used ??
-        (stringAt(costActuals, ["fallback_model_used"]) ?? false),
-    },
+export interface CostDigestResult {
+  ok: boolean;
+  counts: {
+    rollup_users: number;
+    candidates: number;
+    sent: number;
+    skipped: number;
+    errors: number;
   };
-}
-
-export function estimateModelTokenCost(model: string, inputTokens: number, outputTokens: number): number {
-  const rates = anthropicRates(model);
-  return money((Math.max(0, inputTokens) / 1_000_000) * rates.input + (Math.max(0, outputTokens) / 1_000_000) * rates.output);
-}
-
-export function chooseFallbackModel(model: string): string | null {
-  const normalized = model.toLowerCase();
-  if (normalized.includes("opus")) return "claude-haiku-4-6";
-  if (normalized.includes("sonnet")) return "claude-haiku-4-6";
-  if (normalized.includes("gpt-5") && !normalized.includes("mini")) return "gpt-5-mini";
-  if (normalized.includes("gemini") && normalized.includes("pro")) return "gemini-flash";
-  return null;
+  errors: string[];
 }
 
 export async function applyDailyRollup(
@@ -527,29 +294,6 @@ export async function applyMonthlyRollup(
     range,
     limit: args.limit,
   });
-}
-
-export interface RollupApplyResult {
-  ok: boolean;
-  counts: {
-    scanned: number;
-    users: number;
-    upserted: number;
-    errors: number;
-  };
-  errors: string[];
-}
-
-export interface CostDigestResult {
-  ok: boolean;
-  counts: {
-    rollup_users: number;
-    candidates: number;
-    sent: number;
-    skipped: number;
-    errors: number;
-  };
-  errors: string[];
 }
 
 export async function runDailyCostDigest(
@@ -591,6 +335,198 @@ export async function runMonthlyCostDigest(
   });
 }
 
+export interface UserCostDashboard {
+  budget: {
+    tier: BudgetTier;
+    dailyCapUsd: number | null;
+    monthlyCapUsd: number | null;
+    softCap: boolean;
+  };
+  today: SpendSummary;
+  month: SpendSummary;
+  daily: Array<{ date: string; totalUsd: number; invocations: number }>;
+  agents: Array<{ agentId: string; totalUsd: number; invocations: number }>;
+  recent: Array<{
+    createdAt: string;
+    agentId: string;
+    capabilityId: string | null;
+    totalUsd: number;
+    status: CostLogStatus;
+    modelUsed: string | null;
+  }>;
+}
+
+export interface AdminCostDashboard {
+  todayUsd: number;
+  monthUsd: number;
+  platformUsd: number;
+  developerShareUsd: number;
+  invocationCount: number;
+  abortedBudgetCount: number;
+  fallbackCount: number;
+  dailyTrend: Array<{ date: string; totalUsd: number; invocations: number }>;
+  topAgents: Array<{ agentId: string; totalUsd: number; invocations: number }>;
+  topUsers: Array<{ userBucket: string; totalUsd: number; invocations: number }>;
+  anomalies: Array<{ userBucket: string; todayUsd: number; monthlyUsd: number; reason: string }>;
+}
+
+export async function getUserCostDashboard(userId: string): Promise<UserCostDashboard> {
+  const budget = await getBudgetTier(userId);
+  const [today, month] = await Promise.all([
+    getUserCurrentSpend(userId, "daily"),
+    getUserCurrentSpend(userId, "monthly"),
+  ]);
+  const db = getSupabase();
+  if (!db) {
+    return {
+      budget: {
+        tier: budget.tier,
+        dailyCapUsd: budget.effectiveDailyCapUsd,
+        monthlyCapUsd: budget.effectiveMonthlyCapUsd,
+        softCap: budget.softCap,
+      },
+      today,
+      month,
+      daily: [],
+      agents: [],
+      recent: [],
+    };
+  }
+
+  const monthRange = utcMonthRange(new Date());
+  const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const [{ data: dailyRows }, { data: monthRows }, { data: recentRows }] = await Promise.all([
+    db
+      .from("user_cost_rollups_daily")
+      .select("local_date, cost_usd_total, invocation_count")
+      .eq("user_id", userId)
+      .gte("local_date", isoDate(new Date(since30)))
+      .order("local_date", { ascending: true }),
+    db
+      .from("agent_cost_log")
+      .select("agent_id, cost_usd_total")
+      .eq("user_id", userId)
+      .gte("created_at", monthRange.start.toISOString())
+      .lt("created_at", monthRange.end.toISOString())
+      .limit(10_000),
+    db
+      .from("agent_cost_log")
+      .select("created_at, agent_id, capability_id, cost_usd_total, status, model_used")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(25),
+  ]);
+
+  return {
+    budget: {
+      tier: budget.tier,
+      dailyCapUsd: budget.effectiveDailyCapUsd,
+      monthlyCapUsd: budget.effectiveMonthlyCapUsd,
+      softCap: budget.softCap,
+    },
+    today,
+    month,
+    daily: ((dailyRows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      date: String(row.local_date ?? ""),
+      totalUsd: money(row.cost_usd_total),
+      invocations: int(row.invocation_count),
+    })),
+    agents: groupCostRowsByAgent((monthRows ?? []) as Array<Record<string, unknown>>),
+    recent: ((recentRows ?? []) as Array<Record<string, unknown>>).map((row) => ({
+      createdAt: String(row.created_at ?? ""),
+      agentId: String(row.agent_id ?? "unknown"),
+      capabilityId: typeof row.capability_id === "string" ? row.capability_id : null,
+      totalUsd: money(row.cost_usd_total),
+      status: isCostStatus(row.status) ? row.status : "completed",
+      modelUsed: typeof row.model_used === "string" ? row.model_used : null,
+    })),
+  };
+}
+
+export async function getAdminCostDashboard(): Promise<AdminCostDashboard> {
+  const db = getSupabase();
+  if (!db) {
+    return {
+      todayUsd: 0,
+      monthUsd: 0,
+      platformUsd: 0,
+      developerShareUsd: 0,
+      invocationCount: 0,
+      abortedBudgetCount: 0,
+      fallbackCount: 0,
+      dailyTrend: [],
+      topAgents: [],
+      topUsers: [],
+      anomalies: [],
+    };
+  }
+
+  const todayRange = utcDayRange(new Date());
+  const monthRange = utcMonthRange(new Date());
+  const since14 = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const [{ data: monthRows }, { data: todayRows }, { data: trendRows }] = await Promise.all([
+    db
+      .from("agent_cost_log")
+      .select("user_id, agent_id, cost_usd_total, cost_usd_platform, cost_usd_developer_share, status, evidence")
+      .gte("created_at", monthRange.start.toISOString())
+      .lt("created_at", monthRange.end.toISOString())
+      .limit(50_000),
+    db
+      .from("agent_cost_log")
+      .select("user_id, cost_usd_total")
+      .gte("created_at", todayRange.start.toISOString())
+      .lt("created_at", todayRange.end.toISOString())
+      .limit(50_000),
+    db
+      .from("user_cost_rollups_daily")
+      .select("local_date, cost_usd_total, invocation_count")
+      .gte("local_date", isoDate(since14))
+      .order("local_date", { ascending: true })
+      .limit(10_000),
+  ]);
+
+  const month = (monthRows ?? []) as Array<Record<string, unknown>>;
+  const today = (todayRows ?? []) as Array<Record<string, unknown>>;
+  const userMonthTotals = groupRowsByUser(month);
+  const userTodayTotals = groupRowsByUser(today);
+  const monthUsd = money(month.reduce((sum, row) => sum + money(row.cost_usd_total), 0));
+  const platformUsd = money(month.reduce((sum, row) => sum + money(row.cost_usd_platform), 0));
+  const developerShareUsd = money(month.reduce((sum, row) => sum + money(row.cost_usd_developer_share), 0));
+
+  return {
+    todayUsd: money(today.reduce((sum, row) => sum + money(row.cost_usd_total), 0)),
+    monthUsd,
+    platformUsd,
+    developerShareUsd,
+    invocationCount: month.length,
+    abortedBudgetCount: month.filter((row) => row.status === "aborted_budget").length,
+    fallbackCount: month.filter((row) => isRecord(row.evidence) && row.evidence.fallback_model_used).length,
+    dailyTrend: compactTrendRows((trendRows ?? []) as Array<Record<string, unknown>>),
+    topAgents: groupCostRowsByAgent(month),
+    topUsers: [...userMonthTotals.entries()]
+      .map(([userId, value]) => ({
+        userBucket: userBucket(userId),
+        totalUsd: value.totalUsd,
+        invocations: value.invocations,
+      }))
+      .sort((a, b) => b.totalUsd - a.totalUsd)
+      .slice(0, 10),
+    anomalies: [...userMonthTotals.entries()]
+      .map(([userId, monthValue]) => {
+        const todayValue = userTodayTotals.get(userId)?.totalUsd ?? 0;
+        const monthlyDailyAverage = monthValue.totalUsd / Math.max(1, new Date().getUTCDate());
+        return {
+          userBucket: userBucket(userId),
+          todayUsd: money(todayValue),
+          monthlyUsd: money(monthValue.totalUsd),
+          reason: todayValue >= Math.max(1, monthlyDailyAverage * 10) ? "10x daily average" : "",
+        };
+      })
+      .filter((row) => row.reason)
+      .slice(0, 10),
+  };
+}
+
 async function applyRollup(input: {
   table: "user_cost_rollups_daily" | "user_cost_rollups_monthly";
   keyColumn: "local_date" | "month_start";
@@ -614,57 +550,24 @@ async function applyRollup(input: {
     return { ok: false, counts: { scanned: 0, users: 0, upserted: 0, errors: 1 }, errors: [error.message] };
   }
 
-  const groups = new Map<string, RollupAccumulator>();
-  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
-    const userId = typeof row.user_id === "string" ? row.user_id : null;
-    if (!userId) continue;
-    const acc = groups.get(userId) ?? emptyRollup(userId);
-    acc.invocation_count++;
-    if (row.status === "aborted_budget") acc.aborted_budget_count++;
-    if (row.status === "aborted_error") acc.aborted_error_count++;
-    if (isRecord(row.evidence) && row.evidence.fallback_model_used) acc.fallback_count++;
-    acc.prompt_tokens += int(row.prompt_tokens);
-    acc.completion_tokens += int(row.completion_tokens);
-    acc.cost_usd_total = money(acc.cost_usd_total + money(row.cost_usd_total));
-    acc.cost_usd_platform = money(acc.cost_usd_platform + money(row.cost_usd_platform));
-    acc.cost_usd_developer_share = money(acc.cost_usd_developer_share + money(row.cost_usd_developer_share));
-    addTopAgent(acc, String(row.agent_id ?? "unknown"), money(row.cost_usd_total));
-    addCapability(acc, String(row.capability_id ?? "unknown"), money(row.cost_usd_total));
-    groups.set(userId, acc);
-  }
-
-  if (groups.size === 0) {
+  const rows = buildCostRollupRows((data ?? []) as CostRollupSourceRow[], input.range).map((row) => ({
+    ...row,
+    [input.keyColumn]: input.keyValue,
+  }));
+  if (rows.length === 0) {
     return { ok: true, counts: { scanned: (data ?? []).length, users: 0, upserted: 0, errors: 0 }, errors: [] };
   }
-
-  const rows = [...groups.values()].map((acc) => ({
-    user_id: acc.user_id,
-    [input.keyColumn]: input.keyValue,
-    window_start_at: input.range.start.toISOString(),
-    window_end_at: input.range.end.toISOString(),
-    invocation_count: acc.invocation_count,
-    aborted_budget_count: acc.aborted_budget_count,
-    aborted_error_count: acc.aborted_error_count,
-    fallback_count: acc.fallback_count,
-    prompt_tokens: acc.prompt_tokens,
-    completion_tokens: acc.completion_tokens,
-    cost_usd_total: acc.cost_usd_total,
-    cost_usd_platform: acc.cost_usd_platform,
-    cost_usd_developer_share: acc.cost_usd_developer_share,
-    top_agents: topAgentsJson(acc),
-    capability_breakdown: capabilityBreakdownJson(acc),
-  }));
 
   const { error: upsertError } = await db
     .from(input.table)
     .upsert(rows, { onConflict: input.keyColumn === "local_date" ? "user_id,local_date" : "user_id,month_start" });
   if (upsertError) {
-    return { ok: false, counts: { scanned: (data ?? []).length, users: groups.size, upserted: 0, errors: 1 }, errors: [upsertError.message] };
+    return { ok: false, counts: { scanned: (data ?? []).length, users: rows.length, upserted: 0, errors: 1 }, errors: [upsertError.message] };
   }
 
   return {
     ok: true,
-    counts: { scanned: (data ?? []).length, users: groups.size, upserted: rows.length, errors: 0 },
+    counts: { scanned: (data ?? []).length, users: rows.length, upserted: rows.length, errors: 0 },
     errors: [],
   };
 }
@@ -828,17 +731,18 @@ async function getBudgetTier(userId: string): Promise<{
   if (!db) {
     return {
       tier: "free",
-      effectiveDailyCapUsd: DEFAULT_TIER_DAILY_CAP_USD,
-      effectiveMonthlyCapUsd: DEFAULT_TIER_MONTHLY_CAP_USD,
+      effectiveDailyCapUsd: 0.5,
+      effectiveMonthlyCapUsd: 5,
       softCap: false,
     };
   }
+  const now = new Date().toISOString();
   const { data, error } = await db
     .from("user_budget_tiers")
     .select("tier, daily_cap_usd, monthly_cap_usd, daily_cap_override_usd, monthly_cap_override_usd, soft_cap, effective_from, effective_until")
     .eq("user_id", userId)
-    .lte("effective_from", new Date().toISOString())
-    .or(`effective_until.is.null,effective_until.gt.${new Date().toISOString()}`)
+    .lte("effective_from", now)
+    .or(`effective_until.is.null,effective_until.gt.${now}`)
     .maybeSingle();
   if (error) {
     console.error("[cost] getBudgetTier failed:", error.message);
@@ -847,8 +751,8 @@ async function getBudgetTier(userId: string): Promise<{
   const tier = row?.tier === "pro" || row?.tier === "enterprise" ? row.tier : "free";
   return {
     tier,
-    effectiveDailyCapUsd: nullableMoney(row?.daily_cap_override_usd ?? row?.daily_cap_usd ?? DEFAULT_TIER_DAILY_CAP_USD),
-    effectiveMonthlyCapUsd: nullableMoney(row?.monthly_cap_override_usd ?? row?.monthly_cap_usd ?? DEFAULT_TIER_MONTHLY_CAP_USD),
+    effectiveDailyCapUsd: nullableMoney(row?.daily_cap_override_usd ?? row?.daily_cap_usd ?? 0.5),
+    effectiveMonthlyCapUsd: nullableMoney(row?.monthly_cap_override_usd ?? row?.monthly_cap_usd ?? 5),
     softCap: row?.soft_cap === true,
   };
 }
@@ -875,225 +779,64 @@ async function sumLedgerSpend(userId: string, start: Date, end: Date): Promise<n
   );
 }
 
-function deniedBudget(input: {
-  reason: Extract<BudgetCapCheckResult, { ok: false }>["reason"];
-  message: string;
-  projectedCostUsd: number;
-  capUsd: number | null;
-  remainingDailyUsd: number | null;
-  remainingMonthlyUsd: number | null;
-  tier: BudgetTier | null;
-  softCap: boolean;
-}): BudgetCapCheckResult {
-  return {
-    ok: false,
-    ...input,
-    evidence: {
-      forecast_usd: input.projectedCostUsd,
-      forecast_source: "budget_preflight",
-      budget_code: "BUDGET_EXCEEDED",
-      budget_reason: input.reason,
-      cap_usd: input.capUsd,
-      remaining_daily_usd: input.remainingDailyUsd,
-      remaining_monthly_usd: input.remainingMonthlyUsd,
-      fallback_model_used: false,
-    },
-  };
-}
-
-function allowedWithEvidence(input: {
-  projectedCostUsd: number;
-  capUsd: number | null;
-  remainingDailyUsd: number | null;
-  remainingMonthlyUsd: number | null;
-  tier: BudgetTier | null;
-  softCap: boolean;
-}, source: string): Extract<BudgetCapCheckResult, { ok: true }> {
-  return {
-    ok: true,
-    ...input,
-    evidence: {
-      forecast_usd: input.projectedCostUsd,
-      forecast_source: source,
-      cap_usd: input.capUsd,
-      remaining_daily_usd: input.remainingDailyUsd,
-      remaining_monthly_usd: input.remainingMonthlyUsd,
-      fallback_model_used: false,
-    },
-  };
-}
-
-function defaultProjectedCostForTier(tier: ToolRoutingEntry["cost_tier"]): number {
-  if (tier === "money") return 0.05;
-  if (tier === "metered") return 0.01;
-  if (tier === "low") return 0.002;
-  return 0;
-}
-
-function findCostActuals(result: Record<string, unknown>): Record<string, unknown> | null {
-  const candidates = [
-    result.cost_actuals,
-    result._lumo_cost,
-    result.cost,
-    isRecord(result._lumo_summary) ? result._lumo_summary.cost_actuals : null,
-  ];
-  return candidates.find(isRecord) ?? null;
-}
-
-function anthropicRates(model: string): { input: number; output: number } {
-  const normalized = model.toLowerCase();
-  if (normalized.includes("opus")) return { input: 15, output: 75 };
-  if (normalized.includes("sonnet")) return { input: 3, output: 15 };
-  if (normalized.includes("haiku")) return { input: 0.25, output: 1.25 };
-  return { input: 3, output: 15 };
-}
-
-interface RollupAccumulator {
-  user_id: string;
-  invocation_count: number;
-  aborted_budget_count: number;
-  aborted_error_count: number;
-  fallback_count: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  cost_usd_total: number;
-  cost_usd_platform: number;
-  cost_usd_developer_share: number;
-  agentTotals: Map<string, { total_usd: number; invocation_count: number }>;
-  capabilityTotals: Map<string, { total_usd: number; invocation_count: number }>;
-}
-
-function emptyRollup(userId: string): RollupAccumulator {
-  return {
-    user_id: userId,
-    invocation_count: 0,
-    aborted_budget_count: 0,
-    aborted_error_count: 0,
-    fallback_count: 0,
-    prompt_tokens: 0,
-    completion_tokens: 0,
-    cost_usd_total: 0,
-    cost_usd_platform: 0,
-    cost_usd_developer_share: 0,
-    agentTotals: new Map(),
-    capabilityTotals: new Map(),
-  };
-}
-
-function addTopAgent(acc: RollupAccumulator, agentId: string, totalUsd: number): void {
-  const current = acc.agentTotals.get(agentId) ?? { total_usd: 0, invocation_count: 0 };
-  current.total_usd = money(current.total_usd + totalUsd);
-  current.invocation_count++;
-  acc.agentTotals.set(agentId, current);
-}
-
-function addCapability(acc: RollupAccumulator, capabilityId: string, totalUsd: number): void {
-  const current = acc.capabilityTotals.get(capabilityId) ?? { total_usd: 0, invocation_count: 0 };
-  current.total_usd = money(current.total_usd + totalUsd);
-  current.invocation_count++;
-  acc.capabilityTotals.set(capabilityId, current);
-}
-
-function topAgentsJson(acc: RollupAccumulator): Array<Record<string, unknown>> {
-  return [...acc.agentTotals.entries()]
-    .map(([agent_id, value]) => ({ agent_id, ...value }))
-    .sort((a, b) => Number(b.total_usd) - Number(a.total_usd))
-    .slice(0, 5);
-}
-
-function capabilityBreakdownJson(acc: RollupAccumulator): Record<string, Record<string, number>> {
-  const out: Record<string, Record<string, number>> = {};
-  for (const [capabilityId, value] of acc.capabilityTotals.entries()) {
-    out[capabilityId] = value;
+function groupCostRowsByAgent(rows: Array<Record<string, unknown>>): Array<{
+  agentId: string;
+  totalUsd: number;
+  invocations: number;
+}> {
+  const grouped = new Map<string, { totalUsd: number; invocations: number }>();
+  for (const row of rows) {
+    const agentId = String(row.agent_id ?? "unknown");
+    const current = grouped.get(agentId) ?? { totalUsd: 0, invocations: 0 };
+    current.totalUsd = money(current.totalUsd + money(row.cost_usd_total));
+    current.invocations++;
+    grouped.set(agentId, current);
   }
-  return out;
+  return [...grouped.entries()]
+    .map(([agentId, value]) => ({ agentId, ...value }))
+    .sort((a, b) => b.totalUsd - a.totalUsd)
+    .slice(0, 10);
 }
 
-function digestBody(
-  digestType: "daily" | "monthly",
-  spend: number,
-  invocationCount: number,
-  topAgents: unknown,
-): string {
-  const firstAgent =
-    Array.isArray(topAgents) && isRecord(topAgents[0]) && typeof topAgents[0].agent_id === "string"
-      ? ` Top agent: ${topAgents[0].agent_id}.`
-      : "";
-  return `Your ${digestType} Lumo agent spend was $${spend.toFixed(2)} across ${invocationCount} invocation${invocationCount === 1 ? "" : "s"}.${firstAgent}`;
-}
-
-function utcDayRange(date: Date): { start: Date; end: Date } {
-  const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-  return { start, end };
-}
-
-function utcMonthRange(date: Date): { start: Date; end: Date } {
-  const start = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-  const end = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
-  return { start, end };
-}
-
-function previousUtcMonth(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1));
-}
-
-function isoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function isoMonthStart(date: Date): string {
-  return isoDate(utcMonthRange(date).start);
-}
-
-function minNullable(...values: Array<number | null | undefined>): number | null {
-  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  return finite.length === 0 ? null : Math.min(...finite);
-}
-
-function nullableMoney(value: unknown): number | null {
-  if (value === null || value === undefined || value === "") return null;
-  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  return Number.isFinite(parsed) && parsed >= 0 ? money(parsed) : null;
-}
-
-function money(value: unknown): number {
-  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
-  return Math.round(parsed * 1_000_000) / 1_000_000;
-}
-
-function int(value: unknown): number {
-  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
-  return Math.trunc(parsed);
-}
-
-function firstNumberAt(record: Record<string, unknown>, paths: string[][]): number | null {
-  for (const path of paths) {
-    const value = numberAt(record, path);
-    if (value !== null) return value;
+function groupRowsByUser(rows: Array<Record<string, unknown>>): Map<string, {
+  totalUsd: number;
+  invocations: number;
+}> {
+  const grouped = new Map<string, { totalUsd: number; invocations: number }>();
+  for (const row of rows) {
+    const userId = String(row.user_id ?? "");
+    if (!userId) continue;
+    const current = grouped.get(userId) ?? { totalUsd: 0, invocations: 0 };
+    current.totalUsd = money(current.totalUsd + money(row.cost_usd_total));
+    current.invocations++;
+    grouped.set(userId, current);
   }
-  return null;
+  return grouped;
 }
 
-function numberAt(value: unknown, path: string[]): number | null {
-  let cursor = value;
-  for (const key of path) {
-    if (!isRecord(cursor)) return null;
-    cursor = cursor[key];
+function compactTrendRows(rows: Array<Record<string, unknown>>): Array<{
+  date: string;
+  totalUsd: number;
+  invocations: number;
+}> {
+  const byDate = new Map<string, { totalUsd: number; invocations: number }>();
+  for (const row of rows) {
+    const date = String(row.local_date ?? "");
+    if (!date) continue;
+    const current = byDate.get(date) ?? { totalUsd: 0, invocations: 0 };
+    current.totalUsd = money(current.totalUsd + money(row.cost_usd_total));
+    current.invocations += int(row.invocation_count);
+    byDate.set(date, current);
   }
-  const parsed = typeof cursor === "number" ? cursor : typeof cursor === "string" ? Number(cursor) : NaN;
-  return Number.isFinite(parsed) ? parsed : null;
+  return [...byDate.entries()].map(([date, value]) => ({ date, ...value }));
 }
 
-function stringAt(value: unknown, path: string[]): string | null {
-  let cursor = value;
-  for (const key of path) {
-    if (!isRecord(cursor)) return null;
-    cursor = cursor[key];
-  }
-  return typeof cursor === "string" && cursor.length > 0 ? cursor : null;
+function userBucket(userId: string): string {
+  return `user_${userId.replace(/-/g, "").slice(0, 8)}`;
+}
+
+function isCostStatus(value: unknown): value is CostLogStatus {
+  return value === "completed" || value === "aborted_budget" || value === "aborted_error";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
