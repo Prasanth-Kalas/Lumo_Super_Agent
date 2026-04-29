@@ -56,3 +56,4 @@
 - 2026-04-29 — DOCS branch opened; migration 042 drafted for early schema review
 - 2026-04-29 — DOCS complete for review: Docusaurus site, Phase 4 developer guides, TypeDoc API reference, publish workflow, feedback digest, and quickstart tests; gates green locally
 - 2026-04-30 — DOCS merged to main; Phase 4 SUBSTRATE COMPLETE — third-party agent SDK + marketplace + cost controls + permissions + dev dashboard + trust pipeline + developer documentation all shipped. Codex queued for Phase 4.5 kickoff.
+- 2026-04-30 — SDK submit CLI executable-bit fix merged to main; Phase 4 closes with no known engineering bug tail. Codex queued for MERCHANT-1 kickoff.
