@@ -27,3 +27,4 @@
 - 2026-04-29 — PERM-1 merged to main after reviewer approval; Codex moves to MARKETPLACE-1
 - 2026-04-29 — claude-code/mobile-chat-1 (1A foundation) merged to main; Claude Code queued for MOBILE-CHAT-1B
 - 2026-04-29 — MARKETPLACE-1 backend midpoint pushed: schema, catalog library, submissions, bundle storage, yank endpoint, version-sync cron
+- 2026-04-29 — MARKETPLACE-1 second half pushed: DB-backed browse/detail feed, PERM-1 install/uninstall wiring, submission/version tests; gates green
