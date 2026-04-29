@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/cost-1-metering-budgets | 2026-04-29 | COST-1 metering and budgets |
 
 ## Closed lanes
 
