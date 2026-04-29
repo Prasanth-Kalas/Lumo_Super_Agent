@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/docs | 2026-04-29 | DOCS developer documentation site |
 
 ## Closed lanes
 
@@ -19,6 +18,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/dev-dash | 2026-04-29 | 2026-04-29 | DEV-DASH developer dashboard |
 | Codex | Lumo_Super_Agent_codex | codex/trust-1-review-pipeline | 2026-04-29 | 2026-04-29 | TRUST-1 review pipeline |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-voice-1 | 2026-04-29 | 2026-04-29 | MOBILE-VOICE-1 native iOS voice path |
+| Codex | Lumo_Super_Agent_codex | codex/docs | 2026-04-29 | 2026-04-30 | DOCS developer documentation site |
 
 ## Last push
 
@@ -55,3 +55,4 @@
 - 2026-04-29 — claude-code/mobile-voice-1 wrap-up cherry-picked onto main; voice lane closed; iOS path complete
 - 2026-04-29 — DOCS branch opened; migration 042 drafted for early schema review
 - 2026-04-29 — DOCS complete for review: Docusaurus site, Phase 4 developer guides, TypeDoc API reference, publish workflow, feedback digest, and quickstart tests; gates green locally
+- 2026-04-30 — DOCS merged to main; Phase 4 SUBSTRATE COMPLETE — third-party agent SDK + marketplace + cost controls + permissions + dev dashboard + trust pipeline + developer documentation all shipped. Codex queued for Phase 4.5 kickoff.
