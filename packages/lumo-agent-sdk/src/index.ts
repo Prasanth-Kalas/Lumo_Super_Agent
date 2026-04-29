@@ -1,2 +1,2 @@
-export * from "./agent.js";
-export * from "./manifest.js";
+export * from "./agent.ts";
+export * from "./manifest.ts";

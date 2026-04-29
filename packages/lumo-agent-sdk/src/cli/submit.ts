@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { assertValidMerchantManifest } from "../manifest.js";
+import { assertValidMerchantManifest } from "../manifest.ts";
 
 export interface SubmitSigningMaterial {
   keyId: string;
