@@ -77,7 +77,7 @@ export default function AgentDetailPage() {
   const params = useParams();
   const router = useRouter();
   const sp = useSearchParams();
-  const agent_id = String(params?.agent_id ?? "");
+  const agent_id = decodeURIComponent(String(params?.agent_id ?? ""));
 
   const [agent, setAgent] = useState<MarketplaceAgent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -278,7 +278,9 @@ export default function AgentDetailPage() {
                   </span>
                 ) : null}
                 <span className="text-lumo-fg-low text-[11px]">·</span>
-                <span className="text-[11px] text-lumo-fg-low">v{agent.version}</span>
+                <span className="text-[11px] text-lumo-fg-low">
+                  {formatVersion(agent.version)}
+                </span>
               </div>
               <p className="text-[14px] text-lumo-fg-mid mt-2 max-w-xl">
                 {agent.one_liner}
@@ -593,6 +595,10 @@ function humanizeIntent(i: string): string {
     .split(/[_-]/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+function formatVersion(version: string): string {
+  return version.startsWith("v") ? version : `v${version}`;
 }
 
 function relativeTime(isoString: string): string {
