@@ -27,7 +27,12 @@ enum LumoColors {
     static let success = Color(.systemGreen)
 
     // Chat-specific
-    static let userBubble = cyan
+    //
+    // userBubble uses `cyanDeep` (the darker brand cyan) rather than
+    // the primary `cyan`. The primary cyan is too light to give white
+    // text the WCAG AA contrast (4.5:1) it needs at body size; the
+    // deep variant is calibrated for it. See ThemeContrastTests.
+    static let userBubble = cyanDeep
     static let userBubbleText = Color.white
     static let assistantBubble = Color(.secondarySystemBackground)
     static let assistantBubbleText = Color(.label)
