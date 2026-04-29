@@ -1,8 +1,8 @@
 # Example agents
 
-The Phase 4 SAMPLE-AGENTS sprint adds three local reference agents under
-`samples/`. They are the patterns external authors should copy before they
-read deeper docs.
+The SAMPLE-AGENTS sprint ships three reference agents under `samples/`. They
+are deliberately tiered: start with the low-risk read-only path, then move to
+personal-data reads, then study the full confirmation-gated money flow.
 
 Each sample has the same shape:
 
@@ -18,7 +18,7 @@ samples/<agent>/
     └── e2e.test.mts
 ```
 
-Run all samples from the Super Agent repo:
+Run the whole sample suite from the repo root:
 
 ```bash
 node --experimental-strip-types tests/sample-agents-ci.test.mjs
@@ -28,87 +28,242 @@ node --experimental-strip-types tests/sample-agents-ci.test.mjs
 
 Path: `samples/weather-now/`
 
-**Trust tier:** experimental
+Target tier: `experimental`
 
-**What it demonstrates:** the smallest useful agent: one capability, one Brain
-recall call, one connector call, no write scopes, no confirmation card.
+What it demonstrates: the smallest useful agent. One read-only capability, one
+Brain recall call, one connector call, no write scopes, no payment, no
+confirmation card.
 
-`whats_the_weather_now` asks `ctx.brain.lumo_recall_unified` for a recent
-location hint, calls the `open-weather` connector, and returns a compact weather
-summary with provenance.
+Manifest highlights:
 
-Read next:
+```json
+{
+  "agent_id": "weather-now",
+  "connect": { "model": "none" },
+  "x_lumo_sample": {
+    "trust_tier_target": "experimental",
+    "requires": {
+      "brain_tools": ["lumo_recall_unified"],
+      "connectors": ["open-weather"],
+      "scopes": ["read.recall", "read.location.current"]
+    },
+    "cost_model": {
+      "max_cost_usd_per_invocation": 0.005
+    }
+  }
+}
+```
 
-- `samples/weather-now/lumo-agent.json`
-- `samples/weather-now/src/index.ts`
-- `samples/weather-now/README.md`
+Line-by-line:
+
+- `connect.model: "none"` means there is no account connection step.
+- `read.recall` lets the sample ask Lumo memory for a recent location hint.
+- `read.location.current` keeps the capability read-only but location-aware.
+- The cost ceiling is tiny because the output is deterministic and does not
+  need a large model call.
+
+Capability sketch:
+
+```ts
+export async function whats_the_weather_now(inputs, ctx) {
+  const recall = await ctx.brain.lumo_recall_unified({
+    query: "recent user location weather preference",
+  });
+  const location = recall.location ?? inputs.fallback_location ?? "current location";
+  const weather = await ctx.connectors["open-weather"].current({ location });
+  return {
+    location,
+    summary: weather.summary,
+    temperature_f: weather.temperature_f,
+    provenance: ["lumo_recall_unified", "open-weather.current"],
+  };
+}
+```
+
+Copy this when your agent only reads public or low-sensitivity data.
 
 ## Daily Email Digest
 
 Path: `samples/summarize-emails-daily/`
 
-**Trust tier:** verified
+Target tier: `verified`
 
-**What it demonstrates:** scoped personal-data reads, Brain ranking, and
-per-user state. The sample reads unread Gmail, ranks messages by sender/action
-importance, groups them by sender, and caches the digest for 60 minutes via
-`ctx.state`.
+What it demonstrates: scoped personal-data reads, Brain ranking, and per-user
+state. The sample reads unread Gmail, ranks messages by sender/action
+importance, groups them, and caches the digest for 60 minutes with `ctx.state`.
 
-Capabilities:
+Manifest highlights:
 
-- `summarize_unread_inbox`
-- `prepare_morning_digest`
+```json
+{
+  "agent_id": "email-digest-daily",
+  "connect": { "model": "lumo_id", "audience": "email-digest-daily" },
+  "x_lumo_sample": {
+    "trust_tier_target": "verified",
+    "requires": {
+      "brain_tools": ["lumo_recall_unified", "lumo_personalize_rank"],
+      "connectors": ["gmail"],
+      "scopes": ["read.email.headers", "read.email.bodies", "read.contacts"]
+    },
+    "cost_model": {
+      "max_cost_usd_per_invocation": 0.04
+    }
+  }
+}
+```
 
-Read next:
+Line-by-line:
 
-- `samples/summarize-emails-daily/lumo-agent.json`
-- `samples/summarize-emails-daily/src/index.ts`
-- `samples/summarize-emails-daily/README.md`
+- `verified` is appropriate because email bodies and contacts are sensitive.
+- The sample has no write scopes; it cannot send, archive, or delete email.
+- `lumo_personalize_rank` demonstrates Brain-assisted ordering without asking
+  the agent to store user preference state itself.
+- The cost ceiling is higher than Weather Now because summarization consumes
+  model tokens.
+
+Capability sketch:
+
+```ts
+export async function summarize_unread_inbox(inputs, ctx) {
+  const cached = await ctx.state.get(`digest:${ctx.user.id}`);
+  if (cached && cached.expires_at > Date.now()) return cached.value;
+
+  const unread = await ctx.connectors.gmail.listUnread({ max_results: 10 });
+  const ranked = await ctx.brain.lumo_personalize_rank({
+    items: unread.map((message) => ({
+      id: message.id,
+      sender: message.sender,
+      subject: message.subject,
+      preview: message.preview,
+    })),
+  });
+
+  const digest = groupAndSummarize(ranked.items);
+  await ctx.state.set(`digest:${ctx.user.id}`, digest, { ttl_seconds: 3600 });
+  return digest;
+}
+```
+
+Copy this when your agent reads user-owned provider data but does not create
+side effects.
 
 ## Lumo Rentals Trip Planner
 
 Path: `samples/lumo-rentals-trip-planner/`
 
-**Trust tier:** official
+Target tier: `official`
 
-**What it demonstrates:** the full money-moving pattern. The agent finds a
+What it demonstrates: the full sensitive-action pattern. The agent finds a
 rental, returns a confirmation card before any side effect, then after approval
-charges Stripe, creates the rental reservation, and writes a calendar event.
+charges Stripe, creates a reservation, and writes a calendar event.
 
-Capabilities:
+Manifest highlights:
 
-- `find_rental_for_trip`
-- `book_rental`
-- `confirm_booking`
+```json
+{
+  "agent_id": "lumo-rentals-trip-planner",
+  "requires_payment": true,
+  "ui": { "components": ["TripConfirmationCard"] },
+  "x_lumo_sample": {
+    "trust_tier_target": "official",
+    "requires": {
+      "brain_tools": [
+        "lumo_recall_unified",
+        "lumo_personalize_rank",
+        "lumo_optimize_trip"
+      ],
+      "connectors": ["lumo-rentals", "stripe", "google-calendar"],
+      "scopes": [
+        "read.calendar.events",
+        "write.calendar.events",
+        "write.financial.transfer.up_to_per_invocation:500_usd:per_day:1500_usd"
+      ]
+    },
+    "cost_model": {
+      "max_cost_usd_per_invocation": 0.25
+    }
+  }
+}
+```
 
-The `request_id` is used as the idempotency key across Stripe, Lumo Rentals,
-and Google Calendar so retries do not double-book. The final response carries a
-four-step provenance chain:
+Line-by-line:
 
-1. Stripe charge
-2. Lumo Rentals reservation
-3. Google Calendar event
-4. Idempotency key hash
+- `requires_payment: true` makes cost and confirmation behavior explicit.
+- `TripConfirmationCard` tells Lumo which card renderer should summarize the
+  booking before execution.
+- The financial scope encodes both per-invocation and daily ceilings.
+- `implements_cancellation: true` in the manifest capabilities tells reviewers
+  the agent has a compensation path.
 
-Read next:
+Two-phase capability sketch:
 
-- `samples/lumo-rentals-trip-planner/lumo-agent.json`
-- `samples/lumo-rentals-trip-planner/src/index.ts`
-- `samples/lumo-rentals-trip-planner/README.md`
+```ts
+export async function book_rental(inputs, ctx) {
+  const option = await ctx.connectors["lumo-rentals"].quote(inputs);
+  return {
+    status: "needs_confirmation",
+    confirmation_token: ctx.confirm.createToken({
+      capability: "confirm_booking",
+      request_id: inputs.request_id,
+    }),
+    card: {
+      kind: "trip_confirmation",
+      title: option.vehicle_name,
+      total_cents: option.total_cents,
+      refund_policy: option.refund_policy,
+    },
+  };
+}
 
-## How to choose a starting point
+export async function confirm_booking(inputs, ctx) {
+  const idempotencyKey = inputs.request_id;
+  const charge = await ctx.connectors.stripe.charge({
+    amount_cents: inputs.total_cents,
+    idempotency_key: idempotencyKey,
+  });
+  const reservation = await ctx.connectors["lumo-rentals"].reserve({
+    quote_id: inputs.quote_id,
+    idempotency_key: idempotencyKey,
+  });
+  const calendar = await ctx.connectors["google-calendar"].createEvent({
+    reservation_id: reservation.id,
+    idempotency_key: idempotencyKey,
+  });
+  return { charge, reservation, calendar, idempotency_key: idempotencyKey };
+}
+```
 
-- Building a public, read-only lookup? Start from **Weather Now**.
-- Building an OAuth or personal-data workflow? Start from **Daily Email
-  Digest**.
-- Building anything that spends money or writes to a third-party account? Start
-  from **Lumo Rentals Trip Planner** and keep the confirmation-card split.
+Copy this when your agent spends money, writes to a third-party account, or
+needs a rollback story.
+
+## Choosing a starting point
+
+| You are building... | Start from |
+| --- | --- |
+| Read-only lookup or public data | Weather Now |
+| OAuth or personal-data read workflow | Daily Email Digest |
+| Money, booking, write, or confirmation flow | Lumo Rentals Trip Planner |
+
+## Local commands
+
+```bash
+node --experimental-strip-types samples/weather-now/tests/unit.test.mts
+node --experimental-strip-types samples/summarize-emails-daily/tests/unit.test.mts
+node --experimental-strip-types samples/lumo-rentals-trip-planner/tests/unit.test.mts
+node --experimental-strip-types tests/sample-agents-ci.test.mjs
+```
+
+When the SDK CLI is installed:
+
+```bash
+npx lumo-agent validate samples/weather-now/lumo-agent.json
+npx lumo-agent dev samples/weather-now --sandbox
+npx lumo-agent sign samples/weather-now/lumo-agent.json ./weather-now.tar.gz
+```
 
 ## Related
 
-- [quickstart.md](quickstart.md) — your own first agent.
-- [authoring-guide.md](authoring-guide.md) — patterns beyond the samples.
-- [sdk-reference.md](sdk-reference.md) — manifest, OpenAPI, and confirmation
-  contracts.
-- [testing-your-agent.md](testing-your-agent.md) — local, sandbox, and CI
-  testing expectations.
+- [Quickstart](quickstart.md) - build a small agent from scratch.
+- [Authoring guide](authoring-guide.md) - how to make tools route well.
+- [Publishing](publishing.md) - signing, automated checks, and review.
+- [Testing your agent](testing-your-agent.md) - local, sandbox, and CI expectations.

@@ -13,7 +13,7 @@ This section is for engineers building specialist agents that Lumo can orchestra
 - **[App Store platform](appstore-platform.md)** — Deployment models, lifecycle states, certification gates, and runtime trust boundaries.
 - **[Contributing](contributing.md)** — Commit scope, review hygiene, and how to keep the platform audit trail legible.
 - **[Publishing](publishing.md)** — Getting your agent into a Lumo deployment's registry.
-- **[Example agents](example-agents.md)** — Tour of the four reference agents that ship with Lumo.
+- **[Example agents](example-agents.md)** — Tour of the three reference agents that ship with Lumo.
 - **[FAQ](faq.md)** — Common gotchas.
 
 ## The mental model

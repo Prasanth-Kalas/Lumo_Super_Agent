@@ -138,12 +138,15 @@ If the provider exposes a revoke endpoint, include it in the manifest. On discon
 
 ## Scope changes mid-life
 
-If you add a new scope to an existing agent (because you want a new feature), every user who connected **before** the scope was added still has an active connection without it. Their token requests that need the new scope will return 403. Options:
+If you add a new scope to an existing agent, users who installed the previous
+scope set must re-consent before Lumo grants the new scope. PERM-1 compares the
+stored `consent_text_hash` with the current install contract and routes the next
+session through `/api/agents/:agent_id/reconsent` when they differ.
 
-1. **Degrade gracefully** — detect missing scope and return an error that prompts reconnect.
-2. **Force reconnect** — bump the `version` of your manifest major-style; the Super Agent surfaces "reconnect to get new feature" on the marketplace card.
-
-Neither is automatic. Be deliberate.
+You should still degrade gracefully in the tool itself. If a provider call
+returns 403 because the user has not completed the new consent flow, return a
+structured `forbidden` error with a clear message. Lumo will surface the
+reconnect or re-consent path instead of silently expanding permissions.
 
 ## Testing OAuth locally
 

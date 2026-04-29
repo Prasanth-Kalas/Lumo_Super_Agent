@@ -204,20 +204,26 @@ Or push to a Vercel preview — same effect, no tunnel required.
 
 Set `NEXT_PUBLIC_BASE_URL` to whatever URL is actually reachable. The manifest's `base_url` determines where Lumo calls your tools.
 
-## 7. Register in the Super Agent (1 min)
+## 7. Validate and submit (1 min)
 
-In the Super Agent's `lib/agent-registry.ts`, add your URL to the registry sources list:
+Validate locally first:
 
-```ts
-const REGISTRY_MANIFESTS = [
-  // ... existing entries
-  "https://something-random.ngrok-free.app/api/manifest",
-];
+```bash
+npx lumo-agent validate ./agent-manifest.json
 ```
 
-Redeploy the Super Agent. On its next registry probe, your agent shows up — visit `/marketplace` on the Super Agent and you'll see the "Weather" card.
+For a dev deployment, open `/marketplace` and submit through the publisher
+flow. For a signed bundle submission, create a tarball and sign it:
 
-(For a real agent going into someone else's Lumo deployment, you'd submit a PR that adds this URL; see [publishing.md](publishing.md).)
+```bash
+tar -czf weather-agent.tar.gz app package.json
+npx lumo-agent sign ./agent-manifest.json ./weather-agent.tar.gz
+```
+
+The managed publisher API stores the bundle, runs TRUST-1 automated checks, and
+auto-publishes experimental agents when the checks pass. Higher trust tiers
+enter the reviewer queue. See [publishing.md](publishing.md) for the full
+submission path.
 
 ## 8. Try it
 

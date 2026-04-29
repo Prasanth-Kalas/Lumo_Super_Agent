@@ -1,151 +1,175 @@
 # Publishing your agent
 
-How to get an agent into a live Lumo deployment's registry. The short version:
-deploy your agent, submit its manifest URL through `/publisher`, pass automated
-certification, then wait for admin approval.
+Publishing means taking a local agent bundle, signing it with your author key,
+submitting it to Lumo, passing automated TRUST-1 checks, and either
+auto-publishing or entering human review depending on trust tier.
 
-The old manual-registry path still works for private deployments, but the
-managed Lumo app store path is now the publisher portal.
+The managed path is the supported path for public agents. Private deployments
+can still load internal registry entries, but public Lumo users install from the
+marketplace.
 
-## Publishing options
+## The managed submission flow
 
-### Option 1 — Public agent in the Lumo managed deployment
+1. Build and test the agent locally.
+2. Run `lumo-agent sign <manifest.json> <bundle.tar.gz>` or
+   `lumo-agent submit <manifest.json> <bundle.tar.gz>`.
+3. The SDK generates an ECDSA-P256 keypair on first use.
+4. The private key stays in the OS keychain on macOS, or in
+   `~/.config/lumo/agent-keys/author-p256.pem` with `0600` permissions on
+   non-macOS systems.
+5. The CLI signs this canonical payload:
 
-For agents that should be available to every Lumo user:
+   ```text
+   lumo-agent-bundle:v1:<agent_id>:<version>:<bundle_sha256>
+   ```
 
-1. Your agent must be hosted at a stable HTTPS URL.
-2. Sign in to the Super Agent and open `/publisher`.
-3. Paste your `/.well-known/agent.json` URL.
-4. The portal certifies your manifest, OpenAPI, health endpoint, OAuth metadata,
-   permissions, and money-tool safety.
-5. Passing submissions enter `/admin/review-queue`.
-6. An admin approves the app; approved rows are loaded from `partner_agents` and
-   appear in `/marketplace`.
+6. The publisher API stores the bundle, validates the manifest, checks for
+   typosquatting, verifies the signature when required, and writes
+   `marketplace_agents` plus `marketplace_agent_versions`.
+7. TRUST-1 runs the five automated checks.
+8. The result is either published, queued, rejected, or needs changes.
 
-Expected turnaround: days, not weeks — these reviews are primarily checking that your manifest is well-formed and your agent is reachable, not judging business value.
+The signature binds the agent id, version, and bundle hash together. That
+prevents a valid signature for one agent or version from being replayed onto
+another bundle.
 
-Submissions with blocking certification issues are stored as
-`certification_failed` and show the report to the publisher. Fix those findings
-and resubmit.
+## Trust-tier routing
 
-### Option 2 — Private registry in your own Lumo deployment
+| Requested tier | Signature requirement | Review route |
+| --- | --- | --- |
+| `experimental` | Optional in v1. | Automated checks pass -> auto-publish. |
+| `community` | Recommended. | Automated checks pass -> human queue, same-day SLA. |
+| `verified` | Required. | Automated checks pass -> human queue, 5-business-day SLA. |
+| `official` | Required. | Automated checks pass -> high-priority staff-engineer review. |
 
-For agents internal to your org:
+If automated checks fail, the version is rejected before a human reviewer sees
+it. The developer dashboard shows the structured check report.
 
-1. Run your own Super Agent deployment.
-2. Fork or branch the repo; edit `config/agents.registry*.json` or insert an
-   `approved` row into `partner_agents`.
-3. Deploy the Super Agent to your infrastructure.
-4. Users in your org sign into your Super Agent deployment (with whatever SSO/Supabase Auth you wire), see your agent in `/marketplace`, connect, and use it.
+## The five automated checks
 
-No Lumo-maintainer review involved. You own the deployment, you own the registry.
+TRUST-1 runs these in order and stops on the first failure:
 
-### Option 3 — Experimental agent in a dev deployment
+1. **Manifest validation.** Re-runs the SDK parser server-side.
+2. **CVE scan.** Checks declared dependencies against OSV.
+3. **Static analysis.** Looks for malware patterns such as raw secret access,
+   subprocess spawning, dynamic code execution, or suspicious network behavior.
+4. **Sandbox run.** Executes the bundle with synthetic inputs in the sandbox
+   runner.
+5. **Behavioral fingerprint.** Compares observed behavior with declared scopes.
 
-During development, temporarily register by:
+Warnings can still queue for review. Failures reject the version and return
+reason codes.
 
-1. Running Super Agent locally or a dev branch.
-2. Add your local/tunnel URL to `config/agents.registry.json`, or submit through
-   `/publisher` if your local Super Agent has Supabase configured.
-3. Using it, iterating, removing when done.
+## What reviewers see
 
-Not durable — don't leave an ngrok URL in a production manifest list.
+Human reviewers work from `/admin/trust/queue`. They see:
 
-## Requirements for the managed registry
+- manifest metadata and requested tier
+- author identity and developer key fingerprint
+- automated check report
+- requested scopes and capability rationale
+- bundle signature status
+- prior decisions and health signals
+- promotion or identity-verification context when relevant
 
-Your PR needs to satisfy:
+Reviewer outcomes are append-only in `agent_review_decisions`. Queue state is
+denormalized for UI speed, but the decision log is the audit source.
+
+## Developer dashboard status
+
+Developers track submissions in `/developer/submissions` and individual
+submission details in `/developer/submissions/:id`. The dashboard reads
+`marketplace_agent_versions.review_state`, `agent_security_reviews`, and
+`agent_review_queue` data.
+
+Common states:
+
+| State | Meaning |
+| --- | --- |
+| `pending_review` | Stored, waiting on checks or review. |
+| `automated_passed` | Checks passed; human review may still be pending. |
+| `approved` | Version is publishable or already published. |
+| `rejected` | Fix and resubmit. |
+| `needs_changes` | Reviewer requested specific changes. |
+
+Promotion requests from `/developer/promotion-requests` enter the same queue.
+Identity evidence from `/developer/identity-verification` is reviewed there too.
+
+## Version yanks and key revocation
+
+An admin can yank a specific version. A yanked version is no longer selected for
+new installs, and pinned users are migrated by the marketplace version-sync
+cron when a safe replacement exists.
+
+If an author key is compromised, TRUST-1 revokes the key and yanks every version
+signed by that key. Key fingerprints remain unique across active and revoked
+keys so incident response can trace all affected bundles.
+
+## Before you submit
+
+Run these locally:
+
+```bash
+npx lumo-agent validate samples/weather-now/lumo-agent.json
+npx lumo-agent dev samples/weather-now --sandbox
+node --experimental-strip-types tests/sample-agents-ci.test.mjs
+```
+
+For your own agent, keep the same shape:
+
+- validate the manifest
+- run the dev harness
+- run at least one sandbox invocation per capability
+- confirm cost stays below `cost_model.max_cost_usd_per_invocation`
+- confirm any side-effecting tool returns a confirmation card before execution
+
+## Requirements for publication
 
 ### Contract correctness
 
-- Manifest parses as `AgentManifest` from the current SDK version.
+- Manifest parses as the current `@lumo/agent-sdk` type.
 - OpenAPI parses as valid OpenAPI 3.1.
-- Health endpoint returns 200 with `{ ok: true }` at least 99% of the time (measured over a 7-day probe window).
 - Tool responses match the OpenAPI schemas.
+- Health endpoint returns `{ ok: true }`.
+- SDK major version is compatible with the running Lumo platform.
 
-### Safety
+### Permission and money safety
 
-- Autonomy markers (`x-lumo-autonomy`) are correctly set. Over-strict is fine; under-strict is a blocker.
-- Destructive actions use the confirmation card pattern.
-- Error responses are structured (`{ error: { code, message, retryable } }`).
-- Logs don't leak user content or tokens.
+- Scopes are the smallest useful set.
+- User-facing scope descriptions are plain English.
+- Manifest cost ceiling is present for any non-trivial capability.
+- Money tools use confirmation cards and idempotency keys.
+- User caps can only reduce defaults, never increase them.
 
-### UX
+### Trust posture
 
-- Tool `summary` and `description` fields are clear and actionable.
-- `intents` and `example_utterances` match real user phrasings.
-- Listing has a category, logo, one_liner, and a privacy_note.
+- Bundle is signed for verified and official tiers.
+- No raw token or secret access in bundle code.
+- Privacy and support URLs are present for public listings.
+- Sensitive data handling matches the declared PII scope.
 
-### Hosting stability
+## Private deployments
 
-- TLS certificate valid.
-- CORS allows the Super Agent's domain to fetch manifest + OpenAPI.
-- Reasonable uptime (we're not strict SLA judges, but a manifest URL that's down half the time will get delisted).
-
-## What gets reviewed vs. what doesn't
-
-**Reviewed:**
-- The manifest.
-- The OpenAPI.
-- Sample tool calls (contract-tested).
-- Health probe output.
-- Privacy / safety claims in the listing.
-
-**NOT reviewed:**
-- Your backend code.
-- Your infrastructure choices.
-- Your business logic.
-- Your pricing.
-
-Lumo treats third-party agents as opaque HTTP services. Your implementation is yours; we only verify what's at the contract boundary.
-
-## After merge — the operator's side
-
-Once the PR is merged, the managed Lumo deployment's operator takes one more step if your agent uses OAuth:
-
-1. Register an OAuth app with the provider.
-2. Set the `client_id_env` and `client_secret_env` vars on Vercel.
-3. Add the Super Agent's callback URL to the provider app's allowed redirects.
-
-Until that's done, your marketplace card shows but "Connect" fails with a "not configured" error. The operator's PR reviewer usually tracks this as a pre-deploy checklist item; provide them everything they need via the docs you include in your PR.
-
-## Versioning your agent post-publish
-
-Subsequent updates to your agent don't require a new PR as long as:
-
-- Your manifest's `base_url` and `openapi_url` are unchanged.
-- Your SDK version stays within the same major.
-- You haven't added a new required scope (that's effectively a new product).
-
-Just redeploy your agent. The Super Agent's registry re-probes every 5 minutes; changes appear shortly after.
-
-For breaking changes (new required scope, major SDK bump, significant UX changes), open a new PR to signal — and mention what the change is so operators know.
+Private deployments can still load their own registry entries or internal
+agents. That is useful for a company running Lumo for its employees. The managed
+marketplace rules still make good defaults, but the operator controls review and
+publication in that deployment.
 
 ## Delisting
 
-If your agent:
+Published agents are continuously monitored. A demotion review may be opened
+when:
 
-- Is offline for more than 24 hours during active probes.
-- Violates the privacy posture claimed in its listing.
-- Returns error responses for more than 10% of calls over 48 hours.
-- Is reported by users for bad behavior that can't be resolved in a reasonable window.
+- 7-day error rate exceeds 25%
+- 7-day scope-denied rate exceeds 5%
+- 30-day security flag count reaches 3
 
-...the managed deployment's maintainers may temporarily remove your manifest URL from the registry. You'll get an issue on your repo explaining why; re-listing happens when the issue is resolved.
-
-For private deployments (self-hosted Super Agent), delisting is whatever your operator wants it to be — they control the registry.
-
-## A final note on trust
-
-Publishing an agent on Lumo means users will consent to your agent reading scopes from their accounts on your domain. That's a trust transfer they're making, and they're doing it partly because Lumo vouched for you by including you in the registry. Take that seriously:
-
-- Log as little provider content as possible.
-- Don't sell, share, or aggregate user data.
-- Be explicit in your privacy_note — users read those.
-- Fix bugs that affect user data fast.
-
-Lumo's reputation is everyone's reputation. Protect it and ours by treating users' trust as a renewable-but-fragile resource.
+A P0 security flag triggers an agent-level kill switch. Recovery is manual:
+security review must clear the kill switch after the incident is understood.
 
 ## Related
 
-- [quickstart.md](quickstart.md) — your first agent.
-- [testing-your-agent.md](testing-your-agent.md) — what to validate before publishing.
-- [sdk-reference.md](sdk-reference.md) — contract specs.
+- [App Store platform](appstore-platform.md) - lifecycle, permission, cost, and trust model.
+- [Example agents](example-agents.md) - tier-specific reference manifests.
+- [Testing your agent](testing-your-agent.md) - what to validate before submission.
+- [SDK reference](sdk-reference.md) - manifest and OpenAPI contract.

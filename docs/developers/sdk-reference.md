@@ -25,6 +25,9 @@ interface AgentManifest {
   openapi_url: string;                    // absolute or relative URL to your OpenAPI doc
   ui?: AgentUI;                           // rendering hints for result cards
   listing?: AgentListing;                 // marketplace metadata
+  pii_scope?: string[];                   // personal-data categories your tools may touch
+  requires_payment?: boolean;             // true when any capability can spend money
+  cost_model?: AgentCostModel;            // max cost ceilings for COST-1 enforcement
   health_url?: string;                    // defaults to "{base_url}/api/health"
   sla?: AgentSla;                         // optional performance expectations
   on_call_escalation?: string;            // ops contact; free-form
@@ -91,6 +94,40 @@ interface AgentListing {
 }
 ```
 
+### Cost and permission fields
+
+PERM-1 and COST-1 read policy from the manifest before a user installs an
+agent. At minimum, production agents should declare what user data they touch
+and the maximum cost of one invocation:
+
+```ts
+interface AgentCostModel {
+  max_cost_usd_per_invocation: number;
+  projected_cost_usd?: number;
+}
+
+interface AgentManifest {
+  pii_scope?: Array<"name" | "email" | "phone" | "payment_method_id" | "traveler_profile" | string>;
+  requires_payment?: boolean;
+  cost_model?: AgentCostModel;
+}
+```
+
+The install route turns those declarations into user-facing consent text. If a
+scope has a spend cap, the grant constraints use:
+
+```json
+{
+  "up_to_per_invocation_usd": 5,
+  "per_day_usd": 20,
+  "specific_to": "optional user-facing bound"
+}
+```
+
+The runtime enforces the minimum of the manifest ceiling, the user's grant cap,
+and the user's remaining budget. A user may lower a cap during install; they may
+not raise it above the manifest default.
+
 ## OpenAPI conventions
 
 Your OpenAPI document is a standard OpenAPI 3.1 spec with a handful of Lumo-specific extensions under `x-lumo-*`.
@@ -156,6 +193,19 @@ The autonomy engine reads this field to decide whether to gate the call.
 If your tool returns a payload that should render a confirmation card instead of an auto-action, include `x-lumo-confirmation-card: true` on the response schema. The card can be one of the built-in components or a custom one.
 
 Example: a "book_flight" tool that returns `{ flight_offer, requires_confirmation: true, card: { kind: "flight_confirm", ... } }`. The Super Agent renders the card; the user taps Confirm; Lumo re-calls the tool with the confirmation token and the booking actually happens.
+
+### Author bundle signatures
+
+TRUST-1 verifies submitted bundles with ECDSA-P256 signatures. The SDK CLI signs
+this canonical payload:
+
+```text
+lumo-agent-bundle:v1:<agent_id>:<version>:<bundle_sha256>
+```
+
+Verified and official submissions require a valid active developer key.
+Experimental submissions can run unsigned in v1, but signing every bundle is
+recommended so revocation and incident response have a clean fingerprint trail.
 
 ## Error shape
 
