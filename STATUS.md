@@ -42,3 +42,4 @@
 <<<<<<< HEAD
 - 2026-04-29 — claude-code/mobile-voice-1 opened from origin/main; Apple Speech STT + ElevenLabs Turbo TTS + push-to-talk composer in flight
 - 2026-04-29 — DEV-DASH branch opened; migration 040 drafted for early schema review
+- 2026-04-29 — DEV-DASH backend checkpoint drafted: developer library, API routes, and metrics rollup cron
