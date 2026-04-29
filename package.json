@@ -4,6 +4,7 @@
   "private": true,
   "description": "Lumo Super Agent monorepo — web (Next.js), iOS (SwiftUI), shared packages, and reference sample agents.",
   "workspaces": [
+    "apps/docs",
     "apps/web",
     "packages/*",
     "samples/*"
@@ -11,6 +12,8 @@
   "scripts": {
     "dev": "npm run dev --workspace apps/web",
     "build": "npm run build --workspace apps/web",
+    "docs:build": "npm run build --workspace apps/docs",
+    "docs:dev": "npm run dev --workspace apps/docs",
     "start": "npm run start --workspace apps/web",
     "lint": "npm run lint --workspace apps/web",
     "lint:commits": "node scripts/check-commit-shape.mjs",
@@ -22,5 +25,8 @@
   },
   "engines": {
     "node": ">=20.10.0"
+  },
+  "devDependencies": {
+    "webpack": "5.94.0"
   }
 }

@@ -1,4 +1,6 @@
 .next/
+apps/docs/.docusaurus/
+apps/docs/build/
 out/
 next-env.d.ts
 node_modules/

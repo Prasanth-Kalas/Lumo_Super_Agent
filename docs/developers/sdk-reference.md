@@ -229,4 +229,4 @@ Unless you're a first-party Lumo team member, you don't use this. External agent
 - [authoring-guide.md](authoring-guide.md) — naming, UX, intent design.
 - [oauth-integration.md](oauth-integration.md) — OAuth-specific details.
 - [testing-your-agent.md](testing-your-agent.md) — local simulation of the router.
-- [../architecture/orchestration.md](../architecture/orchestration.md) — how the Super Agent dispatches into your agent.
+- `docs/architecture/orchestration.md` in the Lumo repo — how the Super Agent dispatches into your agent.

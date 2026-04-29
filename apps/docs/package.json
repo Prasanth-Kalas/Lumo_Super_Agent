@@ -1,0 +1,31 @@
+{
+  "name": "@lumo/docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_OPTIONS=\"--loader ./scripts/css-loader.mjs\" node ./scripts/docusaurus.mjs start --host 0.0.0.0",
+    "build": "NODE_OPTIONS=\"--loader ./scripts/css-loader.mjs\" node ./scripts/docusaurus.mjs build",
+    "serve": "NODE_OPTIONS=\"--loader ./scripts/css-loader.mjs\" node ./scripts/docusaurus.mjs serve",
+    "clear": "node ./scripts/docusaurus.mjs clear"
+  },
+  "dependencies": {
+    "@docusaurus/core": "3.5.2",
+    "@docusaurus/preset-classic": "3.5.2",
+    "@mdx-js/react": "^3.1.0",
+    "clsx": "^2.1.1",
+    "prism-react-renderer": "^2.4.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@docusaurus/module-type-aliases": "3.5.2",
+    "@docusaurus/plugin-content-docs": "3.5.2",
+    "@docusaurus/tsconfig": "3.5.2",
+    "@theme/prism-include-languages": "file:./theme-aliases/prism-include-languages",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.10.0"
+  }
+}

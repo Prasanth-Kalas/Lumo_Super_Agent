@@ -125,5 +125,5 @@ In all those cases, host your own HTTP service and use `"none"` or `"oauth2"` as
 ## Related
 
 - [sdk-reference.md](sdk-reference.md) — full manifest spec.
-- [../architecture/orchestration.md](../architecture/orchestration.md) — the router's dispatch logic.
+- `docs/architecture/orchestration.md` in the Lumo repo — the router's dispatch logic.
 - `lib/integrations/registry.ts` — where internal agents register.

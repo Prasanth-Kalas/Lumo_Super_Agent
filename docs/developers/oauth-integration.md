@@ -121,7 +121,7 @@ Publishing a new OAuth-backed agent means the operator running the Super Agent a
 1. Register an OAuth app with the provider with `https://{super-agent}/api/connections/callback` as an allowed redirect URI.
 2. Set the two env vars on Vercel (or whatever host) with the resulting credentials.
 
-See the three per-provider setup guides for examples: [operators/oauth-apps/google.md](../operators/oauth-apps/google.md), [operators/oauth-apps/microsoft.md](../operators/oauth-apps/microsoft.md), [operators/oauth-apps/spotify.md](../operators/oauth-apps/spotify.md).
+See the three per-provider setup guides in the Lumo repo for examples: `docs/operators/oauth-apps/google.md`, `docs/operators/oauth-apps/microsoft.md`, and `docs/operators/oauth-apps/spotify.md`.
 
 ## PKCE — use S256
 
@@ -176,5 +176,5 @@ A few providers still use legacy flows (basic auth, API keys, HMAC signatures). 
 ## Related
 
 - [sdk-reference.md](sdk-reference.md#agentconnect--the-auth-contract) — the `AgentConnect` type.
-- [../architecture/oauth-and-tokens.md](../architecture/oauth-and-tokens.md) — what's happening on Lumo's side.
-- [../operators/oauth-apps/](../operators/oauth-apps/) — how operators register provider apps.
+- `docs/architecture/oauth-and-tokens.md` in the Lumo repo — what's happening on Lumo's side.
+- `docs/operators/oauth-apps/` in the Lumo repo — how operators register provider apps.

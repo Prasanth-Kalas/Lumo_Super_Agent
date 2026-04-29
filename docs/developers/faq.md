@@ -15,7 +15,7 @@ Most common cause: your `description` field doesn't tell Claude when to use the 
 
 Reverse of the above. Your description is too broad.
 
-- Add negative guidance: "Use this for X. Do NOT use for Y — use the <other> tool for that."
+- Add negative guidance: "Use this for X. Do NOT use for Y — use the `other` tool for that."
 - Tighten your `intents` list. Remove any that match adjacent domains.
 - Remove example_utterances that don't strictly belong to your agent.
 
