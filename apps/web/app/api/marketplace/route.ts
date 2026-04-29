@@ -21,11 +21,18 @@ import {
 } from "@/lib/mcp/registry";
 import type { AgentManifest } from "@lumo/agent-sdk";
 import {
+  listAgents,
+  type MarketplaceAgentRecord,
+  type MarketplaceInstallState,
+  type MarketplaceTrustTier,
+} from "@/lib/marketplace";
+import {
   evaluateRiskBadgesForAgents,
   fallbackRiskBadgeForAgent,
   type IntelligenceAgentDescriptor,
   type RiskBadge,
 } from "@/lib/marketplace-intelligence";
+import { permissionScopesForManifest } from "@/lib/permission-manifest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -254,8 +261,7 @@ const COMING_SOON_TILES: MarketplaceAgent[] = [
   },
 ];
 
-export async function GET(_req: NextRequest): Promise<Response> {
-  const registry = await ensureRegistry();
+export async function GET(req: NextRequest): Promise<Response> {
   const user = await getServerUser();
   const connections = user ? await listConnectionsForUser(user.id) : [];
   const installs = user ? await listInstalledAgentsForUser(user.id) : [];
@@ -269,17 +275,33 @@ export async function GET(_req: NextRequest): Promise<Response> {
     installs.filter((i) => i.status === "installed").map((i) => [i.agent_id, i]),
   );
 
-  const agents: MarketplaceAgent[] = Object.values(registry.agents)
+  const dbCatalog = await listAgents({
+    userId: user?.id,
+    query: req.nextUrl.searchParams.get("q"),
+    category: req.nextUrl.searchParams.get("category"),
+    tier: tierFilter(req.nextUrl.searchParams.get("tier")),
+    installedOnly: req.nextUrl.searchParams.get("installed") === "1",
+    limit: 100,
+  });
+  const agents: MarketplaceAgent[] = dbCatalog.source === "db"
+    ? dbCatalog.agents.map((agent) =>
+        marketplaceRecordToUiAgent(
+          agent,
+          dbCatalog.installs[agent.agent_id] ?? null,
+          connByAgent.get(agent.agent_id) ?? null,
+        ),
+      )
+    : [];
+  const dbAgentIds = new Set(agents.map((agent) => agent.agent_id));
+
+  const registry = await ensureRegistry();
+  const registryAgents: MarketplaceAgent[] = Object.values(registry.agents)
     .filter((e) => e.system !== true)
+    .filter((e) => !dbAgentIds.has(e.manifest.agent_id))
     .map((e) => {
       const m = e.manifest;
       const connect = m.connect;
-      const required_scopes =
-        connect.model === "oauth2"
-          ? connect.scopes
-              .filter((s) => s.required)
-              .map(({ name, description }) => ({ name, description }))
-          : [];
+      const required_scopes = requiredScopesForManifest(m);
       const conn = connByAgent.get(m.agent_id) ?? null;
       const install = installByAgent.get(m.agent_id) ?? null;
 
@@ -356,6 +378,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
             : null,
       };
     });
+  agents.push(...registryAgents);
 
   // MCP-backed entries. Merge alongside native agents so the
   // /marketplace and /onboarding grids render both under one set
@@ -450,6 +473,124 @@ export async function GET(_req: NextRequest): Promise<Response> {
       headers: { "content-type": "application/json" },
     },
   );
+}
+
+function marketplaceRecordToUiAgent(
+  record: MarketplaceAgentRecord,
+  install: MarketplaceInstallState | null,
+  connection: ConnectionMeta | null,
+): MarketplaceAgent {
+  const manifest = record.manifest;
+  const displayName = manifest?.display_name ?? record.agent_id;
+  const oneLiner = manifest?.one_liner ?? "Community agent for Lumo.";
+  const version = record.current_version ?? manifest?.version ?? "0.0.0";
+  const listing = manifest
+    ? listingForMarketplaceRecord(record, manifest)
+    : ({ category: record.category ?? "Marketplace" } as NonNullable<AgentManifest["listing"]>);
+  const agent: MarketplaceAgent = {
+    agent_id: record.agent_id,
+    display_name: displayName,
+    one_liner: oneLiner,
+    domain: manifest?.domain ?? record.category ?? "marketplace",
+    version,
+    intents: manifest?.intents ?? [],
+    listing,
+    connect_model: manifest?.connect.model ?? "none",
+    required_scopes: manifest ? requiredScopesForManifest(manifest) : [],
+    health_score: 1,
+    source: "lumo",
+    pii_scope: manifest?.pii_scope,
+    requires_payment: manifest?.requires_payment,
+    connection: connection
+      ? {
+          id: connection.id,
+          status: connection.status,
+          connected_at: connection.connected_at,
+          last_used_at: connection.last_used_at,
+        }
+      : null,
+    install: install
+      ? {
+          status: install.state,
+          installed_at: install.installed_at,
+          last_used_at: null,
+        }
+      : connection
+        ? {
+            status: "installed",
+            installed_at: connection.connected_at,
+            last_used_at: connection.last_used_at,
+          }
+        : null,
+    risk_badge: fallbackRiskBadgeForAgent({
+      agent_id: record.agent_id,
+      display_name: displayName,
+      domain: manifest?.domain ?? record.category ?? "marketplace",
+      category: record.category ?? listing?.category ?? "Marketplace",
+      one_liner: oneLiner,
+      intents: manifest?.intents ?? [],
+      scopes: manifest ? requiredScopesForManifest(manifest).map((scope) => scope.name) : [],
+      installed: install?.state === "installed" || connection?.status === "active",
+      connect_model: manifest?.connect.model ?? "none",
+      requires_payment: manifest?.requires_payment,
+      pii_scope: manifest?.pii_scope,
+      health_score: 1,
+      source: "lumo",
+    }),
+  };
+  return agent;
+}
+
+function listingForMarketplaceRecord(
+  record: MarketplaceAgentRecord,
+  manifest: AgentManifest,
+): NonNullable<AgentManifest["listing"]> | null {
+  const manifestListing = manifest.listing as
+    | (NonNullable<AgentManifest["listing"]> & { support_url?: string })
+    | null
+    | undefined;
+  const listing = {
+    ...(manifestListing ?? {}),
+    category: manifestListing?.category ?? record.category ?? undefined,
+    pricing_note: manifestListing?.pricing_note ?? priceLabel(record),
+    homepage_url: manifestListing?.homepage_url ?? record.homepage ?? undefined,
+    privacy_policy_url:
+      manifestListing?.privacy_policy_url ?? record.privacy_url ?? undefined,
+    support_url: manifestListing?.support_url ?? record.support_url ?? undefined,
+  };
+  return Object.keys(listing).length > 0
+    ? (listing as NonNullable<AgentManifest["listing"]>)
+    : null;
+}
+
+function priceLabel(record: MarketplaceAgentRecord): string {
+  if (record.price_usd <= 0) return "Free";
+  const amount = `$${record.price_usd.toFixed(2)}`;
+  if (record.billing_period === "monthly") return `${amount}/mo`;
+  if (record.billing_period === "annual") return `${amount}/yr`;
+  if (record.billing_period === "metered") return `${amount} metered`;
+  return amount;
+}
+
+function requiredScopesForManifest(
+  manifest: AgentManifest,
+): Array<{ name: string; description: string }> {
+  return permissionScopesForManifest(manifest).map((scope) => ({
+    name: scope.scope,
+    description: scope.description,
+  }));
+}
+
+function tierFilter(value: string | null): MarketplaceTrustTier | null {
+  if (
+    value === "official" ||
+    value === "verified" ||
+    value === "community" ||
+    value === "experimental"
+  ) {
+    return value;
+  }
+  return null;
 }
 
 function describeMarketplaceAgentForRisk(

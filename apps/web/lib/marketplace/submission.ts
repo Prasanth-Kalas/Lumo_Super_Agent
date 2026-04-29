@@ -44,6 +44,11 @@ export async function submitMarketplaceAgent(
 ): Promise<MarketplaceSubmissionResult> {
   const manifest = parseManifest(input.manifest);
   const trustTier = input.requestedTier ?? requestedTierFromManifest(manifest);
+  if ((trustTier === "official" || trustTier === "verified") && !input.signature?.trim()) {
+    throw new MarketplaceSubmissionError("signature_required", {
+      trust_tier: trustTier,
+    });
+  }
   const protectedIds = await listProtectedAgentIds();
   const typo = checkTyposquat(manifest.agent_id, protectedIds);
   if (!typo.ok) {
@@ -65,6 +70,8 @@ export async function submitMarketplaceAgent(
   const publishedAt = autoPublish ? now : null;
   const category = categoryFromManifest(manifest);
 
+  // TRUST-1 owns static analysis, malware scanning, and signature verification
+  // before a submitted bundle can move beyond pending_review.
   const { error: agentError } = await db.from("marketplace_agents").upsert(
     {
       agent_id: manifest.agent_id,

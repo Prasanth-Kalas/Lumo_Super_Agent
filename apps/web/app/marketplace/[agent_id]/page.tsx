@@ -83,6 +83,7 @@ export default function AgentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
   const justConnected = sp.get("connected") === agent_id;
 
   useEffect(() => {
@@ -162,18 +163,23 @@ export default function AgentDetailPage() {
       router.push(`/agents/${encodeURIComponent(agent.agent_id)}/install`);
       return;
     }
+    setConfirmRemoveOpen(true);
+  }, [agent, connecting, router]);
+
+  const confirmUninstall = useCallback(async () => {
+    if (!agent || connecting) return;
     setConnecting(true);
     setError(null);
     try {
-      const res = await fetch("/api/apps/install", {
-        method: installed ? "DELETE" : "POST",
+      const res = await fetch(`/api/agents/${encodeURIComponent(agent.agent_id)}/install`, {
+        method: "DELETE",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agent_id: agent.agent_id }),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => null);
         throw new Error(j?.detail ?? j?.error ?? `HTTP ${res.status}`);
       }
+      setConfirmRemoveOpen(false);
       const fresh = await fetch("/api/marketplace", { cache: "no-store" });
       if (fresh.ok) {
         const data = (await fresh.json()) as { agents: MarketplaceAgent[] };
@@ -185,7 +191,7 @@ export default function AgentDetailPage() {
     } finally {
       setConnecting(false);
     }
-  }, [agent, agent_id, connecting, router]);
+  }, [agent, agent_id, connecting]);
 
   const isConnected = agent?.connection?.status === "active";
   const isInstalled = agent?.install?.status === "installed";
@@ -483,7 +489,70 @@ export default function AgentDetailPage() {
           )}
         </aside>
       </div>
+      {confirmRemoveOpen ? (
+        <UninstallDialog
+          agent={agent}
+          busy={connecting}
+          onCancel={() => setConfirmRemoveOpen(false)}
+          onConfirm={() => void confirmUninstall()}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function UninstallDialog({
+  agent,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  agent: MarketplaceAgent;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="marketplace-detail-uninstall-title"
+        className="w-full max-w-sm rounded-xl border border-lumo-hair bg-lumo-bg p-4 shadow-xl"
+      >
+        <h2 id="marketplace-detail-uninstall-title" className="text-[15px] font-semibold text-lumo-fg">
+          Remove {agent.display_name}?
+        </h2>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-lumo-fg-mid">
+          Lumo will revoke this app&apos;s active permissions and stop routing chat
+          requests to it. You can install it again later.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onCancel}
+            className="h-8 rounded-md border border-lumo-hair px-3 text-[12.5px] text-lumo-fg-mid transition-colors hover:border-lumo-edge hover:text-lumo-fg disabled:opacity-60"
+          >
+            Keep installed
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onConfirm}
+            className="h-8 rounded-md bg-lumo-fg px-3 text-[12.5px] font-medium text-lumo-bg transition-colors hover:bg-lumo-err hover:text-white disabled:opacity-60"
+          >
+            {busy ? "Removing…" : "Remove"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

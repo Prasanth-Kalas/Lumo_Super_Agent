@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AgentCard } from "@/components/AgentCard";
 import { LumoWordmark } from "@/components/BrandMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -85,7 +85,9 @@ export default function MarketplacePage() {
   const [connecting, setConnecting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mcpModalFor, setMcpModalFor] = useState<MarketplaceAgent | null>(null);
+  const [pendingUninstall, setPendingUninstall] = useState<MarketplaceAgent | null>(null);
   const pathname = usePathname();
+  const router = useRouter();
 
   // Re-fetch the catalog after a successful connect so the UI
   // flips to "Connected" without a manual refresh.
@@ -201,19 +203,32 @@ export default function MarketplacePage() {
   const toggleInstall = useCallback(
     async (agent: MarketplaceAgent) => {
       if (connecting) return;
+      const installed = agent.install?.status === "installed";
+      if (!installed) {
+        router.push(`/agents/${encodeURIComponent(agent.agent_id)}/install`);
+        return;
+      }
+      setPendingUninstall(agent);
+    },
+    [connecting, router],
+  );
+
+  const confirmUninstall = useCallback(
+    async () => {
+      const agent = pendingUninstall;
+      if (!agent || connecting) return;
       setConnecting(agent.agent_id);
       setError(null);
-      const installed = agent.install?.status === "installed";
       try {
-        const res = await fetch("/api/apps/install", {
-          method: installed ? "DELETE" : "POST",
+        const res = await fetch(`/api/agents/${encodeURIComponent(agent.agent_id)}/install`, {
+          method: "DELETE",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ agent_id: agent.agent_id }),
         });
         if (!res.ok) {
           const j = await res.json().catch(() => null);
           throw new Error(j?.detail ?? j?.error ?? `HTTP ${res.status}`);
         }
+        setPendingUninstall(null);
         await refreshCatalog();
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -221,7 +236,7 @@ export default function MarketplacePage() {
         setConnecting(null);
       }
     },
-    [connecting, refreshCatalog],
+    [connecting, pendingUninstall, refreshCatalog],
   );
 
   return (
@@ -422,7 +437,70 @@ export default function MarketplacePage() {
           void refreshCatalog();
         }}
       />
+      {pendingUninstall ? (
+        <UninstallDialog
+          agent={pendingUninstall}
+          busy={connecting === pendingUninstall.agent_id}
+          onCancel={() => setPendingUninstall(null)}
+          onConfirm={() => void confirmUninstall()}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function UninstallDialog({
+  agent,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  agent: MarketplaceAgent;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 px-4 backdrop-blur-sm"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="marketplace-uninstall-title"
+        className="w-full max-w-sm rounded-xl border border-lumo-hair bg-lumo-bg p-4 shadow-xl"
+      >
+        <h2 id="marketplace-uninstall-title" className="text-[15px] font-semibold text-lumo-fg">
+          Remove {agent.display_name}?
+        </h2>
+        <p className="mt-2 text-[12.5px] leading-relaxed text-lumo-fg-mid">
+          Lumo will stop using this app in chat and its active permission grants
+          will be revoked. You can install it again later.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onCancel}
+            className="h-8 rounded-md border border-lumo-hair px-3 text-[12.5px] text-lumo-fg-mid transition-colors hover:border-lumo-edge hover:text-lumo-fg disabled:opacity-60"
+          >
+            Keep installed
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onConfirm}
+            className="h-8 rounded-md bg-lumo-fg px-3 text-[12.5px] font-medium text-lumo-bg transition-colors hover:bg-lumo-err hover:text-white disabled:opacity-60"
+          >
+            {busy ? "Removing…" : "Remove"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

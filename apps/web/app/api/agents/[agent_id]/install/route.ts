@@ -24,6 +24,10 @@ import {
   permissionSnapshotForManifest,
   upsertAgentInstall,
 } from "@/lib/app-installs";
+import {
+  getAgent as getMarketplaceAgent,
+  uninstallAgent,
+} from "@/lib/marketplace";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -137,6 +141,30 @@ export async function POST(req: NextRequest, ctx: RouteContext): Promise<Respons
   });
 }
 
+export async function DELETE(_req: NextRequest, ctx: RouteContext): Promise<Response> {
+  let user;
+  try {
+    user = await requireServerUser();
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return json({ error: err.code, detail: err.message }, 401);
+    }
+    throw err;
+  }
+
+  const entry = await findAgent(ctx.params.agent_id);
+  if (!entry) return json({ error: "unknown_agent" }, 404);
+  if (entry.system === true) {
+    return json({ error: "system_agent", detail: "System agents are managed by Lumo Core." }, 403);
+  }
+
+  const result = await uninstallAgent({
+    userId: user.id,
+    agentId: entry.manifest.agent_id,
+  });
+  return json(result);
+}
+
 function consentScopes(manifest: AgentManifest): PermissionScopeDescriptor[] {
   const scopes = permissionScopesForManifest(manifest);
   if (scopes.length > 0) return scopes;
@@ -145,10 +173,21 @@ function consentScopes(manifest: AgentManifest): PermissionScopeDescriptor[] {
 
 async function findAgent(agent_id: string) {
   const registry = await ensureRegistry();
-  return (
-    Object.values(registry.agents).find((entry) => entry.manifest.agent_id === agent_id) ??
-    null
+  const registryEntry = Object.values(registry.agents).find(
+    (entry) => entry.manifest.agent_id === agent_id,
   );
+  if (registryEntry) return registryEntry;
+
+  const marketplaceAgent = await getMarketplaceAgent(agent_id);
+  if (!marketplaceAgent?.manifest) return null;
+  return {
+    manifest: {
+      ...marketplaceAgent.manifest,
+      version: marketplaceAgent.current_version ?? marketplaceAgent.manifest.version,
+    },
+    health_score: 1,
+    system: false,
+  };
 }
 
 function normalizeRequestedScopes(value: unknown): RequestedScope[] {

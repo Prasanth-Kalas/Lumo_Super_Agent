@@ -20,6 +20,7 @@ import {
   recordAuditEvent,
   type PermissionConstraints,
 } from "@/lib/permissions";
+import { getAgent as getMarketplaceAgent } from "@/lib/marketplace";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -194,10 +195,21 @@ async function buildReconsentPlan(userId: string, agentId: string): Promise<
 
 async function findAgent(agent_id: string) {
   const registry = await ensureRegistry();
-  return (
-    Object.values(registry.agents).find((entry) => entry.manifest.agent_id === agent_id) ??
-    null
+  const registryEntry = Object.values(registry.agents).find(
+    (entry) => entry.manifest.agent_id === agent_id,
   );
+  if (registryEntry) return registryEntry;
+
+  const marketplaceAgent = await getMarketplaceAgent(agent_id);
+  if (!marketplaceAgent?.manifest) return null;
+  return {
+    manifest: {
+      ...marketplaceAgent.manifest,
+      version: marketplaceAgent.current_version ?? marketplaceAgent.manifest.version,
+    },
+    health_score: 1,
+    system: false,
+  };
 }
 
 async function revokeRemovedScopes(userId: string, agentId: string, rows: unknown): Promise<void> {
