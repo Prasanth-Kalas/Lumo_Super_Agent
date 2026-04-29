@@ -8,6 +8,8 @@ struct SettingsTab: View {
     let onSignOut: () -> Void
     @State private var biometricEnabled: Bool = AuthService.defaultBiometricGateGetter()
     @State private var biometricAvailable: Bool = BiometricUnlockService().isBiometryAvailable()
+    @State private var speakResponses: Bool = VoiceSettings.speakResponses
+    @State private var hasUsedVoice: Bool = VoiceSettings.hasUsedVoice
     @State private var showSignOutConfirm = false
 
     @Environment(\.openURL) private var openURL
@@ -18,6 +20,7 @@ struct SettingsTab: View {
         Form {
             accountSection
             securitySection
+            voiceSection
             aboutSection
             supportSection
         }
@@ -80,6 +83,49 @@ struct SettingsTab: View {
                     }
                 }
                 .accessibilityIdentifier("settings.biometric")
+            }
+        }
+    }
+
+    // MARK: - Voice
+
+    @ViewBuilder
+    private var voiceSection: some View {
+        // Section is hidden until the user has used voice at least
+        // once — keeps the Settings surface uncluttered for the
+        // text-only path. Once they've spoken, the section appears.
+        if hasUsedVoice {
+            Section("Voice") {
+                Toggle(isOn: Binding(
+                    get: { speakResponses },
+                    set: { newValue in
+                        speakResponses = newValue
+                        VoiceSettings.speakResponses = newValue
+                    }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Speak responses aloud")
+                        Text("Use Lumo's voice to read assistant replies.")
+                            .font(LumoFonts.footnote)
+                            .foregroundStyle(LumoColors.labelSecondary)
+                    }
+                }
+                .accessibilityIdentifier("settings.speakResponses")
+
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                } label: {
+                    HStack {
+                        Text("Reset voice permissions")
+                        Spacer()
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(LumoColors.labelTertiary)
+                    }
+                }
+                .foregroundStyle(LumoColors.label)
+                .accessibilityIdentifier("settings.resetVoicePerms")
             }
         }
     }

@@ -41,6 +41,7 @@
 - 2026-04-29 — claude-code/mobile-chat-1b ready for review: 5 of 6 deliverable groups done (auth, Settings, 23 new tests bringing total to 34, cold-start 1443 ms / memory 32.9 MB, full light+dark screenshots); dark-mode artifact §5 unresolved with detailed investigation report — recommend MOBILE-POLISH-1 follow-up
 - 2026-04-29 — MOBILE-CHAT-1B merged to main; Phase 5 mobile track at substrate-complete
 - 2026-04-29 — claude-code/mobile-voice-1 opened from origin/main; Apple Speech STT + ElevenLabs Turbo TTS + push-to-talk composer in flight
+- 2026-04-29 — claude-code/mobile-voice-1 ready for review: all 8 deliverable groups done (audio session, STT, TTS w/ ElevenLabs+system fallback, push-to-talk composer, chat voice-mode integration, Settings voice section, 23 new tests bringing total to 57, cold-start 813 ms / memory 35 MB, full light+dark screenshots incl voice-listening + voice-transcript states); ElevenLabs API key not committed to env (permission gate denial — instructions in progress note); end-of-speech-to-first-token latency probe plumbed but not measured E2E pending PERF-1
 - 2026-04-29 — DEV-DASH branch opened; migration 040 drafted for early schema review
 - 2026-04-29 — DEV-DASH backend checkpoint drafted: developer library, API routes, and metrics rollup cron
 - 2026-04-29 — DEV-DASH UI and regression tests drafted for full review
