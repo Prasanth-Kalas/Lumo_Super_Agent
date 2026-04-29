@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-voice-1 | 2026-04-29 | MOBILE-VOICE-1 (Apple Speech STT + ElevenLabs TTS + push-to-talk composer) |
 
 ## Closed lanes
 
@@ -37,3 +38,4 @@
 - 2026-04-29 — COST-1 merged to main; Codex queued for DEV-DASH
 - 2026-04-29 — claude-code/mobile-chat-1b ready for review: 5 of 6 deliverable groups done (auth, Settings, 23 new tests bringing total to 34, cold-start 1443 ms / memory 32.9 MB, full light+dark screenshots); dark-mode artifact §5 unresolved with detailed investigation report — recommend MOBILE-POLISH-1 follow-up
 - 2026-04-29 — MOBILE-CHAT-1B merged to main; Phase 5 mobile track at substrate-complete
+- 2026-04-29 — claude-code/mobile-voice-1 opened from origin/main; Apple Speech STT + ElevenLabs Turbo TTS + push-to-talk composer in flight
