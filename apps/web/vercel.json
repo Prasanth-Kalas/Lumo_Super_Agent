@@ -32,6 +32,9 @@
     },
     "app/api/cron/rollback-missions/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/marketplace-version-sync/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -70,6 +73,10 @@
     {
       "path": "/api/cron/rollback-missions",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/marketplace-version-sync",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
