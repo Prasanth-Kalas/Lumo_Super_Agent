@@ -6,7 +6,7 @@
 
 # Interface: SubmitSigningMaterial
 
-Defined in: [submit.ts:15](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L15)
+Defined in: [submit.ts:15](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/cli/submit.ts#L15)
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: [submit.ts:15](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/bl
 
 > **keyId**: `string`
 
-Defined in: [submit.ts:16](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L16)
+Defined in: [submit.ts:16](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/cli/submit.ts#L16)
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [submit.ts:16](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/bl
 
 > **publicKeyPem**: `string`
 
-Defined in: [submit.ts:17](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L17)
+Defined in: [submit.ts:17](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/cli/submit.ts#L17)
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: [submit.ts:17](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/bl
 
 > **privateKeyPem**: `string`
 
-Defined in: [submit.ts:18](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L18)
+Defined in: [submit.ts:18](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/cli/submit.ts#L18)
 
 ***
 
@@ -38,4 +38,4 @@ Defined in: [submit.ts:18](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/bl
 
 > **fingerprintSha256**: `string`
 
-Defined in: [submit.ts:19](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L19)
+Defined in: [submit.ts:19](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/cli/submit.ts#L19)
