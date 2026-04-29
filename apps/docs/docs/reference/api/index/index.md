@@ -10,7 +10,7 @@
 
 ### `abstract` LumoAgent
 
-Defined in: agent.ts:40
+Defined in: [agent.ts:40](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L40)
 
 #### Extended by
 
@@ -28,7 +28,7 @@ Defined in: agent.ts:40
 
 > **new LumoAgent**\<`TManifest`\>(`manifest`): [`LumoAgent`](#abstract-lumoagent)\<`TManifest`\>
 
-Defined in: agent.ts:43
+Defined in: [agent.ts:43](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L43)
 
 ###### Parameters
 
@@ -46,13 +46,13 @@ Defined in: agent.ts:43
 
 > `readonly` **manifest**: `TManifest`
 
-Defined in: agent.ts:41
+Defined in: [agent.ts:41](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L41)
 
 ***
 
 ### `abstract` MerchantOfRecordAgent
 
-Defined in: agent.ts:48
+Defined in: [agent.ts:48](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L48)
 
 #### Extends
 
@@ -70,7 +70,7 @@ Defined in: agent.ts:48
 
 > **new MerchantOfRecordAgent**\<`TManifest`\>(`manifest`): [`MerchantOfRecordAgent`](#abstract-merchantofrecordagent)\<`TManifest`\>
 
-Defined in: agent.ts:43
+Defined in: [agent.ts:43](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L43)
 
 ###### Parameters
 
@@ -92,7 +92,7 @@ Defined in: agent.ts:43
 
 > `readonly` **manifest**: `TManifest`
 
-Defined in: agent.ts:41
+Defined in: [agent.ts:41](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L41)
 
 ###### Inherited from
 
@@ -104,7 +104,7 @@ Defined in: agent.ts:41
 
 > `abstract` **executeTransaction**(`input`, `context`): `Promise`\<[`TransactionResult`](interfaces/TransactionResult.md)\>
 
-Defined in: agent.ts:49
+Defined in: [agent.ts:49](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L49)
 
 ###### Parameters
 
@@ -124,7 +124,7 @@ Defined in: agent.ts:49
 
 > `abstract` **refund**(`transactionId`, `amountCents?`): `Promise`\<[`RefundResult`](interfaces/RefundResult.md)\>
 
-Defined in: agent.ts:54
+Defined in: [agent.ts:54](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L54)
 
 ###### Parameters
 
@@ -144,7 +144,7 @@ Defined in: agent.ts:54
 
 > `abstract` **getTransactionStatus**(`transactionId`): `Promise`\<[`TransactionState`](type-aliases/TransactionState.md)\>
 
-Defined in: agent.ts:59
+Defined in: [agent.ts:59](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L59)
 
 ###### Parameters
 

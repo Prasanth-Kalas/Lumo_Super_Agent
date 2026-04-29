@@ -6,7 +6,7 @@
 
 # Interface: RefundResult
 
-Defined in: agent.ts:24
+Defined in: [agent.ts:24](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L24)
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: agent.ts:24
 
 > **transaction\_id**: `string`
 
-Defined in: agent.ts:25
+Defined in: [agent.ts:25](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L25)
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: agent.ts:25
 
 > **state**: [`TransactionState`](../type-aliases/TransactionState.md)
 
-Defined in: agent.ts:26
+Defined in: [agent.ts:26](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L26)
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: agent.ts:26
 
 > **refunded\_amount\_cents**: `number`
 
-Defined in: agent.ts:27
+Defined in: [agent.ts:27](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L27)
 
 ***
 
@@ -38,7 +38,7 @@ Defined in: agent.ts:27
 
 > `optional` **provider\_reference?**: `string`
 
-Defined in: agent.ts:28
+Defined in: [agent.ts:28](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L28)
 
 ***
 
@@ -46,4 +46,4 @@ Defined in: agent.ts:28
 
 > `optional` **evidence?**: `Record`\<`string`, `unknown`\>
 
-Defined in: agent.ts:29
+Defined in: [agent.ts:29](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L29)

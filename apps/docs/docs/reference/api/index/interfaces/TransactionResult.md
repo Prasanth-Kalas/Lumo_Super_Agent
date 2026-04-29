@@ -6,7 +6,7 @@
 
 # Interface: TransactionResult
 
-Defined in: agent.ts:15
+Defined in: [agent.ts:15](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L15)
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: agent.ts:15
 
 > **transaction\_id**: `string`
 
-Defined in: agent.ts:16
+Defined in: [agent.ts:16](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L16)
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: agent.ts:16
 
 > **state**: [`TransactionState`](../type-aliases/TransactionState.md)
 
-Defined in: agent.ts:17
+Defined in: [agent.ts:17](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L17)
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: agent.ts:17
 
 > `optional` **provider\_reference?**: `string`
 
-Defined in: agent.ts:18
+Defined in: [agent.ts:18](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L18)
 
 ***
 
@@ -38,7 +38,7 @@ Defined in: agent.ts:18
 
 > **amount\_cents**: `number`
 
-Defined in: agent.ts:19
+Defined in: [agent.ts:19](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L19)
 
 ***
 
@@ -46,7 +46,7 @@ Defined in: agent.ts:19
 
 > **currency**: `"USD"`
 
-Defined in: agent.ts:20
+Defined in: [agent.ts:20](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L20)
 
 ***
 
@@ -54,4 +54,4 @@ Defined in: agent.ts:20
 
 > `optional` **evidence?**: `Record`\<`string`, `unknown`\>
 
-Defined in: agent.ts:21
+Defined in: [agent.ts:21](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/agent.ts#L21)

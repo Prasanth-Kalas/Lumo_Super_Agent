@@ -8,7 +8,7 @@
 
 > **validateMerchantManifest**(`manifest`): [`ManifestValidationResult`](../interfaces/ManifestValidationResult.md)
 
-Defined in: manifest.ts:16
+Defined in: [manifest.ts:16](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/manifest.ts#L16)
 
 ## Parameters
 

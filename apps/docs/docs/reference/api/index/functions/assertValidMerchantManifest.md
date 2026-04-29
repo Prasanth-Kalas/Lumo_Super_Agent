@@ -8,7 +8,7 @@
 
 > **assertValidMerchantManifest**(`manifest`): `void`
 
-Defined in: manifest.ts:70
+Defined in: [manifest.ts:70](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/main/packages/lumo-agent-sdk/src/manifest.ts#L70)
 
 ## Parameters
 
