@@ -24,10 +24,20 @@ configFiles:
 # `Supabase` (high-level client) and `Auth` (session storage protocol +
 # Apple Sign-In id-token exchange). 2.x is the current major; we pin
 # loosely to allow patch + minor updates but block 3.x without review.
+#
+# Stripe iOS SDK 24.x is the current major; same pinning shape (allow
+# patch + minor, block 25.x). The SPM-only mirror at stripe-ios-spm
+# avoids checking out the full stripe-ios examples + tests (faster
+# resolution, smaller checkout). Products used:
+#   - StripePaymentSheet — drop-in PaymentSheet (card add + Apple Pay).
+#   - StripeApplePay — standalone Apple Pay button (queued for v1.1).
 packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
     from: "2.0.0"
+  StripePaymentSheet:
+    url: https://github.com/stripe/stripe-ios-spm
+    from: "24.0.0"
 
 settings:
   base:
@@ -50,6 +60,10 @@ targets:
         product: Supabase
       - package: Supabase
         product: Auth
+      - package: StripePaymentSheet
+        product: StripePaymentSheet
+      - package: StripePaymentSheet
+        product: StripeApplePay
     settings:
       base:
         PRODUCT_NAME: Lumo
@@ -70,6 +84,8 @@ targets:
         INFOPLIST_KEY_LumoSupabaseAnonKey: $(LUMO_SUPABASE_ANON_KEY)
         INFOPLIST_KEY_LumoElevenLabsAPIKey: $(LUMO_ELEVENLABS_API_KEY)
         INFOPLIST_KEY_LumoElevenLabsVoiceID: $(LUMO_ELEVENLABS_VOICE_ID)
+        INFOPLIST_KEY_LumoStripePublishableKey: $(LUMO_STRIPE_PUBLISHABLE_KEY_TEST)
+        INFOPLIST_KEY_LumoStripeMerchantID: $(LUMO_STRIPE_MERCHANT_ID)
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.lumo.rentals.ios.dev

@@ -64,6 +64,10 @@
 	<string>$(LUMO_ELEVENLABS_API_KEY)</string>
 	<key>LumoElevenLabsVoiceID</key>
 	<string>$(LUMO_ELEVENLABS_VOICE_ID)</string>
+	<key>LumoStripePublishableKey</key>
+	<string>$(LUMO_STRIPE_PUBLISHABLE_KEY_TEST)</string>
+	<key>LumoStripeMerchantID</key>
+	<string>$(LUMO_STRIPE_MERCHANT_ID)</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Lumo uses your microphone so you can talk to your assistant. Your voice is processed on-device for transcription; nothing is recorded or stored.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

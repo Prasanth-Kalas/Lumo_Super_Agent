@@ -4,8 +4,9 @@ import Foundation
 /// bundle's Info.plist by xcconfig substitution. The xcconfig values
 /// come from `~/.config/lumo/.env` via `scripts/ios-write-xcconfig.sh`;
 /// missing values resolve to empty strings and surface as
-/// `isAuthConfigured` / `isElevenLabsConfigured` flags so callers can
-/// render an explicit "configuration missing" UX instead of crashing.
+/// `isAuthConfigured` / `isElevenLabsConfigured` / `isStripeConfigured`
+/// flags so callers can render an explicit "configuration missing" UX
+/// instead of crashing.
 
 struct AppConfig {
     let apiBaseURL: URL
@@ -13,6 +14,8 @@ struct AppConfig {
     let supabaseAnonKey: String
     let elevenLabsAPIKey: String
     let elevenLabsVoiceID: String
+    let stripePublishableKey: String
+    let stripeMerchantID: String
 
     var isAuthConfigured: Bool {
         supabaseURL != nil && !supabaseAnonKey.isEmpty
@@ -23,6 +26,19 @@ struct AppConfig {
     /// AVSpeechSynthesizer.
     var isElevenLabsConfigured: Bool {
         !elevenLabsAPIKey.isEmpty
+    }
+
+    /// True when Stripe is configured. Test-mode publishable keys start
+    /// with `pk_test_`; live-mode start with `pk_live_`. We only ship
+    /// test mode in this sprint — `isStripeLiveMode` is exposed so
+    /// PaymentMethodsView can render a "TEST MODE" banner. Real-money
+    /// execution lands in MERCHANT-1.
+    var isStripeConfigured: Bool {
+        !stripePublishableKey.isEmpty
+    }
+
+    var isStripeLiveMode: Bool {
+        stripePublishableKey.hasPrefix("pk_live_")
     }
 
     /// Default voice — Rachel (`21m00Tcm4TlvDq8ikWAM`). Pinned so
@@ -51,13 +67,17 @@ struct AppConfig {
         let anonKey = (bundle.object(forInfoDictionaryKey: "LumoSupabaseAnonKey") as? String) ?? ""
         let elevenKey = (bundle.object(forInfoDictionaryKey: "LumoElevenLabsAPIKey") as? String) ?? ""
         let elevenVoice = (bundle.object(forInfoDictionaryKey: "LumoElevenLabsVoiceID") as? String) ?? ""
+        let stripeKey = (bundle.object(forInfoDictionaryKey: "LumoStripePublishableKey") as? String) ?? ""
+        let stripeMerchant = (bundle.object(forInfoDictionaryKey: "LumoStripeMerchantID") as? String) ?? ""
 
         return AppConfig(
             apiBaseURL: apiURL,
             supabaseURL: supabaseURL,
             supabaseAnonKey: anonKey,
             elevenLabsAPIKey: elevenKey,
-            elevenLabsVoiceID: elevenVoice
+            elevenLabsVoiceID: elevenVoice,
+            stripePublishableKey: stripeKey,
+            stripeMerchantID: stripeMerchant
         )
     }
 }

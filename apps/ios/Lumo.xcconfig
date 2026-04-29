@@ -21,4 +21,13 @@ LUMO_SUPABASE_ANON_KEY =
 LUMO_ELEVENLABS_API_KEY =
 LUMO_ELEVENLABS_VOICE_ID =
 
+// Stripe — populated from ~/.config/lumo/.env. The publishable key is
+// test-mode-only for now (`pk_test_...`); real-money execution waits
+// on Phase 4.5 MERCHANT-1. The merchant ID is the Apple Pay merchant
+// identifier (e.g. `merchant.com.lumo.rentals.ios`); a placeholder is
+// fine while CI signing is off. When the key is empty, Payment Methods
+// renders a clean "Payments not configured" state instead of crashing.
+LUMO_STRIPE_PUBLISHABLE_KEY_TEST =
+LUMO_STRIPE_MERCHANT_ID =
+
 #include? "Lumo.local.xcconfig"

@@ -22,6 +22,8 @@ supabase_url="${LUMO_SUPABASE_URL:-}"
 supabase_anon_key="${LUMO_SUPABASE_ANON_KEY:-}"
 elevenlabs_api_key="${LUMO_ELEVENLABS_API_KEY:-}"
 elevenlabs_voice_id="${LUMO_ELEVENLABS_VOICE_ID:-}"
+stripe_publishable_key_test="${LUMO_STRIPE_PUBLISHABLE_KEY_TEST:-}"
+stripe_merchant_id="${LUMO_STRIPE_MERCHANT_ID:-}"
 
 # Split URL → scheme + host (+ optional path) so xcconfig doesn't truncate.
 supabase_scheme=""
@@ -49,6 +51,8 @@ LUMO_SUPABASE_URL_HOST = ${supabase_host_path}
 LUMO_SUPABASE_ANON_KEY = ${supabase_anon_key}
 LUMO_ELEVENLABS_API_KEY = ${elevenlabs_api_key}
 LUMO_ELEVENLABS_VOICE_ID = ${elevenlabs_voice_id}
+LUMO_STRIPE_PUBLISHABLE_KEY_TEST = ${stripe_publishable_key_test}
+LUMO_STRIPE_MERCHANT_ID = ${stripe_merchant_id}
 EOF
 
 # Warn separately for each missing piece so the developer knows which
@@ -58,6 +62,9 @@ if [[ -z "$supabase_url" || -z "$supabase_anon_key" ]]; then
 fi
 if [[ -z "$elevenlabs_api_key" ]]; then
   echo "[ios-write-xcconfig] WARN: LUMO_ELEVENLABS_API_KEY missing — TTS falls through to AVSpeechSynthesizer."
+fi
+if [[ -z "$stripe_publishable_key_test" ]]; then
+  echo "[ios-write-xcconfig] WARN: LUMO_STRIPE_PUBLISHABLE_KEY_TEST missing — Payment Methods will surface 'Payments not configured'."
 fi
 
 echo "[ios-write-xcconfig] wrote $out_path"
