@@ -17,6 +17,7 @@ import {
   type ProtectedAgentId,
   type TyposquatResult,
 } from "./typosquatting.js";
+import { signatureRequirementError } from "./submission-policy.js";
 
 export interface SubmitMarketplaceAgentInput {
   manifest: unknown;
@@ -44,10 +45,9 @@ export async function submitMarketplaceAgent(
 ): Promise<MarketplaceSubmissionResult> {
   const manifest = parseManifest(input.manifest);
   const trustTier = input.requestedTier ?? requestedTierFromManifest(manifest);
-  if ((trustTier === "official" || trustTier === "verified") && !input.signature?.trim()) {
-    throw new MarketplaceSubmissionError("signature_required", {
-      trust_tier: trustTier,
-    });
+  const signatureError = signatureRequirementError(trustTier, input.signature);
+  if (signatureError) {
+    throw new MarketplaceSubmissionError(signatureError, { trust_tier: trustTier });
   }
   const protectedIds = await listProtectedAgentIds();
   const typo = checkTyposquat(manifest.agent_id, protectedIds);

@@ -10,6 +10,11 @@
 
 import { getSupabase } from "../db.js";
 import { recordInstallMetric } from "../marketplace.js";
+import {
+  latestPatchFromRows,
+  nearestPatchFromRows,
+  type MarketplaceVersionRowLite,
+} from "./version-policy.js";
 
 export interface YankAgentVersionInput {
   agentId: string;
@@ -43,11 +48,7 @@ interface InstallRow {
   agent_version: string;
 }
 
-interface VersionRow {
-  version: string;
-  published_at: string | null;
-  yanked: boolean;
-}
+type VersionRow = MarketplaceVersionRowLite;
 
 export async function yankAgentVersion(
   input: YankAgentVersionInput,
@@ -262,36 +263,6 @@ async function nearestNonYankedPatch(agentId: string, version: string): Promise<
   return nearestPatchFromRows(versions, version)?.version ?? null;
 }
 
-function nearestPatchFromRows(versions: VersionRow[], version: string): VersionRow | null {
-  const current = parseSemver(version);
-  if (!current) return null;
-  return versions
-    .filter((candidate) => !candidate.yanked)
-    .filter((candidate) => {
-      const parsed = parseSemver(candidate.version);
-      return parsed?.major === current.major && parsed.minor === current.minor;
-    })
-    .sort((a, b) => compareSemver(b.version, a.version))[0] ?? null;
-}
-
-function latestPatchFromRows(versions: VersionRow[], version: string): VersionRow | null {
-  const current = parseSemver(version);
-  if (!current) return null;
-  return (
-    versions
-      .filter((candidate) => !candidate.yanked)
-      .filter((candidate) => {
-        const parsed = parseSemver(candidate.version);
-        return (
-          parsed?.major === current.major &&
-          parsed.minor === current.minor &&
-          parsed.patch > current.patch
-        );
-      })
-      .sort((a, b) => compareSemver(b.version, a.version))[0] ?? null
-  );
-}
-
 async function markYankProgress(
   agentId: string,
   version: string,
@@ -339,27 +310,4 @@ async function finalizeCompletedYanks(): Promise<void> {
         .eq("version", row.version);
     }
   }
-}
-
-interface Semver {
-  major: number;
-  minor: number;
-  patch: number;
-}
-
-function parseSemver(version: string): Semver | null {
-  const match = version.trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
-  if (!match) return null;
-  return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
-  };
-}
-
-function compareSemver(a: string, b: string): number {
-  const aa = parseSemver(a);
-  const bb = parseSemver(b);
-  if (!aa || !bb) return a.localeCompare(b);
-  return aa.major - bb.major || aa.minor - bb.minor || aa.patch - bb.patch;
 }
