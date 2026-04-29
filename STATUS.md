@@ -65,3 +65,4 @@
 - 2026-04-30 — MOBILE-PAYMENTS-1 merged to main; iOS payment surface complete with explicit MERCHANT-1 swap path documented; Phase 5 iOS substrate complete.
 - 2026-04-30 — claude-code/mobile-notif-1 opened from origin/main; APNs + 4 notification categories + background fetch + proactive-moments cards + Settings notifications section in flight (last iOS sprint independent of Phase 4.5 backend)
 - 2026-04-30 — MERCHANT-1 branch opened; migration 043 drafted for early schema review
+- 2026-04-30 — MERCHANT-1 full review slice ready: Stripe-backed payments routes, ECDSA confirmation keys, webhook reconciliation, merchant SDK contract, stub merchant sample, and regression tests; gates green locally
