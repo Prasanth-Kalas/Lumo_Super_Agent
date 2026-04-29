@@ -13,6 +13,22 @@ import SwiftUI
 /// `lastUserPrompt` lets `regenerate()` re-issue the previous prompt
 /// without requiring the user to retype.
 
+/// How the current turn was initiated. Drives whether the assistant
+/// response gets read back via TTS:
+///   .text  — user typed; render text only.
+///   .voice — user spoke; speak the response back.
+///   .both  — accessibility / mixed-input mode; render AND speak.
+enum VoiceMode: String {
+    case text
+    case voice
+    case both
+
+    /// Whether this turn should produce TTS output.
+    var shouldSpeak: Bool {
+        self == .voice || self == .both
+    }
+}
+
 @MainActor
 final class ChatViewModel: ObservableObject {
     @Published private(set) var messages: [ChatMessage] = []
@@ -20,21 +36,48 @@ final class ChatViewModel: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var isStreaming: Bool = false
 
+    /// First-token latency from `send()` to the first non-empty
+    /// `.text` SSE frame, in seconds. Reset on every send. Used by
+    /// the voice-mode latency probe in `scripts/ios-measure-perf.sh`
+    /// — surfaced through a debug-only HUD (Phase 5 perf observability).
+    @Published private(set) var lastFirstTokenLatency: TimeInterval?
+
     private let service: ChatService
     private let sessionID: String
+    private let tts: TextToSpeechServicing?
     private var streamingTask: Task<Void, Never>?
     private var lastUserPrompt: String?
+    private var lastVoiceMode: VoiceMode = .text
+    /// Captured at the moment send() begins so we can record
+    /// first-token latency on the matching .text event.
+    private var streamStartTime: Date?
 
-    init(service: ChatService, sessionID: String = UUID().uuidString) {
+    init(
+        service: ChatService,
+        sessionID: String = UUID().uuidString,
+        tts: TextToSpeechServicing? = nil
+    ) {
         self.service = service
         self.sessionID = sessionID
+        self.tts = tts
     }
 
-    func send() {
+    func send(mode: VoiceMode = .text) {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
         input = ""
+        lastVoiceMode = mode
         startStream(prompt: text, addUserBubble: true)
+    }
+
+    /// Convenience entry point used by the voice composer — pushes
+    /// the transcript directly into the input field and sends in
+    /// voice mode without a tap on the text field.
+    func sendVoiceTranscript(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isStreaming else { return }
+        input = trimmed
+        send(mode: .voice)
     }
 
     /// Re-issue the most recent failed user message.
@@ -73,6 +116,12 @@ final class ChatViewModel: ObservableObject {
         isStreaming = true
         error = nil
         lastUserPrompt = prompt
+        streamStartTime = Date()
+        lastFirstTokenLatency = nil
+
+        if lastVoiceMode.shouldSpeak {
+            tts?.beginStreaming()
+        }
 
         if addUserBubble {
             messages.append(ChatMessage(role: .user, text: prompt, status: .sending))
@@ -92,27 +141,41 @@ final class ChatViewModel: ObservableObject {
                 if Task.isCancelled { break }
                 switch event {
                 case .text(let chunk):
-                    if !sawFirstToken, addUserBubble {
-                        markUserSent()
+                    if !sawFirstToken {
+                        if addUserBubble { markUserSent() }
+                        if let start = streamStartTime, !chunk.isEmpty {
+                            lastFirstTokenLatency = Date().timeIntervalSince(start)
+                        }
                     }
                     sawFirstToken = true
                     appendAssistantText(chunk, id: assistantID)
+                    if lastVoiceMode.shouldSpeak {
+                        tts?.appendToken(chunk)
+                    }
                 case .error(let detail):
                     error = detail
                     markAssistantFailed(id: assistantID)
                     if addUserBubble { markUserFailed() }
+                    if lastVoiceMode.shouldSpeak {
+                        tts?.cancel()
+                    }
                 case .done:
                     markAssistantDelivered(id: assistantID)
+                    if lastVoiceMode.shouldSpeak {
+                        tts?.finishStreaming()
+                    }
                 case .other:
                     continue
                 }
             }
         } catch is CancellationError {
             // user navigated away or restarted; leave state as-is
+            if lastVoiceMode.shouldSpeak { tts?.cancel() }
         } catch {
             self.error = error.localizedDescription
             markAssistantFailed(id: assistantID)
             if addUserBubble { markUserFailed() }
+            if lastVoiceMode.shouldSpeak { tts?.cancel() }
         }
         isStreaming = false
         streamingTask = nil

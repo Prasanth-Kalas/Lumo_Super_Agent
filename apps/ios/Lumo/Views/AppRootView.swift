@@ -8,10 +8,12 @@ struct AppRootView: View {
     @StateObject private var authViewModel: AuthViewModel
     private let authService: AuthServicing
     private let chatService: ChatService
+    private let tts: TextToSpeechServicing
 
-    init(authService: AuthServicing, chatService: ChatService) {
+    init(authService: AuthServicing, chatService: ChatService, tts: TextToSpeechServicing) {
         self.authService = authService
         self.chatService = chatService
+        self.tts = tts
         _authViewModel = StateObject(wrappedValue: AuthViewModel(auth: authService))
     }
 
@@ -19,7 +21,7 @@ struct AppRootView: View {
         Group {
             switch authViewModel.state {
             case .signedIn(let user):
-                RootView(chatService: chatService, onSignOut: handleSignOut)
+                RootView(chatService: chatService, tts: tts, onSignOut: handleSignOut)
                     .environment(\.signedInUser, user)
                     .transition(.opacity)
             case .needsBiometric(let user):

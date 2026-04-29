@@ -14,4 +14,11 @@ LUMO_SUPABASE_URL_SCHEME =
 LUMO_SUPABASE_URL_HOST =
 LUMO_SUPABASE_ANON_KEY =
 
+// ElevenLabs Turbo TTS — populated from ~/.config/lumo/.env. When
+// empty the app falls through the TTS chain (ElevenLabs → OpenAI →
+// AVSpeechSynthesizer) and surfaces a "configure ElevenLabs" hint
+// in Settings rather than crashing.
+LUMO_ELEVENLABS_API_KEY =
+LUMO_ELEVENLABS_VOICE_ID =
+
 #include? "Lumo.local.xcconfig"

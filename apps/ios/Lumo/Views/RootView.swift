@@ -6,11 +6,13 @@ import SwiftUI
 
 struct RootView: View {
     private let chatService: ChatService
+    private let tts: TextToSpeechServicing
     private let onSignOut: () -> Void
     @State private var selection: Tab
 
-    init(chatService: ChatService, onSignOut: @escaping () -> Void) {
+    init(chatService: ChatService, tts: TextToSpeechServicing, onSignOut: @escaping () -> Void) {
         self.chatService = chatService
+        self.tts = tts
         self.onSignOut = onSignOut
         // DEBUG-only `-LumoStartTab` launch arg lets the screenshot
         // script select Trips / Settings on cold-launch without
@@ -36,7 +38,7 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $selection) {
             NavigationStack {
-                ChatTab(chatService: chatService)
+                ChatTab(chatService: chatService, tts: tts)
             }
             .tabItem {
                 Label("Chat", systemImage: "bubble.left.and.bubble.right.fill")

@@ -60,5 +60,13 @@
 	<string>$(LUMO_SUPABASE_URL_HOST)</string>
 	<key>LumoSupabaseAnonKey</key>
 	<string>$(LUMO_SUPABASE_ANON_KEY)</string>
+	<key>LumoElevenLabsAPIKey</key>
+	<string>$(LUMO_ELEVENLABS_API_KEY)</string>
+	<key>LumoElevenLabsVoiceID</key>
+	<string>$(LUMO_ELEVENLABS_VOICE_ID)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lumo uses your microphone so you can talk to your assistant. Your voice is processed on-device for transcription; nothing is recorded or stored.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Lumo uses on-device speech recognition to turn your voice into the messages you send. Transcripts are processed locally; only the resulting text is sent to Lumo.</string>
 </dict>
 </plist>

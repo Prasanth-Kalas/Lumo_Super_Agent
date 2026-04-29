@@ -20,6 +20,8 @@ out_path="$repo_root/apps/ios/Lumo.local.xcconfig"
 
 supabase_url="${LUMO_SUPABASE_URL:-}"
 supabase_anon_key="${LUMO_SUPABASE_ANON_KEY:-}"
+elevenlabs_api_key="${LUMO_ELEVENLABS_API_KEY:-}"
+elevenlabs_voice_id="${LUMO_ELEVENLABS_VOICE_ID:-}"
 
 # Split URL → scheme + host (+ optional path) so xcconfig doesn't truncate.
 supabase_scheme=""
@@ -45,13 +47,17 @@ cat > "$out_path" <<EOF
 LUMO_SUPABASE_URL_SCHEME = ${supabase_scheme}
 LUMO_SUPABASE_URL_HOST = ${supabase_host_path}
 LUMO_SUPABASE_ANON_KEY = ${supabase_anon_key}
+LUMO_ELEVENLABS_API_KEY = ${elevenlabs_api_key}
+LUMO_ELEVENLABS_VOICE_ID = ${elevenlabs_voice_id}
 EOF
 
+# Warn separately for each missing piece so the developer knows which
+# capability is unconfigured.
 if [[ -z "$supabase_url" || -z "$supabase_anon_key" ]]; then
-  echo "[ios-write-xcconfig] WARN: LUMO_SUPABASE_URL or LUMO_SUPABASE_ANON_KEY"
-  echo "[ios-write-xcconfig]       not set in env — writing empty values."
-  echo "[ios-write-xcconfig]       The app will run but auth will be disabled."
-  echo "[ios-write-xcconfig]       To populate: \`set -a; source ~/.config/lumo/.env; set +a\`"
+  echo "[ios-write-xcconfig] WARN: LUMO_SUPABASE_URL / LUMO_SUPABASE_ANON_KEY missing — auth will be disabled."
+fi
+if [[ -z "$elevenlabs_api_key" ]]; then
+  echo "[ios-write-xcconfig] WARN: LUMO_ELEVENLABS_API_KEY missing — TTS falls through to AVSpeechSynthesizer."
 fi
 
 echo "[ios-write-xcconfig] wrote $out_path"

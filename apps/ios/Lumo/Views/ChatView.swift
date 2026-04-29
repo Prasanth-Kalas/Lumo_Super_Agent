@@ -15,10 +15,21 @@ import SwiftUI
 
 struct ChatView: View {
     @StateObject private var viewModel: ChatViewModel
+    @StateObject private var voiceComposer: VoiceComposerViewModel
     @FocusState private var inputFocused: Bool
+    @State private var showPermissionAlert = false
 
-    init(service: ChatService) {
-        _viewModel = StateObject(wrappedValue: ChatViewModel(service: service))
+    init(service: ChatService, tts: TextToSpeechServicing? = nil) {
+        _viewModel = StateObject(wrappedValue: ChatViewModel(service: service, tts: tts))
+        _voiceComposer = StateObject(wrappedValue: VoiceComposerViewModel(speech: SpeechRecognitionService()))
+    }
+
+    /// Test-only initialiser — accepts pre-built view-models so unit
+    /// tests can drive both pipelines without spinning up a real
+    /// SFSpeechRecognizer.
+    init(viewModel: ChatViewModel, voiceComposer: VoiceComposerViewModel) {
+        _viewModel = StateObject(wrappedValue: viewModel)
+        _voiceComposer = StateObject(wrappedValue: voiceComposer)
     }
 
     var body: some View {
@@ -27,10 +38,22 @@ struct ChatView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     errorBanner
+                    voiceTranscriptBanner
                     inputBar
                 }
             }
             .onDisappear { viewModel.cancelStream() }
+            .onChange(of: voiceComposer.state) { _, new in handleVoiceStateChange(new) }
+            .alert("Microphone access", isPresented: $showPermissionAlert) {
+                Button("Open Settings") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+                Button("Cancel", role: .cancel) { voiceComposer.cancel() }
+            } message: {
+                Text(voiceComposer.state.permissionDeniedMessage ?? "")
+            }
     }
 
     // MARK: - Message container
@@ -149,6 +172,27 @@ struct ChatView: View {
         }
     }
 
+    // MARK: - Voice transcript banner
+
+    @ViewBuilder
+    private var voiceTranscriptBanner: some View {
+        if let partial = voiceComposer.state.partialTranscript, !partial.isEmpty {
+            HStack(alignment: .top, spacing: LumoSpacing.sm) {
+                Image(systemName: "waveform")
+                    .foregroundStyle(LumoColors.cyan)
+                Text(partial)
+                    .font(LumoFonts.body)
+                    .foregroundStyle(LumoColors.label)
+                    .lineLimit(3)
+                Spacer()
+            }
+            .padding(.horizontal, LumoSpacing.md)
+            .padding(.vertical, LumoSpacing.sm)
+            .background(LumoColors.cyan.opacity(0.08))
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+    }
+
     // MARK: - Input bar
 
     private var inputBar: some View {
@@ -157,19 +201,33 @@ struct ChatView: View {
                 "Ask Lumo…",
                 text: $viewModel.input,
                 submitLabel: .send,
-                onSubmit: viewModel.send
+                onSubmit: { viewModel.send(mode: .text) }
             )
             .focused($inputFocused)
 
-            Button(action: handleSendTap) {
-                Image(systemName: "paperplane.fill")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(sendButtonBackground)
+            // Voice button only when the text field is empty — the
+            // common chat-app pattern: type to type, hold to speak.
+            // Once the user has typed anything the button swaps to
+            // the send affordance.
+            if viewModel.input.trimmingCharacters(in: .whitespaces).isEmpty {
+                VoicePushToTalkButton(
+                    isListening: voiceComposer.state.isListening,
+                    isDisabled: viewModel.isStreaming,
+                    onTap: { Task { await voiceComposer.tapToTalk() } },
+                    onLongPressBegan: { Task { await voiceComposer.pressBegan() } },
+                    onLongPressEnded: { voiceComposer.release() }
+                )
+            } else {
+                Button(action: handleSendTap) {
+                    Image(systemName: "paperplane.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(sendButtonBackground)
+                }
+                .accessibilityLabel("Send message")
+                .disabled(!canSend)
             }
-            .accessibilityLabel("Send message")
-            .disabled(!canSend)
         }
         .padding(LumoSpacing.md)
         .background(
@@ -182,6 +240,22 @@ struct ChatView: View {
                 )
                 .ignoresSafeArea(edges: .bottom)
         )
+        .animation(LumoAnimation.quick, value: viewModel.input.isEmpty)
+    }
+
+    // MARK: - Voice → chat handoff
+
+    private func handleVoiceStateChange(_ newState: VoiceComposerViewModel.State) {
+        switch newState {
+        case .ready:
+            if let transcript = voiceComposer.consumeReadyTranscript() {
+                viewModel.sendVoiceTranscript(transcript)
+            }
+        case .permissionDenied:
+            showPermissionAlert = true
+        default:
+            break
+        }
     }
 
     private var canSend: Bool {
@@ -193,7 +267,7 @@ struct ChatView: View {
     }
 
     private func handleSendTap() {
-        viewModel.send()
+        viewModel.send(mode: .text)
         inputFocused = false
     }
 

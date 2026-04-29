@@ -68,6 +68,8 @@ targets:
         INFOPLIST_KEY_LumoSupabaseURLScheme: $(LUMO_SUPABASE_URL_SCHEME)
         INFOPLIST_KEY_LumoSupabaseURLHost: $(LUMO_SUPABASE_URL_HOST)
         INFOPLIST_KEY_LumoSupabaseAnonKey: $(LUMO_SUPABASE_ANON_KEY)
+        INFOPLIST_KEY_LumoElevenLabsAPIKey: $(LUMO_ELEVENLABS_API_KEY)
+        INFOPLIST_KEY_LumoElevenLabsVoiceID: $(LUMO_ELEVENLABS_VOICE_ID)
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.lumo.rentals.ios.dev
