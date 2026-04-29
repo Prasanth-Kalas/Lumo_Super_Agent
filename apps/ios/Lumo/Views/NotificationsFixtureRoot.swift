@@ -1,5 +1,6 @@
 #if DEBUG
 import SwiftUI
+import UserNotifications
 
 /// DEBUG-only root for capturing notification + proactive-moments
 /// screenshots deterministically. Activated by
@@ -14,6 +15,7 @@ enum NotificationsFixture: String {
     case proactiveCards = "proactive-cards"
     case settings = "settings"
     case permissionDenied = "permission-denied"
+    case permissionPrompt = "permission-prompt"
 
     static var current: NotificationsFixture? {
         guard let raw = UserDefaults.standard.string(forKey: "LumoNotificationsFixture"),
@@ -53,9 +55,55 @@ struct NotificationsFixtureRoot: View {
                 proactiveCardsHost
             case .settings, .permissionDenied:
                 settingsHost
+            case .permissionPrompt:
+                permissionPromptHost
             }
         }
         .tint(LumoColors.cyan)
+    }
+
+    @ViewBuilder
+    private var permissionPromptHost: some View {
+        // Pre-permission rationale screen. Tapping "Turn on
+        // notifications" calls `requestAuthorization` which fires the
+        // system prompt — the screenshot captures the system prompt
+        // sitting on top of this rationale. The screen content + copy
+        // matches what a user sees the first time they navigate to a
+        // surface that needs push (e.g. tapping "Enable" in Settings
+        // when push is off).
+        ZStack {
+            LumoColors.background.ignoresSafeArea()
+            VStack(spacing: LumoSpacing.lg) {
+                Image(systemName: "bell.badge.fill")
+                    .font(.system(size: 64, weight: .light))
+                    .foregroundStyle(LumoColors.cyanDeep)
+                Text("Turn on notifications")
+                    .font(LumoFonts.largeTitle)
+                    .foregroundStyle(LumoColors.label)
+                Text("So Lumo can let you know about trip updates, proactive suggestions, and payment receipts. You can customize which categories notify you in Settings.")
+                    .font(LumoFonts.body)
+                    .foregroundStyle(LumoColors.labelSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, LumoSpacing.xl)
+                Button("Allow notifications") {
+                    Task { await requestPermission() }
+                }
+                .buttonStyle(.lumoPrimary)
+                .padding(.horizontal, LumoSpacing.xl)
+                .accessibilityIdentifier("notifications.permission.allow")
+            }
+            .padding(LumoSpacing.xl)
+        }
+        .task {
+            // Auto-fire the prompt on appear so the screenshot capture
+            // doesn't have to simulate a tap.
+            await requestPermission()
+        }
+    }
+
+    private func requestPermission() async {
+        let center = UNUserNotificationCenter.current()
+        _ = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
     }
 
     @ViewBuilder

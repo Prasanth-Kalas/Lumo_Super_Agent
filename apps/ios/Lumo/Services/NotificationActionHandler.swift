@@ -20,7 +20,14 @@ import UserNotifications
 /// natural injection point and the routes must survive across view
 /// re-creation. The shared instance is constructed by `LumoApp` at
 /// boot with the live snooze API client; tests can swap via
-/// `installForTesting(...)`.
+/// `_installForTestingOnly(...)`.
+///
+/// Future contributors: do NOT "fix" this to plain DI. The
+/// UNUserNotificationCenter delegate is set at app-launch time
+/// (before the SwiftUI view tree exists) and Apple's notification
+/// callback path bypasses any DI container. The route-publish
+/// pattern is what lets the SwiftUI tree subscribe via `@StateObject`
+/// + `.onReceive` without coupling to the system delegate.
 
 enum NotificationRoute: Equatable {
     case openTrips
@@ -51,8 +58,11 @@ final class NotificationActionHandler: ObservableObject {
         self.snoozer = snoozer
     }
 
-    /// Test-only injection.
-    func installForTesting(snoozer: NotificationSnoozing) {
+    /// Test-only injection. Renamed from `installForTesting` per
+    /// reviewer feedback (2026-04-30) — the underscore-prefix +
+    /// "Only" suffix make the contract louder so production code
+    /// can't call this by accident and lose pending routes.
+    func _installForTestingOnly(snoozer: NotificationSnoozing) {
         self.snoozer = snoozer
         self.lastRoute = nil
     }

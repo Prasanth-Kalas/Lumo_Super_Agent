@@ -12,7 +12,7 @@ final class NotificationActionHandlerTests: XCTestCase {
         try await super.setUp()
         handler = NotificationActionHandler.shared
         snoozer = FakeNotificationSnoozer()
-        handler.installForTesting(snoozer: snoozer)
+        handler._installForTestingOnly(snoozer: snoozer)
     }
 
     // MARK: - Default tap (body tap, no action button)

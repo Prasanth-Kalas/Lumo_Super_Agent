@@ -129,6 +129,15 @@ case "$variant" in
         echo "[shots] notifications section — master disabled"
         capture 16-notifications-disabled light -LumoNotificationsFixture permission-denied
         capture 16-notifications-disabled dark  -LumoNotificationsFixture permission-denied
+
+        # Permission prompt — only renders when the OS thinks the app
+        # has never asked. Reset notification permissions for the bundle
+        # before each capture so the system prompt re-appears.
+        echo "[shots] system permission prompt"
+        xcrun simctl privacy "$sim_id" reset notifications "$bundle_id" 2>/dev/null || true
+        capture 17-permission-prompt light -LumoNotificationsFixture permission-prompt
+        xcrun simctl privacy "$sim_id" reset notifications "$bundle_id" 2>/dev/null || true
+        capture 17-permission-prompt dark  -LumoNotificationsFixture permission-prompt
         ;;
     *)
         echo "unknown variant: $variant"
