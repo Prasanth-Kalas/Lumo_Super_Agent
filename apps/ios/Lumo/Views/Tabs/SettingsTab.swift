@@ -16,6 +16,25 @@ struct SettingsTab: View {
     @State private var showSignOutConfirm = false
     @State private var showTestPaymentSheet = false
 
+    // Notifications state — these mirror the persisted UserDefaults
+    // values via NotificationSettings; bindings flush back on change.
+    @State private var pushEnabled: Bool = NotificationSettings.isPushEnabled
+    @State private var tripUpdatesEnabled: Bool = NotificationSettings.isCategoryEnabled(.tripUpdate)
+    @State private var proactiveEnabled: Bool = NotificationSettings.isCategoryEnabled(.proactiveSuggestion)
+    @State private var paymentReceiptsEnabled: Bool = NotificationSettings.isCategoryEnabled(.paymentReceipt)
+    @State private var alertsEnabled: Bool = NotificationSettings.isCategoryEnabled(.alert)
+    @State private var quietHoursEnabled: Bool = (NotificationSettings.quietHoursStart != nil)
+    @State private var quietStartDate: Date = SettingsTab.makeQuietDate(
+        from: NotificationSettings.quietHoursStart ?? 22 * 60
+    )
+    @State private var quietEndDate: Date = SettingsTab.makeQuietDate(
+        from: NotificationSettings.quietHoursEnd ?? 7 * 60
+    )
+
+    private static func makeQuietDate(from minutes: Int) -> Date {
+        NotificationSettings.dateFromMinutesSinceMidnight(minutes)
+    }
+
     @Environment(\.openURL) private var openURL
 
     private let biometricKindLabel: String = BiometricUnlockService().biometryKind().label
@@ -26,6 +45,7 @@ struct SettingsTab: View {
             securitySection
             paymentsSection
             voiceSection
+            notificationsSection
             aboutSection
             supportSection
         }
@@ -197,6 +217,125 @@ struct SettingsTab: View {
                 .accessibilityIdentifier("settings.resetVoicePerms")
             }
         }
+    }
+
+    // MARK: - Notifications
+
+    @ViewBuilder
+    private var notificationsSection: some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { pushEnabled },
+                set: { newValue in
+                    pushEnabled = newValue
+                    NotificationSettings.isPushEnabled = newValue
+                }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Push notifications")
+                    Text(appConfig.apnsUseSandbox
+                         ? "Sandbox APNs (development build)."
+                         : "Production APNs.")
+                        .font(LumoFonts.footnote)
+                        .foregroundStyle(LumoColors.labelSecondary)
+                }
+            }
+            .accessibilityIdentifier("settings.notifications.master")
+
+            if pushEnabled {
+                categoryToggle(.tripUpdate, $tripUpdatesEnabled, identifier: "tripUpdates")
+                categoryToggle(.proactiveSuggestion, $proactiveEnabled, identifier: "proactive")
+                categoryToggle(.paymentReceipt, $paymentReceiptsEnabled, identifier: "paymentReceipts")
+                categoryToggle(.alert, $alertsEnabled, identifier: "alerts")
+            }
+        } header: {
+            Text("Notifications")
+        }
+
+        if pushEnabled {
+            Section {
+                Toggle("Quiet hours", isOn: Binding(
+                    get: { quietHoursEnabled },
+                    set: { newValue in
+                        quietHoursEnabled = newValue
+                        if newValue {
+                            NotificationSettings.quietHoursStart =
+                                NotificationSettings.minutesSinceMidnight(quietStartDate)
+                            NotificationSettings.quietHoursEnd =
+                                NotificationSettings.minutesSinceMidnight(quietEndDate)
+                        } else {
+                            NotificationSettings.quietHoursStart = nil
+                            NotificationSettings.quietHoursEnd = nil
+                        }
+                    }
+                ))
+                .accessibilityIdentifier("settings.notifications.quietToggle")
+
+                if quietHoursEnabled {
+                    DatePicker(
+                        "From",
+                        selection: Binding(
+                            get: { quietStartDate },
+                            set: { newValue in
+                                quietStartDate = newValue
+                                NotificationSettings.quietHoursStart =
+                                    NotificationSettings.minutesSinceMidnight(newValue)
+                            }
+                        ),
+                        displayedComponents: .hourAndMinute
+                    )
+                    DatePicker(
+                        "To",
+                        selection: Binding(
+                            get: { quietEndDate },
+                            set: { newValue in
+                                quietEndDate = newValue
+                                NotificationSettings.quietHoursEnd =
+                                    NotificationSettings.minutesSinceMidnight(newValue)
+                            }
+                        ),
+                        displayedComponents: .hourAndMinute
+                    )
+                }
+
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                } label: {
+                    HStack {
+                        Text("Reset notification permissions")
+                        Spacer()
+                        Image(systemName: "gearshape")
+                            .foregroundStyle(LumoColors.labelTertiary)
+                    }
+                }
+                .foregroundStyle(LumoColors.label)
+                .accessibilityIdentifier("settings.notifications.reset")
+            }
+        }
+    }
+
+    private func categoryToggle(
+        _ category: NotificationCategory,
+        _ binding: Binding<Bool>,
+        identifier: String
+    ) -> some View {
+        Toggle(isOn: Binding(
+            get: { binding.wrappedValue },
+            set: { newValue in
+                binding.wrappedValue = newValue
+                NotificationSettings.setCategoryEnabled(category, newValue)
+            }
+        )) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(category.settingsTitle)
+                Text(category.settingsBlurb)
+                    .font(LumoFonts.footnote)
+                    .foregroundStyle(LumoColors.labelSecondary)
+            }
+        }
+        .accessibilityIdentifier("settings.notifications.\(identifier)")
     }
 
     // MARK: - About
