@@ -64,7 +64,19 @@ final class NotificationActionHandler: ObservableObject {
         let userInfo = response.notification.request.content.userInfo
         let categoryRaw = response.notification.request.content.categoryIdentifier
         let actionRaw = response.actionIdentifier
+        handle(categoryIdentifier: categoryRaw, actionIdentifier: actionRaw, userInfo: userInfo)
+    }
 
+    /// Test-friendly entry point — the response decoding is trivial,
+    /// so unit tests bypass UNNotificationResponse (which has no
+    /// public init) and call this method directly with the unpacked
+    /// triple.
+    @MainActor
+    func handle(
+        categoryIdentifier categoryRaw: String,
+        actionIdentifier actionRaw: String,
+        userInfo: [AnyHashable: Any]
+    ) {
         // System-default actions: tap-to-open and explicit dismiss.
         switch actionRaw {
         case UNNotificationDefaultActionIdentifier:
