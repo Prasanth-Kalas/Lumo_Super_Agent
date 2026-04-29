@@ -6,7 +6,7 @@
 
 # Interface: SignedBundlePayload
 
-Defined in: [submit.ts:22](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/911dfde5b1f6788fb3e2237e05f86b60a7c783fe/packages/lumo-agent-sdk/src/cli/submit.ts#L22)
+Defined in: [submit.ts:22](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L22)
 
 ## Properties
 
@@ -14,7 +14,7 @@ Defined in: [submit.ts:22](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/bl
 
 > **key\_id**: `string`
 
-Defined in: [submit.ts:23](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/911dfde5b1f6788fb3e2237e05f86b60a7c783fe/packages/lumo-agent-sdk/src/cli/submit.ts#L23)
+Defined in: [submit.ts:23](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L23)
 
 ***
 
@@ -22,7 +22,7 @@ Defined in: [submit.ts:23](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/bl
 
 > **public\_key\_pem**: `string`
 
-Defined in: [submit.ts:24](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/911dfde5b1f6788fb3e2237e05f86b60a7c783fe/packages/lumo-agent-sdk/src/cli/submit.ts#L24)
+Defined in: [submit.ts:24](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L24)
 
 ***
 
@@ -30,7 +30,7 @@ Defined in: [submit.ts:24](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/bl
 
 > **fingerprint\_sha256**: `string`
 
-Defined in: [submit.ts:25](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/911dfde5b1f6788fb3e2237e05f86b60a7c783fe/packages/lumo-agent-sdk/src/cli/submit.ts#L25)
+Defined in: [submit.ts:25](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L25)
 
 ***
 
@@ -38,7 +38,7 @@ Defined in: [submit.ts:25](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/bl
 
 > **bundle\_sha256**: `string`
 
-Defined in: [submit.ts:26](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/911dfde5b1f6788fb3e2237e05f86b60a7c783fe/packages/lumo-agent-sdk/src/cli/submit.ts#L26)
+Defined in: [submit.ts:26](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L26)
 
 ***
 
@@ -46,4 +46,4 @@ Defined in: [submit.ts:26](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/bl
 
 > **signature**: `string`
 
-Defined in: [submit.ts:27](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/911dfde5b1f6788fb3e2237e05f86b60a7c783fe/packages/lumo-agent-sdk/src/cli/submit.ts#L27)
+Defined in: [submit.ts:27](https://github.com/Prasanth-Kalas/Lumo_Super_Agent/blob/fb213ba5aa99968dc94882da6d5b3f85cd93936d/packages/lumo-agent-sdk/src/cli/submit.ts#L27)
