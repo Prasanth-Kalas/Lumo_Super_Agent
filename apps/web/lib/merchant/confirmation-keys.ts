@@ -1,6 +1,12 @@
-import { createHash, createVerify } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "@/lib/db";
+import {
+  decodeBase64Signature,
+  fingerprintConfirmationPublicKey,
+  hashSignedConfirmationToken,
+  normalizeTransactionDigestHex,
+  verifyDigestSignature,
+} from "@/lib/merchant/confirmation-crypto";
 
 export type ConfirmationKeyErrorCode =
   | "db_unavailable"
@@ -51,17 +57,11 @@ function dbOrThrow(db?: SupabaseClient | null): SupabaseClient {
   return client;
 }
 
-export function fingerprintConfirmationPublicKey(publicKeyPem: string): string {
-  return createHash("sha256").update(publicKeyPem.replace(/\s+/g, "")).digest("hex");
-}
-
-export function hashSignedConfirmationToken(signedTokenBase64: string): string {
-  return createHash("sha256").update(signedTokenBase64).digest("hex");
-}
+export { fingerprintConfirmationPublicKey, hashSignedConfirmationToken };
 
 export function assertTransactionDigestHex(digest: string): string {
-  const normalized = digest.trim().toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(normalized)) {
+  const normalized = normalizeTransactionDigestHex(digest);
+  if (!normalized) {
     throw new ConfirmationKeyError(
       "invalid_transaction_digest",
       "transactionDigest must be a 64-character hex SHA-256 digest",
@@ -72,24 +72,15 @@ export function assertTransactionDigestHex(digest: string): string {
 }
 
 export function decodeSignedConfirmationToken(signedTokenBase64: string): Buffer {
-  if (!signedTokenBase64 || signedTokenBase64.length < 16) {
-    throw new ConfirmationKeyError(
-      "invalid_confirmation_token",
-      "signedConfirmationToken must be base64 signature bytes",
-      400,
-    );
-  }
-  try {
-    const decoded = Buffer.from(signedTokenBase64, "base64");
-    if (decoded.length < 16) throw new Error("too short");
-    return decoded;
-  } catch {
+  const decoded = decodeBase64Signature(signedTokenBase64);
+  if (!decoded) {
     throw new ConfirmationKeyError(
       "invalid_confirmation_token",
       "signedConfirmationToken must be valid base64",
       400,
     );
   }
+  return decoded;
 }
 
 export async function registerDeviceKey(input: {
@@ -149,7 +140,7 @@ export async function verifyConfirmationToken(input: {
 }): Promise<{ ok: true; key: ConfirmationKeyRow; tokenHash: string } | { ok: false; error: ConfirmationKeyErrorCode }> {
   const db = dbOrThrow(input.db);
   const digest = assertTransactionDigestHex(input.transactionDigest);
-  const signature = decodeSignedConfirmationToken(input.signedTokenBase64);
+  decodeSignedConfirmationToken(input.signedTokenBase64);
 
   let query = db
     .from("confirmation_keys")
@@ -167,18 +158,14 @@ export async function verifyConfirmationToken(input: {
   const keys = (data ?? []) as ConfirmationKeyRow[];
   if (keys.length === 0) return { ok: false, error: "confirmation_key_not_found" };
 
-  const digestBytes = Buffer.from(digest, "hex");
   for (const key of keys) {
-    const verifier = createVerify("sha256");
-    verifier.update(digestBytes);
-    verifier.end();
-    let valid = false;
-    try {
-      valid = verifier.verify(key.public_key_pem, signature);
-    } catch {
-      valid = false;
-    }
-    if (valid) {
+    if (
+      verifyDigestSignature({
+        publicKeyPem: key.public_key_pem,
+        transactionDigestHex: digest,
+        signatureBase64: input.signedTokenBase64,
+      })
+    ) {
       await db
         .from("confirmation_keys")
         .update({ last_used_at: new Date().toISOString() })
