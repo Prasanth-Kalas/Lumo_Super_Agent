@@ -1,11 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AgentManifest } from "@lumo/agent-sdk";
-import { runCveCheck } from "./checks/cve.js";
-import { runFingerprintCheck } from "./checks/fingerprint.js";
-import { runManifestCheck } from "./checks/manifest.js";
-import { runSandboxCheck } from "./checks/sandbox.js";
-import { runStaticAnalysisCheck } from "./checks/static.js";
-import type { TrustCheckContext, TrustCheckResult } from "./checks/types.js";
+import { runCveCheck } from "./checks/cve.ts";
+import { runFingerprintCheck } from "./checks/fingerprint.ts";
+import { runManifestCheck } from "./checks/manifest.ts";
+import { runSandboxCheck } from "./checks/sandbox.ts";
+import { runStaticAnalysisCheck } from "./checks/static.ts";
+import type { TrustCheckContext, TrustCheckResult } from "./checks/types.ts";
 
 export interface CheckReport {
   passed: boolean;
@@ -46,7 +46,7 @@ export async function runChecks(input: {
   const manifest = manifestCheck.manifest as AgentManifest;
   ctx.manifest = manifest;
 
-  const cve = await runCveCheck(manifest);
+  const cve = await runCveCheck(manifest, input.manifest as Record<string, unknown>);
   checks.push(cve);
   if (cve.outcome === "fail") return finalize(input, checks);
 
@@ -54,7 +54,7 @@ export async function runChecks(input: {
   checks.push(staticResult);
   if (staticResult.outcome === "fail") return finalize(input, checks);
 
-  const sandbox = await runSandboxCheck(manifest);
+  const sandbox = await runSandboxCheck(manifest, input.manifest);
   checks.push(sandbox.check);
   if (sandbox.check.outcome === "fail") return finalize(input, checks);
 

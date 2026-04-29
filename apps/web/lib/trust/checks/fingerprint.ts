@@ -1,6 +1,6 @@
 import type { AgentManifest } from "@lumo/agent-sdk";
-import type { SandboxRunResult, TrustCheckResult } from "./types.js";
-import { declaredScopes, result } from "./types.js";
+import type { SandboxRunResult, TrustCheckResult } from "./types.ts";
+import { declaredScopes, result } from "./types.ts";
 
 export async function runFingerprintCheck(
   manifest: AgentManifest,

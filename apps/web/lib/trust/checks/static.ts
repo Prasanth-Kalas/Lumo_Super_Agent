@@ -1,5 +1,5 @@
-import type { TrustCheckContext, TrustCheckResult } from "./types.js";
-import { result } from "./types.js";
+import type { TrustCheckContext, TrustCheckResult } from "./types.ts";
+import { result } from "./types.ts";
 
 const BLOCKED_PATTERNS: Array<{ code: string; re: RegExp; description: string }> = [
   { code: "eval_usage", re: /\beval\s*\(/, description: "Dynamic eval is forbidden in marketplace bundles." },

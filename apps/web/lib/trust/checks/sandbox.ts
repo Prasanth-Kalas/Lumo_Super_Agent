@@ -1,13 +1,13 @@
 import type { AgentManifest } from "@lumo/agent-sdk";
-import type { SandboxRunResult, TrustCheckResult } from "./types.js";
-import { result, trustFixture } from "./types.js";
+import type { SandboxRunResult, TrustCheckResult } from "./types.ts";
+import { result, trustFixture } from "./types.ts";
 
-export async function runSandboxCheck(manifest: AgentManifest): Promise<{
+export async function runSandboxCheck(manifest: AgentManifest, rawManifest: unknown = manifest): Promise<{
   check: TrustCheckResult;
   sandbox: SandboxRunResult;
 }> {
   const startedAt = new Date().toISOString();
-  const fixture = trustFixture(manifest);
+  const fixture = trustFixture(rawManifest);
   const forcedFailure = fixture.sandbox_fail === true;
   const touchedScopes = Array.isArray(fixture.touched_scopes)
     ? fixture.touched_scopes.filter((s): s is string => typeof s === "string")

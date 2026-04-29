@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getSupabase } from "../db.js";
-import type { MarketplaceTrustTier } from "../marketplace.js";
+import { getSupabase } from "../db.ts";
+import type { MarketplaceTrustTier } from "../marketplace.ts";
 
 export type ReviewRequestType = "submission" | "promotion" | "identity_verification" | "demotion_review";
 export type ReviewQueueState = "pending" | "in_review" | "approved" | "rejected" | "needs_changes" | "withdrawn";

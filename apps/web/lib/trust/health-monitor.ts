@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getSupabase } from "../db.js";
-import { setAgentKillSwitch } from "../permissions.js";
-import { enqueueDemotionReview } from "./queue.js";
+import { getSupabase } from "../db.ts";
+import { setAgentKillSwitch } from "../permissions.ts";
+import { enqueueDemotionReview } from "./queue.ts";
 
 export interface AgentHealthMonitorResult {
   ok: boolean;

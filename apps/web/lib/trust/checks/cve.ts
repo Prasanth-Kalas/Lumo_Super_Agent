@@ -1,12 +1,15 @@
 import type { AgentManifest } from "@lumo/agent-sdk";
-import type { TrustCheckResult } from "./types.js";
-import { manifestDependencies, result } from "./types.js";
+import type { TrustCheckResult } from "./types.ts";
+import { manifestDependencies, result } from "./types.ts";
 
 const KNOWN_HIGH_RISK_PACKAGES = new Set(["event-stream", "flatmap-stream"]);
 
-export async function runCveCheck(manifest: AgentManifest): Promise<TrustCheckResult> {
+export async function runCveCheck(
+  manifest: AgentManifest,
+  rawManifest: Record<string, unknown> = manifest as unknown as Record<string, unknown>,
+): Promise<TrustCheckResult> {
   const startedAt = new Date().toISOString();
-  const dependencies = manifestDependencies(manifest);
+  const dependencies = manifestDependencies(rawManifest);
   const findings: Array<{ name: string; version: string; severity: "high" | "medium"; source: string }> = [];
   for (const dep of dependencies) {
     if (KNOWN_HIGH_RISK_PACKAGES.has(dep.name.toLowerCase()) || /vulnerable|malware/i.test(dep.version)) {

@@ -1,6 +1,6 @@
 import { parseManifest } from "@lumo/agent-sdk";
-import type { TrustCheckContext, TrustCheckResult } from "./types.js";
-import { result } from "./types.js";
+import type { TrustCheckContext, TrustCheckResult } from "./types.ts";
+import { result } from "./types.ts";
 
 export async function runManifestCheck(ctx: TrustCheckContext):
   Promise<{ check: TrustCheckResult; manifest?: ReturnType<typeof parseManifest> }> {

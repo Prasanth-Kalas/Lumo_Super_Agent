@@ -12,7 +12,7 @@ import { getSupabase } from "./db.js";
 import {
   enqueueIdentityVerificationReview,
   enqueuePromotionReview,
-} from "./trust/queue.js";
+} from "./trust/queue.ts";
 import {
   buildDeveloperMetricsRollupRows,
   evaluatePromotionEligibility,

@@ -1,6 +1,6 @@
 import { createHash, createVerify } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getSupabase } from "../db.js";
+import { getSupabase } from "../db.ts";
 
 export interface DeveloperKeyRow {
   user_id: string;
