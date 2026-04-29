@@ -63,6 +63,13 @@ import { estimateModelTokenCost, recordInvocationCost } from "./cost.js";
 import { userMcpBridge, type McpBridgeResult } from "./mcp/registry.js";
 import { dispatchMcpTool, isMcpToolName } from "./mcp/dispatch.js";
 import { dispatchWithRetry } from "./retry.js";
+import { createStreamingAnthropicMessage } from "./perf/anthropic-streaming.js";
+import {
+  createAgentTimingRecorder,
+  createTimingRequestId,
+  withAgentTimingSpan,
+  type AgentTimingRecorder,
+} from "./perf/timing-spans.js";
 import { buildSystemPrompt, type AmbientContext } from "./system-prompt.js";
 import {
   forgetFact,
@@ -263,21 +270,66 @@ export async function runTurn(
   input: OrchestratorInput,
   emit: EmitFrame = () => {},
 ): Promise<OrchestratorTurn> {
-  const registry = await ensureRegistry();
+  const timing = createAgentTimingRecorder({
+    requestId: createTimingRequestId(input.session_id),
+    bucket: "reasoning_path",
+  });
+  const totalSpan = timing.start("total", {
+    device_kind: input.device_kind,
+    mode: input.mode === "voice" ? "voice" : "text",
+    user_authenticated: input.user_id !== "anon",
+  });
+  try {
+    const turn = await runTurnInner(input, emit, timing);
+    await totalSpan.end({
+      status: "ok",
+      tool_call_count: turn.tool_calls.length,
+      selection_count: turn.selections.length,
+      has_summary: turn.summary !== null,
+      has_draft_trip: Boolean(turn.draft_trip_id),
+    });
+    return turn;
+  } catch (error) {
+    await totalSpan.end({
+      status: "error",
+      error_code: error instanceof Error ? error.name : "unknown_error",
+    });
+    throw error;
+  }
+}
+
+async function runTurnInner(
+  input: OrchestratorInput,
+  emit: EmitFrame,
+  timing: AgentTimingRecorder,
+): Promise<OrchestratorTurn> {
+  const authenticated = Boolean(input.user_id && input.user_id !== "anon");
+  const [registry, connections, installs] = await withAgentTimingSpan(
+    timing,
+    "pre_llm_data_load",
+    { load_group: "registry_connections_installs", user_authenticated: authenticated },
+    async () => {
+      const registryPromise = ensureRegistry();
+      const connectionsPromise = authenticated
+        ? listConnectionsForUser(input.user_id)
+        : Promise.resolve([] as Awaited<ReturnType<typeof listConnectionsForUser>>);
+      const installsPromise = authenticated
+        ? listInstalledAgentsForUser(input.user_id)
+        : Promise.resolve([] as Awaited<ReturnType<typeof listInstalledAgentsForUser>>);
+      return Promise.all([registryPromise, connectionsPromise, installsPromise] as const);
+    },
+    ([loadedRegistry, loadedConnections, loadedInstalls]) => ({
+      agent_count: Object.keys(loadedRegistry.agents).length,
+      connection_count: loadedConnections.length,
+      install_count: loadedInstalls.length,
+    }),
+  );
   // Appstore (v0.4): filter the Claude tool bridge to agents the current
   // user has actually connected, plus public "connect.model === none"
   // agents. Prevents Claude from trying to use an app the user hasn't
   // linked yet — the user would just see "connect Food first" turns and
   // nothing else, which is a worse UX than the tools simply not being
   // offered.
-  const connections =
-    input.user_id && input.user_id !== "anon"
-      ? await listConnectionsForUser(input.user_id)
-      : [];
-  const installs =
-    input.user_id && input.user_id !== "anon"
-      ? await listInstalledAgentsForUser(input.user_id)
-      : [];
   const connectedAgentIds = new Set(
     connections.filter((c) => c.status === "active").map((c) => c.agent_id),
   );
@@ -293,10 +345,22 @@ export async function runTurn(
     input.user_id !== "anon" &&
     shouldRunArchiveRecall(lastUserForMission)
   ) {
-    const recallResult = await recallFromArchive({
-      user_id: input.user_id,
-      query: lastUserForMission,
-    });
+    const recallResult = await withAgentTimingSpan(
+      timing,
+      "intelligence_pass",
+      { pass: "archive_recall" },
+      () =>
+        recallFromArchive({
+          user_id: input.user_id,
+          query: lastUserForMission,
+        }),
+      (result) => ({
+        source: result.source,
+        status: result.status,
+        latency_ms: result.latency_ms,
+        hit_count: result.hits.length,
+      }),
+    );
     emit({
       type: "internal",
       value: {
@@ -332,10 +396,21 @@ export async function runTurn(
     input.user_id !== "anon" &&
     shouldRunMetricInsight(lastUserForMission)
   ) {
-    const insight = await answerMetricInsight({
-      user_id: input.user_id,
-      query: lastUserForMission,
-    });
+    const insight = await withAgentTimingSpan(
+      timing,
+      "intelligence_pass",
+      { pass: "metric_insight" },
+      () =>
+        answerMetricInsight({
+          user_id: input.user_id,
+          query: lastUserForMission,
+        }),
+      (result) => ({
+        metric_key: result.metric_key,
+        anomaly_count: result.anomaly.findings.length,
+        forecast_source: result.forecast?.source ?? null,
+      }),
+    );
     emit({
       type: "internal",
       value: {
@@ -364,39 +439,64 @@ export async function runTurn(
   const agentDescriptors = useMarketplaceIntelligence
     ? describeRegistryAgents(registry, installedAgentIds)
     : [];
-  const [rankResult, riskBadges] = useMarketplaceIntelligence
-    ? await Promise.all([
-        rankAgentsForIntent({
-          user_id: input.user_id,
-          user_intent: missionRequest,
-          agents: agentDescriptors,
-          installed_agent_ids: Array.from(installedAgentIds),
-          limit: 10,
-        }),
-        evaluateRiskBadgesForAgents({
-          user_id: input.user_id,
-          agents: agentDescriptors,
-        }),
-      ])
-    : [null, new Map()];
-  const missionPlan = buildLumoMissionPlan({
-    request: missionRequest,
-    registry,
-    connections,
-    installs,
-    user_id: input.user_id,
-    session_id: input.session_id,
-    continue_approved: missionContinueApproved,
-    ranked_agents: rankResult?.ranked_agents,
-    risk_badges: riskBadges,
+  const intelligenceSpan = timing.start("intelligence_pass", {
+    pass: "marketplace_rank_and_trip_optimize",
+    marketplace_intelligence: useMarketplaceIntelligence,
+    candidate_agent_count: agentDescriptors.length,
   });
-  const tripOptimization =
-    input.user_id !== "anon"
-      ? await optimizeMissionTrip({
-          user_id: input.user_id,
-          plan: missionPlan,
-        })
-      : null;
+  let rankResult: Awaited<ReturnType<typeof rankAgentsForIntent>> | null = null;
+  let riskBadges: Awaited<ReturnType<typeof evaluateRiskBadgesForAgents>> =
+    new Map();
+  let tripOptimization: Awaited<ReturnType<typeof optimizeMissionTrip>> | null = null;
+  let missionPlan: LumoMissionPlan;
+  try {
+    [rankResult, riskBadges] = useMarketplaceIntelligence
+      ? await Promise.all([
+          rankAgentsForIntent({
+            user_id: input.user_id,
+            user_intent: missionRequest,
+            agents: agentDescriptors,
+            installed_agent_ids: Array.from(installedAgentIds),
+            limit: 10,
+          }),
+          evaluateRiskBadgesForAgents({
+            user_id: input.user_id,
+            agents: agentDescriptors,
+          }),
+        ])
+      : [null, new Map()];
+    missionPlan = buildLumoMissionPlan({
+      request: missionRequest,
+      registry,
+      connections,
+      installs,
+      user_id: input.user_id,
+      session_id: input.session_id,
+      continue_approved: missionContinueApproved,
+      ranked_agents: rankResult?.ranked_agents,
+      risk_badges: riskBadges,
+    });
+    tripOptimization =
+      input.user_id !== "anon"
+        ? await optimizeMissionTrip({
+            user_id: input.user_id,
+            plan: missionPlan,
+          })
+        : null;
+    await intelligenceSpan.end({
+      status: "ok",
+      ranked_agent_count: rankResult?.ranked_agents.length ?? 0,
+      risk_badge_count: riskBadges.size,
+      trip_optimization_status: tripOptimization?.status ?? "skipped",
+      trip_optimization_latency_ms: tripOptimization?.latency_ms ?? 0,
+    });
+  } catch (error) {
+    await intelligenceSpan.end({
+      status: "error",
+      error_code: error instanceof Error ? error.name : "unknown_error",
+    });
+    throw error;
+  }
   const missionPlanForTurn: LumoMissionPlan = tripOptimization
     ? { ...missionPlan, trip_optimization: tripOptimization }
     : missionPlan;
@@ -479,27 +579,56 @@ export async function runTurn(
   const lastUserForRetrieval =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
   const [profileForPrompt, factsForPrompt, patternsForPrompt] =
-    input.user_id && input.user_id !== "anon"
-      ? await Promise.all([
-          getProfile(input.user_id),
-          retrieveRelevantFacts(input.user_id, lastUserForRetrieval, 8),
-          listHighConfidencePatterns(input.user_id, 0.7, 10),
-        ])
-      : [null, [] as UserFact[], []];
+    await withAgentTimingSpan(
+      timing,
+      "pre_llm_data_load",
+      { load_group: "memory_profile_facts_patterns", user_authenticated: authenticated },
+      async () =>
+        authenticated
+          ? Promise.all([
+              getProfile(input.user_id),
+              retrieveRelevantFacts(input.user_id, lastUserForRetrieval, 8),
+              listHighConfidencePatterns(input.user_id, 0.7, 10),
+            ] as const)
+          : Promise.resolve([
+              null,
+              [] as UserFact[],
+              [] as Awaited<ReturnType<typeof listHighConfidencePatterns>>,
+            ] as const),
+      ([profile, facts, patterns]) => ({
+        profile_present: profile !== null,
+        fact_count: facts.length,
+        pattern_count: patterns.length,
+      }),
+    );
 
-  const system = buildSystemPrompt({
-    agents: Object.values(registry.agents),
-    now: new Date(),
-    user_first_name: input.user_first_name ?? null,
-    user_region: input.user_region,
+  const systemPromptSpan = timing.start("system_prompt_build", {
+    agent_count: Object.keys(registry.agents).length,
     mode: input.mode === "voice" ? "voice" : "text",
-    memory: {
-      profile: profileForPrompt,
-      facts: factsForPrompt,
-      patterns: patternsForPrompt,
-    },
-    ambient: input.ambient,
   });
+  let system: string;
+  try {
+    system = buildSystemPrompt({
+      agents: Object.values(registry.agents),
+      now: new Date(),
+      user_first_name: input.user_first_name ?? null,
+      user_region: input.user_region,
+      mode: input.mode === "voice" ? "voice" : "text",
+      memory: {
+        profile: profileForPrompt,
+        facts: factsForPrompt,
+        patterns: patternsForPrompt,
+      },
+      ambient: input.ambient,
+    });
+    await systemPromptSpan.end({ status: "ok" });
+  } catch (error) {
+    await systemPromptSpan.end({
+      status: "error",
+      error_code: error instanceof Error ? error.name : "unknown_error",
+    });
+    throw error;
+  }
 
   // MCP bridge — third-party tools exposed via Model Context Protocol.
   // Each user's connected MCP servers contribute additional tools with
@@ -591,15 +720,34 @@ export async function runTurn(
   // mid-tool-call admin flip doesn't accidentally swap models in the
   // middle of a Saga. Cache TTL inside getSetting keeps this cheap.
   const model = await resolveModel();
+  const systemWithPromptCache = [
+    {
+      type: "text",
+      text: system,
+      cache_control: { type: "ephemeral" },
+    },
+  ] as unknown as Anthropic.MessageStreamParams["system"];
 
   for (let i = 0; i < MAX_TOOL_LOOP; i++) {
-    const response = await anthropic.messages.create({
-      model,
-      max_tokens: 1024,
-      system,
-      tools: toolsForClaude,
-      messages: [...messages, ...loopAssistantMessages],
-    });
+    const { message: response, streamedText } =
+      await createStreamingAnthropicMessage({
+        anthropic,
+        params: {
+          model,
+          max_tokens: 1024,
+          system: systemWithPromptCache,
+          tools: toolsForClaude,
+          messages: [...messages, ...loopAssistantMessages],
+        },
+        recorder: timing,
+        model,
+        loopIndex: i,
+        promptCaching: true,
+        onText: (delta) => {
+          assistantText += delta;
+          emit({ type: "text", value: delta });
+        },
+      });
     const inputTokens = response.usage?.input_tokens ?? 0;
     const outputTokens = response.usage?.output_tokens ?? 0;
     void recordInvocationCost({
@@ -621,6 +769,10 @@ export async function runTurn(
         forecast_source: "anthropic_usage",
         fallback_model_used: false,
         loop_index: i,
+        cache_read_input_tokens:
+          (response.usage as Anthropic.Usage & {
+            cache_read_input_tokens?: number;
+          })?.cache_read_input_tokens ?? 0,
       },
     });
 
@@ -629,7 +781,7 @@ export async function runTurn(
     for (const block of response.content) {
       if (block.type === "text") passText += block.text;
     }
-    if (passText) {
+    if (passText && !streamedText) {
       assistantText += passText;
       emit({ type: "text", value: passText });
     }
@@ -661,10 +813,23 @@ export async function runTurn(
       // DispatchOutcome so the rest of the loop (tool_result, toolCalls
       // trace, SSE frame) is unchanged vs. a real dispatch.
       if (isMetaToolName(tu.name)) {
-        const outcome = await handleMetaTool(
-          tu.name,
-          (tu.input as Record<string, unknown>) ?? {},
-          input.user_id,
+        const outcome = await withAgentTimingSpan(
+          timing,
+          "tool_dispatch",
+          { tool_name: tu.name, tool_kind: "meta" },
+          () =>
+            handleMetaTool(
+              tu.name,
+              (tu.input as Record<string, unknown>) ?? {},
+              input.user_id,
+            ),
+          (result) => ({
+            tool_name: tu.name,
+            tool_kind: "meta",
+            ok: result.ok,
+            latency_ms: result.latency_ms,
+            error_code: result.ok ? undefined : result.error_code,
+          }),
         );
         const traceFrameMeta = {
           name: tu.name,
@@ -700,55 +865,76 @@ export async function runTurn(
       // native agent router. Shape of `outcome` is normalized so the
       // rest of the loop (trace frame, tool_result construction)
       // doesn't care which world the call came from.
-      let outcome: Awaited<ReturnType<typeof dispatchToolCall>>;
-      if (isMcpToolName(tu.name)) {
-        const mcpStarted = Date.now();
-        const mcpRouting = mcpBridge.routing[tu.name] ?? null;
-        const mcp = await dispatchMcpTool(
-          tu.name,
-          mcpRouting,
-          (tu.input as Record<string, unknown>) ?? {},
-          { user_id: input.user_id },
-        );
-        // Map MCP dispatch shape onto DispatchOutcome so the rest of
-        // the loop treats it identically. Known MCP error codes are
-        // aligned with AgentErrorCode strings; anything unexpected
-        // degrades to "upstream_error" so we never emit an invalid code.
-        const allowedCodes = new Set([
-          "upstream_error",
-          "connection_required",
-          "connection_refresh_failed",
-          "not_available",
-          "upstream_timeout",
-          "rate_limited",
-          "internal_error",
-        ] as const);
-        type OkCode = typeof allowedCodes extends Set<infer U> ? U : never;
-        const incomingCode = mcp.error?.code ?? "upstream_error";
-        const errorCode: OkCode = (allowedCodes as Set<string>).has(incomingCode)
-          ? (incomingCode as OkCode)
-          : "upstream_error";
-        outcome = mcp.ok
-          ? {
-              ok: true,
-              result: { content: mcp.content },
-              latency_ms: Date.now() - mcpStarted,
-            }
-          : {
-              ok: false,
-              error: {
-                code: errorCode,
-                message: mcp.error?.message ?? "MCP tool failed",
-                at: new Date().toISOString(),
-              },
-              latency_ms: Date.now() - mcpStarted,
-            };
-      } else {
-        outcome = await dispatchToolCall(
-          tu.name,
-          (tu.input as Record<string, unknown>) ?? {},
-          ctx,
-        );
+      let outcome: Awaited<ReturnType<typeof dispatchToolCall>> | null = null;
+      const toolSpan = timing.start("tool_dispatch", {
+        tool_name: tu.name,
+        tool_kind: isMcpToolName(tu.name) ? "mcp" : "native",
+      });
+      try {
+        if (isMcpToolName(tu.name)) {
+          const mcpStarted = Date.now();
+          const mcpRouting = mcpBridge.routing[tu.name] ?? null;
+          const mcp = await dispatchMcpTool(
+            tu.name,
+            mcpRouting,
+            (tu.input as Record<string, unknown>) ?? {},
+            { user_id: input.user_id },
+          );
+          // Map MCP dispatch shape onto DispatchOutcome so the rest of
+          // the loop treats it identically. Known MCP error codes are
+          // aligned with AgentErrorCode strings; anything unexpected
+          // degrades to "upstream_error" so we never emit an invalid code.
+          const allowedCodes = new Set([
+            "upstream_error",
+            "connection_required",
+            "connection_refresh_failed",
+            "not_available",
+            "upstream_timeout",
+            "rate_limited",
+            "internal_error",
+          ] as const);
+          type OkCode = typeof allowedCodes extends Set<infer U> ? U : never;
+          const incomingCode = mcp.error?.code ?? "upstream_error";
+          const errorCode: OkCode = (allowedCodes as Set<string>).has(incomingCode)
+            ? (incomingCode as OkCode)
+            : "upstream_error";
+          outcome = mcp.ok
+            ? {
+                ok: true,
+                result: { content: mcp.content },
+                latency_ms: Date.now() - mcpStarted,
+              }
+            : {
+                ok: false,
+                error: {
+                  code: errorCode,
+                  message: mcp.error?.message ?? "MCP tool failed",
+                  at: new Date().toISOString(),
+                },
+                latency_ms: Date.now() - mcpStarted,
+              };
+        } else {
+          outcome = await dispatchToolCall(
+            tu.name,
+            (tu.input as Record<string, unknown>) ?? {},
+            ctx,
+          );
+        }
+        await toolSpan.end({
+          status: outcome.ok ? "ok" : "tool_error",
+          ok: outcome.ok,
+          latency_ms: outcome.latency_ms,
+          error_code: outcome.ok ? undefined : outcome.error.code,
+        });
+      } catch (error) {
+        await toolSpan.end({
+          status: "error",
+          error_code: error instanceof Error ? error.name : "unknown_error",
+        });
+        throw error;
+      }
+      if (!outcome) {
+        throw new Error(`tool_dispatch_missing_outcome:${tu.name}`);
       }
 
       const routing = registry.bridge.routing[tu.name];
@@ -856,6 +1042,9 @@ export async function runTurn(
   // leg summary (if any) to a compound `structured-trip` summary. The
   // user sees one confirmation card; the next turn's dispatch flow
   // (dispatchConfirmedTrip, below) walks the legs in DAG order.
+  const postProcessingSpan = timing.start("post_processing", {
+    candidate_leg_count: tripLegCandidates.length,
+  });
   let draft_trip_id: string | undefined;
   if (tripLegCandidates.length >= 2) {
     const legs = resolveTripLegs(tripLegCandidates, registry.bridge.routing);
@@ -914,6 +1103,12 @@ export async function runTurn(
   if (!draft_trip_id && renderedSummary) {
     emit({ type: "summary", value: renderedSummary });
   }
+  await postProcessingSpan.end({
+    status: "ok",
+    emitted_summary: renderedSummary !== null,
+    draft_trip_created: Boolean(draft_trip_id),
+    selection_count: selections.length,
+  });
 
   return {
     assistant_text: assistantText.trim(),

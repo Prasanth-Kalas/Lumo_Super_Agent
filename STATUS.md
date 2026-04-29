@@ -69,3 +69,4 @@
 - 2026-04-30 — MERCHANT-1 full review slice ready: Stripe-backed payments routes, ECDSA confirmation keys, webhook reconciliation, merchant SDK contract, stub merchant sample, and regression tests; gates green locally
 - 2026-04-30 — MERCHANT-1 merged to main; real Stripe-backed payment substrate live (SetupIntent + PaymentIntent + ECDSA device confirmation + webhook reconciliation); MOBILE-PAYMENTS-1.1 follow-up needed to swap iOS HMAC → ECDSA before production E2E. Codex queued for PERF-1+2.
 - 2026-04-30 — PERF-1+2 branch opened; migration 044 drafted for early schema review
+- 2026-04-30 — PERF-1+2 pre-routing checkpoint drafted: orchestrator timing spans, /admin/perf dashboard, Anthropic prompt caching, pre-LLM load parallelization, and first-token SSE streaming
