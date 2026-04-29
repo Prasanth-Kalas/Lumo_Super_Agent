@@ -1,0 +1,83 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "npm run build --workspace apps/web",
+  "outputDirectory": "apps/web/.next",
+  "functions": {
+    "apps/web/app/api/chat/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/cron/proactive-scan/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/cron/evaluate-intents/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/cron/detect-patterns/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/cron/publish-due-posts/route.ts": {
+      "maxDuration": 30
+    },
+    "apps/web/app/api/cron/sync-workspace/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/cron/index-archive/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/cron/kg-reconcile/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/cron/execute-mission-steps/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/cron/rollback-missions/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/cron/marketplace-version-sync/route.ts": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/proactive-scan",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/evaluate-intents",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/detect-patterns",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/publish-due-posts",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/sync-workspace",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/index-archive",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/kg-reconcile",
+      "schedule": "15 3 * * *"
+    },
+    {
+      "path": "/api/cron/execute-mission-steps",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/rollback-missions",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/marketplace-version-sync",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
