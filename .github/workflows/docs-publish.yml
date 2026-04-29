@@ -1,0 +1,37 @@
+name: Publish docs site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/developers/**"
+      - "apps/docs/**"
+      - "packages/lumo-agent-sdk/src/**"
+      - "packages/lumo-agent-sdk/typedoc.json"
+      - ".github/workflows/docs-publish.yml"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_AGENT_PLATFORM }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run docs:api-ref
+      - run: npm run docs:build
+      - name: Deploy to Vercel
+        if: ${{ env.VERCEL_TOKEN != '' }}
+        run: npx vercel deploy apps/docs/build --prod --yes --token "$VERCEL_TOKEN"
+      - name: Notify Slack on failure
+        if: ${{ failure() && env.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: '{"text":"Lumo agent docs publish failed: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}"}'
+        env:
+          SLACK_WEBHOOK_URL: ${{ env.SLACK_WEBHOOK_URL }}
