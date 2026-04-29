@@ -23,6 +23,7 @@ interface Tab {
 const TABS: Tab[] = [
   { href: "/admin", label: "Overview" },
   { href: "/admin/review-queue", label: "Queue" },
+  { href: "/admin/trust/queue", label: "Trust" },
   { href: "/admin/apps", label: "Apps" },
   { href: "/admin/cost", label: "Cost" },
   { href: "/admin/settings", label: "Settings" },
