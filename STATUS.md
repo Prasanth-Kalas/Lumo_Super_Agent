@@ -3,7 +3,6 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-voice-1 | 2026-04-29 | MOBILE-VOICE-1 (Apple Speech STT + ElevenLabs TTS + push-to-talk composer) |
-| Codex | Lumo_Super_Agent_codex | codex/trust-1-review-pipeline | 2026-04-29 | TRUST-1 review pipeline |
 
 ## Closed lanes
 
@@ -18,6 +17,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/cost-1-metering-budgets | 2026-04-29 | 2026-04-29 | COST-1 metering and budgets |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chat-1b | 2026-04-29 | 2026-04-29 | MOBILE-CHAT-1B (auth, Settings, tests, perf, screenshots; dark-mode artifact deferred to MOBILE-POLISH-1) |
 | Codex | Lumo_Super_Agent_codex | codex/dev-dash | 2026-04-29 | 2026-04-29 | DEV-DASH developer dashboard |
+| Codex | Lumo_Super_Agent_codex | codex/trust-1-review-pipeline | 2026-04-29 | 2026-04-29 | TRUST-1 review pipeline |
 
 ## Last push
 
@@ -49,3 +49,4 @@
 - 2026-04-29 — TRUST-1 signing and five-check pipeline drafted for mid-sprint review
 - 2026-04-29 — TRUST-1 continuous health monitor drafted: 6h cron, demotion reviews, and P0 auto-kill path
 - 2026-04-29 — TRUST-1 final review slice ready: signing verification, five-check pipeline, health monitor, and promotion/identity queue coverage; gates green locally
+- 2026-04-29 — TRUST-1 merged to main; auto-publish path live for experimental tier; reviewer queue active for community/verified/official; 6h health monitor cron registered; Codex queued for DOCS
