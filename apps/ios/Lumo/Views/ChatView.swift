@@ -5,6 +5,13 @@ import SwiftUI
 /// while the assistant is forming a response, an error banner above
 /// the input bar, and the send/retry/regenerate affordances per
 /// message via context menus.
+///
+/// Layout: the message list (or empty state) is the main content; the
+/// input bar lives in a `.safeAreaInset(edge: .bottom)` so SwiftUI
+/// composes it as a system-managed bottom inset rather than as a
+/// sibling in a VStack. The latter caused a cold-launch dark-mode
+/// rendering artifact in 1A where the input chrome was duplicated
+/// near the top of the screen during initial trait resolution.
 
 struct ChatView: View {
     @StateObject private var viewModel: ChatViewModel
@@ -15,53 +22,62 @@ struct ChatView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        messageContainer
+            .background(LumoColors.background.ignoresSafeArea())
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    errorBanner
+                    inputBar
+                }
+            }
+            .onDisappear { viewModel.cancelStream() }
+    }
+
+    // MARK: - Message container
+
+    @ViewBuilder
+    private var messageContainer: some View {
+        if viewModel.messages.isEmpty {
+            emptyState
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
             messageList
-            errorBanner
-            inputBar
         }
-        .background(LumoColors.background.ignoresSafeArea())
-        .onDisappear { viewModel.cancelStream() }
     }
 
     // MARK: - Message list
 
-    @ViewBuilder
     private var messageList: some View {
-        if viewModel.messages.isEmpty {
-            emptyState
-        } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: LumoSpacing.lg) {
-                        ForEach(viewModel.messages) { message in
-                            MessageBubble(
-                                message: message,
-                                onCopy: { copyToPasteboard(message.text) },
-                                onShare: nil,
-                                onRegenerate: regenerateAction(for: message),
-                                onRetry: retryAction(for: message)
-                            )
-                            .id(message.id)
-                        }
-                        if showTypingIndicator {
-                            typingBubble
-                                .id("typing-indicator")
-                        }
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: LumoSpacing.lg) {
+                    ForEach(viewModel.messages) { message in
+                        MessageBubble(
+                            message: message,
+                            onCopy: { copyToPasteboard(message.text) },
+                            onShare: nil,
+                            onRegenerate: regenerateAction(for: message),
+                            onRetry: retryAction(for: message)
+                        )
+                        .id(message.id)
                     }
-                    .padding(.horizontal, LumoSpacing.md)
-                    .padding(.top, LumoSpacing.lg)
-                    .padding(.bottom, LumoSpacing.md)
+                    if showTypingIndicator {
+                        typingBubble
+                            .id("typing-indicator")
+                    }
                 }
-                .refreshable {
-                    // Pull-to-refresh stub. Real history sync lands when
-                    // server-side persistence ships in MOBILE-CHAT-2.
-                    try? await Task.sleep(nanoseconds: 400_000_000)
-                }
-                .onChange(of: viewModel.messages.last?.id) { _, _ in scrollToBottom(proxy) }
-                .onChange(of: viewModel.messages.last?.text) { _, _ in scrollToBottom(proxy) }
-                .onChange(of: viewModel.isStreaming) { _, _ in scrollToBottom(proxy) }
+                .padding(.horizontal, LumoSpacing.md)
+                .padding(.top, LumoSpacing.lg)
+                .padding(.bottom, LumoSpacing.md)
             }
+            .refreshable {
+                // Pull-to-refresh stub. Real history sync lands when
+                // server-side persistence ships in MOBILE-CHAT-2.
+                try? await Task.sleep(nanoseconds: 400_000_000)
+            }
+            .onChange(of: viewModel.messages.last?.id) { _, _ in scrollToBottom(proxy) }
+            .onChange(of: viewModel.messages.last?.text) { _, _ in scrollToBottom(proxy) }
+            .onChange(of: viewModel.isStreaming) { _, _ in scrollToBottom(proxy) }
         }
     }
 
@@ -109,7 +125,6 @@ struct ChatView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, LumoSpacing.xl)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Error banner
@@ -165,6 +180,7 @@ struct ChatView: View {
                         .frame(height: 0.5),
                     alignment: .top
                 )
+                .ignoresSafeArea(edges: .bottom)
         )
     }
 
@@ -198,4 +214,3 @@ struct ChatView: View {
         UIPasteboard.general.string = text
     }
 }
-

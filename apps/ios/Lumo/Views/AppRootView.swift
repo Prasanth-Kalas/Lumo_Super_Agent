@@ -36,7 +36,21 @@ struct AppRootView: View {
             }
         }
         .animation(LumoAnimation.standard, value: authViewModel.state)
-        .task { await authService.restoreSession() }
+        .task { await bootstrap() }
+    }
+
+    private func bootstrap() async {
+        #if DEBUG
+        // Debug-only deterministic entry path used by automated screenshot
+        // capture and CI snapshot runs. Activated by launching the app
+        // with `-LumoAutoSignIn YES` (or setting the user-default of
+        // the same name); compiled out in Release.
+        if UserDefaults.standard.bool(forKey: "LumoAutoSignIn") {
+            await authService.devSignIn()
+            return
+        }
+        #endif
+        await authService.restoreSession()
     }
 
     private func handleUnlock() {

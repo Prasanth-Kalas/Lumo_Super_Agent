@@ -60,6 +60,8 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        SUPPORTED_PLATFORMS: "iphonesimulator iphoneos"
+        SDKROOT: iphoneos
         # Surface xcconfig values to Info.plist so the running app can
         # read them at launch (see Lumo/Resources/Info.plist). URL is
         # split scheme/host because xcconfig truncates at `//`.
@@ -85,3 +87,28 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lumo.rentals.ios.tests
         GENERATE_INFOPLIST_FILE: YES
+
+# Explicit shared scheme so xcodebuild on a fresh checkout (or after a
+# `rm -rf Lumo.xcodeproj`) finds a destination. xcodegen 2.45 does not
+# generate a shared scheme by default for this target shape; without
+# one xcodebuild's destination resolution fails with "Supported
+# platforms for the buildables in the current scheme is empty".
+schemes:
+  Lumo:
+    build:
+      targets:
+        Lumo: all
+        LumoTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - LumoTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
