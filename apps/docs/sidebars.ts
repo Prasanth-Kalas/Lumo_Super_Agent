@@ -29,7 +29,11 @@ const sidebars: SidebarsConfig = {
       type: "category",
       label: "Reference",
       collapsed: false,
-      items: ["open-api-agent-candidates", "contributing"],
+      items: [
+        { type: "link", label: "API reference", href: "/reference/api" },
+        "open-api-agent-candidates",
+        "contributing",
+      ],
     },
     {
       type: "category",

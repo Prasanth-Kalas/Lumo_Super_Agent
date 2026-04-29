@@ -26,6 +26,19 @@ const config: Config = {
       "data-domain": "docs.lumo.rentals",
     },
   ],
+  plugins: [
+    [
+      "@docusaurus/plugin-content-docs",
+      {
+        id: "api",
+        path: "docs/reference/api",
+        routeBasePath: "reference/api",
+        sidebarPath: false,
+        showLastUpdateAuthor: false,
+        showLastUpdateTime: false,
+      },
+    ],
+  ],
   presets: [
     [
       "classic",

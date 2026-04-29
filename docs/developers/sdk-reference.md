@@ -2,6 +2,10 @@
 
 The authoritative spec for the Lumo Agent SDK. Pairs with the types in `@lumo/agent-sdk` (lives at `../Lumo_Agent_SDK/src/`).
 
+Generated API pages for the in-repo SDK tooling live at
+[/reference/api/](/reference/api/). Those pages are rebuilt from TypeDoc during
+the docs pipeline.
+
 ## Versions
 
 SDK version tracks semver. The current version is **0.4**. Breaking changes bump the major; feature additions bump the minor; fixes bump the patch. Manifests declare the SDK version they target via `sdk_version`.

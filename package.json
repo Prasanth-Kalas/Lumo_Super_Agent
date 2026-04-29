@@ -14,6 +14,7 @@
     "build": "npm run build --workspace apps/web",
     "docs:build": "npm run build --workspace apps/docs",
     "docs:dev": "npm run dev --workspace apps/docs",
+    "docs:api-ref": "npm run docs:api-ref --workspace packages/lumo-agent-sdk",
     "start": "npm run start --workspace apps/web",
     "lint": "npm run lint --workspace apps/web",
     "lint:commits": "node scripts/check-commit-shape.mjs",

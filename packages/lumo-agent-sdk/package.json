@@ -7,13 +7,16 @@
     "lumo-agent": "./src/cli/submit.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "docs:api-ref": "typedoc --options typedoc.json"
   },
   "dependencies": {
     "@lumo/agent-sdk": "git+https://github.com/Prasanth-Kalas/Lumo_Agent_SDK.git#9ebf421de5093e9ae900c94d7b4e999be014cd70"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",
+    "typedoc": "^0.28.19",
+    "typedoc-plugin-markdown": "^4.11.0",
     "typescript": "^5.4.5"
   }
 }

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "@lumo/agent-sdk-tools",
+  "entryPoints": ["src/cli/submit.ts"],
+  "out": "../../apps/docs/docs/reference/api",
+  "plugin": ["typedoc-plugin-markdown"],
+  "readme": "none",
+  "githubPages": false,
+  "hideGenerator": true,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "entryFileName": "index",
+  "membersWithOwnFile": ["Function", "Interface", "TypeAlias"],
+  "sort": ["source-order"]
+}
