@@ -2,7 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/marketplace-1-distribution | 2026-04-29 | MARKETPLACE-1 distribution |
+| Codex | Lumo_Super_Agent_codex | codex/cost-1-metering-budgets | 2026-04-29 | COST-1 metering and budgets |
 
 ## Closed lanes
 
@@ -13,6 +13,7 @@
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-bootstrap | 2026-04-29 | 2026-04-29 | iOS bootstrap (monorepo + hello iOS) |
 | Codex | Lumo_Super_Agent_codex | codex/perm-1-permissions-and-consent | 2026-04-29 | 2026-04-29 | PERM-1 permissions and consent |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chat-1 | 2026-04-29 | 2026-04-29 | MOBILE-CHAT-1A foundation (auth/perf deferred to 1B) |
+| Codex | Lumo_Super_Agent_codex | codex/marketplace-1-distribution | 2026-04-29 | 2026-04-29 | MARKETPLACE-1 distribution |
 
 ## Last push
 
@@ -28,3 +29,4 @@
 - 2026-04-29 — claude-code/mobile-chat-1 (1A foundation) merged to main; Claude Code queued for MOBILE-CHAT-1B
 - 2026-04-29 — MARKETPLACE-1 backend midpoint pushed: schema, catalog library, submissions, bundle storage, yank endpoint, version-sync cron
 - 2026-04-29 — MARKETPLACE-1 second half pushed: DB-backed browse/detail feed, PERM-1 install/uninstall wiring, submission/version tests; gates green
+- 2026-04-29 — MARKETPLACE-1 merged to main; Codex queued for COST-1
