@@ -12,6 +12,7 @@ import { ensureRegistry } from "../agent-registry.js";
 import { getSupabase } from "../db.js";
 import type { MarketplaceTrustTier } from "../marketplace.js";
 import { storeAgentBundle } from "./bundle-store.js";
+import { verifyBundleSignature } from "../trust/keys.js";
 import {
   checkTyposquat,
   type ProtectedAgentId,
@@ -22,10 +23,12 @@ import { signatureRequirementError } from "./submission-policy.js";
 export interface SubmitMarketplaceAgentInput {
   manifest: unknown;
   bundleBytes: Uint8Array;
+  authorUserId?: string | null;
   authorEmail: string;
   authorName?: string | null;
   requestedTier?: MarketplaceTrustTier;
   signature?: string | null;
+  signingKeyId?: string | null;
 }
 
 export interface MarketplaceSubmissionResult {
@@ -37,6 +40,7 @@ export interface MarketplaceSubmissionResult {
   bundle_path: string;
   bundle_sha256: string;
   bundle_size_bytes: number;
+  signature_verified: boolean;
   status_url: string;
 }
 
@@ -45,7 +49,7 @@ export async function submitMarketplaceAgent(
 ): Promise<MarketplaceSubmissionResult> {
   const manifest = parseManifest(input.manifest);
   const trustTier = input.requestedTier ?? requestedTierFromManifest(manifest);
-  const signatureError = signatureRequirementError(trustTier, input.signature);
+  const signatureError = signatureRequirementError(trustTier, input.signature, input.signingKeyId);
   if (signatureError) {
     throw new MarketplaceSubmissionError(signatureError, { trust_tier: trustTier });
   }
@@ -63,6 +67,33 @@ export async function submitMarketplaceAgent(
     version: manifest.version,
     bytes: input.bundleBytes,
   });
+  let signatureVerified = false;
+  let signatureVerificationError: string | null = null;
+  if (input.signature?.trim() || input.signingKeyId?.trim()) {
+    if (!input.signature?.trim()) {
+      throw new MarketplaceSubmissionError("signature_required");
+    }
+    if (!input.signingKeyId?.trim()) {
+      throw new MarketplaceSubmissionError("signing_key_required");
+    }
+    const verification = await verifyBundleSignature({
+      db,
+      agentId: manifest.agent_id,
+      version: manifest.version,
+      bundleSha256: stored.sha256,
+      signature: input.signature,
+      keyId: input.signingKeyId,
+      signerUserId: input.authorUserId ?? null,
+    });
+    if (!verification.ok) {
+      if (trustTier === "official" || trustTier === "verified") {
+        throw new MarketplaceSubmissionError("signature_invalid", { reason: verification.error });
+      }
+      signatureVerificationError = verification.error;
+    } else {
+      signatureVerified = true;
+    }
+  }
   const now = new Date().toISOString();
   const autoPublish = trustTier === "experimental";
   const state = autoPublish ? "published" : "pending_review";
@@ -110,7 +141,12 @@ export async function submitMarketplaceAgent(
       bundle_sha256: stored.sha256,
       bundle_size_bytes: stored.sizeBytes,
       signature: input.signature ?? null,
-      signature_verified: false,
+      signature_verified: signatureVerified,
+      signer_user_id: signatureVerified ? (input.authorUserId ?? null) : null,
+      signing_key_id: signatureVerified ? (input.signingKeyId ?? null) : null,
+      signature_algorithm: "ecdsa-p256",
+      signature_verified_at: signatureVerified ? now : null,
+      signature_verification_error: signatureVerificationError,
       review_state: reviewState,
       published_at: publishedAt,
       updated_at: now,
@@ -135,6 +171,7 @@ export async function submitMarketplaceAgent(
     bundle_path: stored.path,
     bundle_sha256: stored.sha256,
     bundle_size_bytes: stored.sizeBytes,
+    signature_verified: signatureVerified,
     status_url: `/api/marketplace/submissions/${encodeURIComponent(manifest.agent_id)}/status?version=${encodeURIComponent(manifest.version)}`,
   };
 }

@@ -8,6 +8,7 @@
 
 import { createHash } from "node:crypto";
 import { getSupabase } from "../db.js";
+import { verifyBundleSignature } from "../trust/keys.js";
 
 export const AGENT_BUNDLE_BUCKET = "agent-bundles";
 
@@ -59,6 +60,11 @@ export async function storeAgentBundle(args: {
 export async function downloadVerifiedBundle(args: {
   path: string;
   expectedSha256: string;
+  agentId?: string;
+  version?: string;
+  signature?: string | null;
+  signingKeyId?: string | null;
+  signerUserId?: string | null;
 }): Promise<{ bytes: Uint8Array; sha256: string }> {
   const db = getSupabase();
   if (!db) throw new Error("bundle_storage_unavailable");
@@ -69,6 +75,20 @@ export async function downloadVerifiedBundle(args: {
   const sha256 = sha256Hex(bytes);
   if (sha256 !== args.expectedSha256) {
     throw new Error("bundle_sha256_mismatch");
+  }
+  if (args.signature && args.signingKeyId && args.agentId && args.version) {
+    const signature = await verifyBundleSignature({
+      db,
+      agentId: args.agentId,
+      version: args.version,
+      bundleSha256: sha256,
+      signature: args.signature,
+      keyId: args.signingKeyId,
+      signerUserId: args.signerUserId ?? null,
+    });
+    if (!signature.ok) {
+      throw new Error(`bundle_signature_invalid:${signature.error}`);
+    }
   }
   return { bytes, sha256 };
 }

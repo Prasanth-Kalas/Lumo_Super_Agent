@@ -41,7 +41,8 @@ await t("verified and official submissions require signatures before DB writes",
   assert.equal(signatureRequirementError("official", " "), "signature_required");
   assert.equal(signatureRequirementError("community", null), null);
   assert.equal(signatureRequirementError("experimental", null), null);
-  assert.equal(signatureRequirementError("verified", "sig_ed25519_abc"), null);
+  assert.equal(signatureRequirementError("verified", "sig_p256_abc", null), "signing_key_required");
+  assert.equal(signatureRequirementError("verified", "sig_p256_abc", "p256:abc123456789abcd"), null);
 });
 
 await t("version sync selects same-minor non-yanked patches", () => {

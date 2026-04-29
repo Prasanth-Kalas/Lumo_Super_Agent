@@ -14,7 +14,7 @@ export async function GET(
 
   const { data, error } = await db
     .from("marketplace_agent_versions")
-    .select("bundle_path, bundle_sha256, yanked, published_at")
+    .select("bundle_path, bundle_sha256, yanked, published_at, signature, signing_key_id, signer_user_id")
     .eq("agent_id", params.id)
     .eq("version", params.version)
     .maybeSingle();
@@ -26,6 +26,9 @@ export async function GET(
     bundle_sha256: string;
     yanked: boolean;
     published_at: string | null;
+    signature: string | null;
+    signing_key_id: string | null;
+    signer_user_id: string | null;
   };
   if (row.yanked || !row.published_at) return json({ error: "version_unavailable" }, 410);
 
@@ -33,6 +36,11 @@ export async function GET(
     const bundle = await downloadVerifiedBundle({
       path: row.bundle_path,
       expectedSha256: row.bundle_sha256,
+      agentId: params.id,
+      version: params.version,
+      signature: row.signature,
+      signingKeyId: row.signing_key_id,
+      signerUserId: row.signer_user_id,
     });
     const body = bundle.bytes.buffer.slice(
       bundle.bytes.byteOffset,

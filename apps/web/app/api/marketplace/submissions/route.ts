@@ -26,12 +26,14 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const signatureValue = form.get("signature");
+  const signingKeyIdValue = form.get("signing_key_id");
   const tierValue = form.get("trust_tier");
 
   try {
     const result = await submitMarketplaceAgent({
       manifest: manifest.value,
       bundleBytes: new Uint8Array(await bundle.arrayBuffer()),
+      authorUserId: user.id,
       authorEmail: user.email ?? user.id,
       authorName: user.user_metadata?.full_name ?? user.email ?? null,
       requestedTier:
@@ -42,6 +44,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           ? tierValue
           : undefined,
       signature: typeof signatureValue === "string" ? signatureValue : null,
+      signingKeyId: typeof signingKeyIdValue === "string" ? signingKeyIdValue : null,
     });
     return json({ ok: true, submission: result });
   } catch (err) {
