@@ -50,7 +50,8 @@ struct PaymentsFixtureRoot: View {
             elevenLabsAPIKey: "",
             elevenLabsVoiceID: "",
             stripePublishableKey: "pk_test_fixture",
-            stripeMerchantID: "merchant.com.lumo.rentals.ios"
+            stripeMerchantID: "merchant.com.lumo.rentals.ios",
+            apnsUseSandbox: true
         )
         let paymentStub = PaymentServiceStub()
         let receiptStub = ReceiptStoreStub()

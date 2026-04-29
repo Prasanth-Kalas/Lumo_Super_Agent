@@ -68,9 +68,23 @@
 	<string>$(LUMO_STRIPE_PUBLISHABLE_KEY_TEST)</string>
 	<key>LumoStripeMerchantID</key>
 	<string>$(LUMO_STRIPE_MERCHANT_ID)</string>
+	<key>LumoAPNsUseSandbox</key>
+	<string>$(LUMO_APNS_USE_SANDBOX)</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Lumo uses your microphone so you can talk to your assistant. Your voice is processed on-device for transcription; nothing is recorded or stored.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Lumo uses on-device speech recognition to turn your voice into the messages you send. Transcripts are processed locally; only the resulting text is sent to Lumo.</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>Lumo notifies you about trip updates, proactive suggestions, and payment receipts. You can customize categories in Settings.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.lumo.rentals.ios.proactive-refresh</string>
+	</array>
 </dict>
 </plist>

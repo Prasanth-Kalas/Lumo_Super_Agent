@@ -16,6 +16,13 @@ struct AppConfig {
     let elevenLabsVoiceID: String
     let stripePublishableKey: String
     let stripeMerchantID: String
+    /// True when the iOS client is targeting the APNs sandbox (the
+    /// `aps-environment=development` entitlement). Flips off when the
+    /// Apple Developer team registers the production APNs auth key
+    /// and the entitlement is updated to `production`. Surfaces in
+    /// Settings as a "sandbox notifications" indicator so QA can tell
+    /// at a glance which APNs environment a build targets.
+    let apnsUseSandbox: Bool
 
     var isAuthConfigured: Bool {
         supabaseURL != nil && !supabaseAnonKey.isEmpty
@@ -69,6 +76,11 @@ struct AppConfig {
         let elevenVoice = (bundle.object(forInfoDictionaryKey: "LumoElevenLabsVoiceID") as? String) ?? ""
         let stripeKey = (bundle.object(forInfoDictionaryKey: "LumoStripePublishableKey") as? String) ?? ""
         let stripeMerchant = (bundle.object(forInfoDictionaryKey: "LumoStripeMerchantID") as? String) ?? ""
+        let apnsSandboxRaw = (bundle.object(forInfoDictionaryKey: "LumoAPNsUseSandbox") as? String) ?? "true"
+        // xcconfig values come through as strings; treat anything other
+        // than literal "false" (case-insensitive) as truthy so the
+        // default reads as sandbox.
+        let apnsSandbox = apnsSandboxRaw.lowercased() != "false"
 
         return AppConfig(
             apiBaseURL: apiURL,
@@ -77,7 +89,8 @@ struct AppConfig {
             elevenLabsAPIKey: elevenKey,
             elevenLabsVoiceID: elevenVoice,
             stripePublishableKey: stripeKey,
-            stripeMerchantID: stripeMerchant
+            stripeMerchantID: stripeMerchant,
+            apnsUseSandbox: apnsSandbox
         )
     }
 }

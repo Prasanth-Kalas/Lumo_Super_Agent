@@ -30,4 +30,13 @@ LUMO_ELEVENLABS_VOICE_ID =
 LUMO_STRIPE_PUBLISHABLE_KEY_TEST =
 LUMO_STRIPE_MERCHANT_ID =
 
+// APNs — populated from ~/.config/lumo/.env. The iOS client only reads
+// LUMO_APNS_USE_SANDBOX at runtime (so the Settings UI can show a
+// "sandbox APNs" indicator); LUMO_APNS_KEY_ID / LUMO_APNS_TEAM_ID /
+// LUMO_APNS_AUTH_KEY_PATH are server-side concerns used by the push
+// sender (Phase 4.5+). The aps-environment entitlement is fixed to
+// `development` in v1; flip to `production` in Lumo.entitlements when
+// app store launch is ready.
+LUMO_APNS_USE_SANDBOX = true
+
 #include? "Lumo.local.xcconfig"

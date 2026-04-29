@@ -86,6 +86,7 @@ targets:
         INFOPLIST_KEY_LumoElevenLabsVoiceID: $(LUMO_ELEVENLABS_VOICE_ID)
         INFOPLIST_KEY_LumoStripePublishableKey: $(LUMO_STRIPE_PUBLISHABLE_KEY_TEST)
         INFOPLIST_KEY_LumoStripeMerchantID: $(LUMO_STRIPE_MERCHANT_ID)
+        INFOPLIST_KEY_LumoAPNsUseSandbox: $(LUMO_APNS_USE_SANDBOX)
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.lumo.rentals.ios.dev

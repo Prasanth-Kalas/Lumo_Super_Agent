@@ -24,6 +24,7 @@ elevenlabs_api_key="${LUMO_ELEVENLABS_API_KEY:-}"
 elevenlabs_voice_id="${LUMO_ELEVENLABS_VOICE_ID:-}"
 stripe_publishable_key_test="${LUMO_STRIPE_PUBLISHABLE_KEY_TEST:-}"
 stripe_merchant_id="${LUMO_STRIPE_MERCHANT_ID:-}"
+apns_use_sandbox="${LUMO_APNS_USE_SANDBOX:-true}"
 
 # Split URL → scheme + host (+ optional path) so xcconfig doesn't truncate.
 supabase_scheme=""
@@ -53,6 +54,7 @@ LUMO_ELEVENLABS_API_KEY = ${elevenlabs_api_key}
 LUMO_ELEVENLABS_VOICE_ID = ${elevenlabs_voice_id}
 LUMO_STRIPE_PUBLISHABLE_KEY_TEST = ${stripe_publishable_key_test}
 LUMO_STRIPE_MERCHANT_ID = ${stripe_merchant_id}
+LUMO_APNS_USE_SANDBOX = ${apns_use_sandbox}
 EOF
 
 # Warn separately for each missing piece so the developer knows which
