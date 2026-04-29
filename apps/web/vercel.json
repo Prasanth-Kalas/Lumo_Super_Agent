@@ -44,6 +44,9 @@
     },
     "app/api/cron/developer-metrics-rollup/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/cron/agent-health-monitor/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
@@ -98,6 +101,10 @@
     {
       "path": "/api/cron/developer-metrics-rollup",
       "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/cron/agent-health-monitor",
+      "schedule": "0 */6 * * *"
     }
   ]
 }

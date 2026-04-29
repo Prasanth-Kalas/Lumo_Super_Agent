@@ -47,3 +47,4 @@
 - 2026-04-29 — DEV-DASH merged to main; Codex queued for TRUST-1
 - 2026-04-29 — TRUST-1 branch opened; migration 041 drafted for early schema review
 - 2026-04-29 — TRUST-1 signing and five-check pipeline drafted for mid-sprint review
+- 2026-04-29 — TRUST-1 continuous health monitor drafted: 6h cron, demotion reviews, and P0 auto-kill path
