@@ -29,14 +29,26 @@ struct LumoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            AppRootView(
-                authService: authService,
-                chatService: chatService,
-                tts: tts,
-                paymentService: paymentService,
-                receiptStore: receiptStore,
-                appConfig: appConfig
-            )
+            #if DEBUG
+            if let fixture = PaymentsFixture.current {
+                PaymentsFixtureRoot(fixture: fixture)
+            } else {
+                normalRoot
+            }
+            #else
+            normalRoot
+            #endif
         }
+    }
+
+    private var normalRoot: some View {
+        AppRootView(
+            authService: authService,
+            chatService: chatService,
+            tts: tts,
+            paymentService: paymentService,
+            receiptStore: receiptStore,
+            appConfig: appConfig
+        )
     }
 }

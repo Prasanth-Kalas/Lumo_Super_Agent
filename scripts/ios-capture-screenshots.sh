@@ -78,6 +78,39 @@ case "$variant" in
         capture 06-voice-transcript light -LumoAutoSignIn YES -LumoVoiceFixture transcript
         capture 06-voice-transcript dark  -LumoAutoSignIn YES -LumoVoiceFixture transcript
         ;;
+    payments)
+        # MOBILE-PAYMENTS-1 fixtures. `-LumoPaymentsFixture <name>`
+        # bypasses the normal app root and renders the targeted screen
+        # with deterministic seeded data via PaymentsFixtureRoot
+        # (compiled out of Release).
+        echo "[shots] empty payment methods"
+        capture 07-payment-methods-empty light -LumoPaymentsFixture empty-methods
+        capture 07-payment-methods-empty dark  -LumoPaymentsFixture empty-methods
+
+        echo "[shots] saved cards"
+        capture 08-payment-methods-saved light -LumoPaymentsFixture saved-cards
+        capture 08-payment-methods-saved dark  -LumoPaymentsFixture saved-cards
+
+        echo "[shots] add-card sheet"
+        capture 09-add-card light -LumoPaymentsFixture add-card
+        capture 09-add-card dark  -LumoPaymentsFixture add-card
+
+        echo "[shots] confirmation card — ready"
+        capture 10-confirm-ready light -LumoPaymentsFixture confirm-ready
+        capture 10-confirm-ready dark  -LumoPaymentsFixture confirm-ready
+
+        echo "[shots] confirmation card — succeeded"
+        capture 11-confirm-success light -LumoPaymentsFixture confirm-success
+        capture 11-confirm-success dark  -LumoPaymentsFixture confirm-success
+
+        echo "[shots] receipt history"
+        capture 12-receipts-history light -LumoPaymentsFixture receipt-history
+        capture 12-receipts-history dark  -LumoPaymentsFixture receipt-history
+
+        echo "[shots] receipt detail"
+        capture 13-receipt-detail light -LumoPaymentsFixture receipt-detail
+        capture 13-receipt-detail dark  -LumoPaymentsFixture receipt-detail
+        ;;
     *)
         echo "unknown variant: $variant"
         exit 1

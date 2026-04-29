@@ -353,7 +353,7 @@ final class PaymentService: PaymentServicing {
 /// no network, mirrors the same shape PaymentService produces against
 /// the live backend stubs.
 final class PaymentServiceStub: PaymentServicing {
-    private(set) var methods: [PaymentMethod] = []
+    var methods: [PaymentMethod] = []
     private(set) var receipts: [Receipt] = []
     var nextError: Error?
     var setupIntentResponse: SetupIntentResponse = .init(
