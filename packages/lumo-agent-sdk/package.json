@@ -6,6 +6,11 @@
   "bin": {
     "lumo-agent": "./src/cli/submit.ts"
   },
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent": "./src/agent.ts",
+    "./manifest": "./src/manifest.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "docs:api-ref": "typedoc --options typedoc.json"

@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { assertValidMerchantManifest } from "../manifest.js";
 
 export interface SubmitSigningMaterial {
   keyId: string;
@@ -157,9 +158,13 @@ function writePrivateKeyFallback(material: SubmitSigningMaterial): void {
 }
 
 async function main(): Promise<void> {
-  const [, , command, manifestPathArg, bundlePathArg] = process.argv;
+  const [, , command, ...rawArgs] = process.argv;
+  const kindIndex = rawArgs.indexOf("--kind=merchant-of-record");
+  const kind = kindIndex >= 0 ? "merchant_of_record" : "oauth_as_user";
+  const args = rawArgs.filter((arg) => arg !== "--kind=merchant-of-record");
+  const [manifestPathArg, bundlePathArg] = args;
   if (command !== "submit" && command !== "sign") {
-    console.error("Usage: lumo-agent sign <manifest.json> <bundle.tar.gz>");
+    console.error("Usage: lumo-agent sign [--kind=merchant-of-record] <manifest.json> <bundle.tar.gz>");
     process.exit(2);
   }
   if (!manifestPathArg || !bundlePathArg) {
@@ -171,7 +176,12 @@ async function main(): Promise<void> {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
     agent_id?: string;
     version?: string;
+    agent_class?: string;
   };
+  if (kind === "merchant_of_record" && !manifest.agent_class) {
+    manifest.agent_class = "merchant_of_record";
+  }
+  assertValidMerchantManifest(manifest);
   if (!manifest.agent_id || !manifest.version) {
     throw new Error("manifest_missing_agent_id_or_version");
   }

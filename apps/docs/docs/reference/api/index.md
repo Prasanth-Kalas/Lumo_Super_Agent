@@ -4,16 +4,7 @@
 
 # @lumo/agent-sdk-tools
 
-## Interfaces
+## Modules
 
-- [SubmitSigningMaterial](interfaces/SubmitSigningMaterial.md)
-- [SignedBundlePayload](interfaces/SignedBundlePayload.md)
-
-## Functions
-
-- [canonicalBundleSigningPayload](functions/canonicalBundleSigningPayload.md)
-- [fingerprintPublicKey](functions/fingerprintPublicKey.md)
-- [keyIdForFingerprint](functions/keyIdForFingerprint.md)
-- [generateSigningMaterial](functions/generateSigningMaterial.md)
-- [signBundle](functions/signBundle.md)
-- [loadOrCreateSigningMaterial](functions/loadOrCreateSigningMaterial.md)
+- [cli/submit](cli/submit/index.md)
+- [index](index/index.md)
