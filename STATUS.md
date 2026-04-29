@@ -3,6 +3,7 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chat-1b | 2026-04-29 | MOBILE-CHAT-1B (auth, Settings, new tests, perf, dark-mode fix, full screenshots) |
+| Codex | Lumo_Super_Agent_codex | codex/cost-1-metering-budgets | 2026-04-29 | COST-1 metering and budgets |
 
 ## Closed lanes
 
@@ -31,3 +32,4 @@
 - 2026-04-29 — MARKETPLACE-1 second half pushed: DB-backed browse/detail feed, PERM-1 install/uninstall wiring, submission/version tests; gates green
 - 2026-04-29 — MARKETPLACE-1 merged to main; Codex queued for COST-1
 - 2026-04-29 — claude-code/mobile-chat-1b opened from origin/main; auth + Settings + tests + perf + dark-mode fix + full screenshot pass underway
+- 2026-04-29 — COST-1 middle layer drafted: cost library, dispatch budget gate, model-call ledger writes, daily/monthly digest crons
