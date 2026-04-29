@@ -20,6 +20,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/trust-1-review-pipeline | 2026-04-29 | 2026-04-29 | TRUST-1 review pipeline |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-voice-1 | 2026-04-29 | 2026-04-29 | MOBILE-VOICE-1 native iOS voice path |
 | Codex | Lumo_Super_Agent_codex | codex/docs | 2026-04-29 | 2026-04-30 | DOCS developer documentation site |
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-payments-1 | 2026-04-30 | 2026-04-30 | MOBILE-PAYMENTS-1 iOS payment surface (Stripe SDK + biometric confirmation + receipts; MERCHANT-1 swap path documented) |
 
 ## Last push
 
@@ -60,3 +61,4 @@
 - 2026-04-30 — SDK submit CLI executable-bit fix merged to main; Phase 4 closes with no known engineering bug tail. Codex queued for MERCHANT-1 kickoff.
 - 2026-04-30 — claude-code/mobile-payments-1 opened from origin/main; Stripe SDK card-on-file + Apple Pay + biometric-confirmed transactions + local receipt history in flight (Stripe Test mode; MERCHANT-1 owns real-money execution)
 - 2026-04-30 — claude-code/mobile-payments-1 ready for review: all 9 deliverable groups done (Stripe SDK + Apple Pay capability, PaymentService HTTP client, 5 backend stubs under /api/payments/*, BiometricConfirmationService w/ HMAC-SHA256 token shape, PaymentConfirmationCard state-machine modal, PaymentMethodsView w/ Test-mode banner + add-card sheet, ReceiptStore + history + detail views, 41 new tests bringing total to 98, 14 light+dark screenshots via PaymentsFixtureRoot); real Stripe PaymentSheet wired but inert in v1 (backend stubs don't issue real client_secrets — flips on with MERCHANT-1); Apple Pay simulator-limited
+- 2026-04-30 — MOBILE-PAYMENTS-1 merged to main; iOS payment surface complete with explicit MERCHANT-1 swap path documented; Phase 5 iOS substrate complete.
