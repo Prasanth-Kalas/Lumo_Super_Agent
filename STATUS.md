@@ -3,6 +3,7 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-notif-1 | 2026-04-30 | MOBILE-NOTIF-1 iOS notifications + proactive moments (APNs + 4 categories + background fetch + in-app cards) |
+| Codex | Lumo_Super_Agent_codex | codex/merchant-1 | 2026-04-30 | MERCHANT-1 merchant-of-record substrate |
 
 ## Closed lanes
 
@@ -63,3 +64,4 @@
 - 2026-04-30 — claude-code/mobile-payments-1 ready for review: all 9 deliverable groups done (Stripe SDK + Apple Pay capability, PaymentService HTTP client, 5 backend stubs under /api/payments/*, BiometricConfirmationService w/ HMAC-SHA256 token shape, PaymentConfirmationCard state-machine modal, PaymentMethodsView w/ Test-mode banner + add-card sheet, ReceiptStore + history + detail views, 41 new tests bringing total to 98, 14 light+dark screenshots via PaymentsFixtureRoot); real Stripe PaymentSheet wired but inert in v1 (backend stubs don't issue real client_secrets — flips on with MERCHANT-1); Apple Pay simulator-limited
 - 2026-04-30 — MOBILE-PAYMENTS-1 merged to main; iOS payment surface complete with explicit MERCHANT-1 swap path documented; Phase 5 iOS substrate complete.
 - 2026-04-30 — claude-code/mobile-notif-1 opened from origin/main; APNs + 4 notification categories + background fetch + proactive-moments cards + Settings notifications section in flight (last iOS sprint independent of Phase 4.5 backend)
+- 2026-04-30 — MERCHANT-1 branch opened; migration 043 drafted for early schema review
