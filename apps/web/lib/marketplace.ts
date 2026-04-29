@@ -278,6 +278,8 @@ export async function getAgent(agentId: string): Promise<MarketplaceAgentRecord 
     .from("marketplace_agents")
     .select("*")
     .eq("agent_id", agentId)
+    .eq("state", "published")
+    .eq("killed", false)
     .maybeSingle();
   if (error) {
     console.warn("[marketplace] getAgent failed:", error.message);
