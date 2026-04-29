@@ -11,6 +11,24 @@ configs:
   Debug: debug
   Release: release
 
+# Build-time configuration. `Lumo.xcconfig` is committed and `#include?`s
+# the gitignored `Lumo.local.xcconfig` written by
+# `scripts/ios-write-xcconfig.sh` from env. CI / fresh clones build with
+# empty values; the app surfaces a clean "auth not configured" state
+# rather than crashing.
+configFiles:
+  Debug: Lumo.xcconfig
+  Release: Lumo.xcconfig
+
+# Pinned remote SwiftPM dependencies. Supabase Swift SDK provides
+# `Supabase` (high-level client) and `Auth` (session storage protocol +
+# Apple Sign-In id-token exchange). 2.x is the current major; we pin
+# loosely to allow patch + minor updates but block 3.x without review.
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: "2.0.0"
+
 settings:
   base:
     SWIFT_VERSION: "5.9"
@@ -27,6 +45,11 @@ targets:
     platform: iOS
     sources:
       - path: Lumo
+    dependencies:
+      - package: Supabase
+        product: Supabase
+      - package: Supabase
+        product: Auth
     settings:
       base:
         PRODUCT_NAME: Lumo
@@ -37,6 +60,12 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SUPPORTS_MACCATALYST: NO
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        # Surface xcconfig values to Info.plist so the running app can
+        # read them at launch (see Lumo/Resources/Info.plist). URL is
+        # split scheme/host because xcconfig truncates at `//`.
+        INFOPLIST_KEY_LumoSupabaseURLScheme: $(LUMO_SUPABASE_URL_SCHEME)
+        INFOPLIST_KEY_LumoSupabaseURLHost: $(LUMO_SUPABASE_URL_HOST)
+        INFOPLIST_KEY_LumoSupabaseAnonKey: $(LUMO_SUPABASE_ANON_KEY)
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.lumo.rentals.ios.dev

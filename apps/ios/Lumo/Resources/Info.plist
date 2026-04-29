@@ -54,5 +54,11 @@
 	</dict>
 	<key>LumoAPIBase</key>
 	<string>http://localhost:3000</string>
+	<key>LumoSupabaseURLScheme</key>
+	<string>$(LUMO_SUPABASE_URL_SCHEME)</string>
+	<key>LumoSupabaseURLHost</key>
+	<string>$(LUMO_SUPABASE_URL_HOST)</string>
+	<key>LumoSupabaseAnonKey</key>
+	<string>$(LUMO_SUPABASE_ANON_KEY)</string>
 </dict>
 </plist>

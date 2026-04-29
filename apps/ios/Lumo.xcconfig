@@ -1,0 +1,17 @@
+// Committed defaults for build-time configuration.
+//
+// Real values are sourced from `~/.config/lumo/.env` and written into a
+// gitignored `Lumo.local.xcconfig` by `scripts/ios-write-xcconfig.sh`.
+// The optional include below picks them up when present and silently
+// no-ops otherwise, so CI / fresh clones still build.
+//
+// The Supabase URL is split into scheme + host because xcconfig treats
+// `//` as a line comment with no escape — a URL like
+// `https://x.supabase.co` would be truncated to `https:`. The Swift
+// `AppConfig` reassembles them at runtime.
+
+LUMO_SUPABASE_URL_SCHEME =
+LUMO_SUPABASE_URL_HOST =
+LUMO_SUPABASE_ANON_KEY =
+
+#include? "Lumo.local.xcconfig"

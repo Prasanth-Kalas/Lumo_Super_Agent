@@ -1,15 +1,17 @@
 import SwiftUI
 
-/// Top-level navigation shell. Three tabs (Chat, Trips, Settings),
-/// each owns its own `NavigationStack` so push-style sub-screens
-/// preserve their own state when the user switches tabs and returns.
+/// Top-level navigation shell shown after sign-in. Three tabs (Chat,
+/// Trips, Settings), each with its own `NavigationStack` so push-style
+/// sub-screens preserve their state when the user switches tabs.
 
 struct RootView: View {
     private let chatService: ChatService
+    private let onSignOut: () -> Void
     @State private var selection: Tab = .chat
 
-    init(chatService: ChatService) {
+    init(chatService: ChatService, onSignOut: @escaping () -> Void) {
         self.chatService = chatService
+        self.onSignOut = onSignOut
     }
 
     enum Tab: Hashable {
@@ -37,7 +39,7 @@ struct RootView: View {
             .tag(Tab.trips)
 
             NavigationStack {
-                SettingsTab()
+                SettingsTab(onSignOut: onSignOut)
             }
             .tabItem {
                 Label("Settings", systemImage: "gearshape.fill")

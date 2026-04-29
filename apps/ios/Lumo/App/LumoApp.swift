@@ -3,20 +3,18 @@ import SwiftUI
 @main
 struct LumoApp: App {
     private let chatService: ChatService
+    private let authService: AuthService
 
+    @MainActor
     init() {
-        if let service = ChatService.makeFromBundle() {
-            self.chatService = service
-        } else {
-            // Hard-fail rather than silently start with a junk URL — surfaces
-            // misconfiguration loudly during dev.
-            fatalError("LumoAPIBase missing or invalid in Info.plist.")
-        }
+        let config = AppConfig.fromBundle()
+        self.chatService = ChatService(baseURL: config.apiBaseURL)
+        self.authService = AuthService(config: config)
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView(chatService: chatService)
+            AppRootView(authService: authService, chatService: chatService)
         }
     }
 }
