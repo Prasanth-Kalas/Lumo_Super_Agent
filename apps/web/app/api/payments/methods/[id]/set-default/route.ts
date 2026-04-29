@@ -1,33 +1,36 @@
-// STUB for MOBILE-PAYMENTS-1; MERCHANT-1 replaces with real Stripe calls.
-//
-// POST → marks the given payment method as the customer's default. In
-// production MERCHANT-1 updates the Stripe customer's
-// `invoice_settings.default_payment_method` field.
-import type { NextRequest } from "next/server";
-import { getServerUser } from "@/lib/auth";
-import { resolvePaymentsUserId, setDefault } from "@/lib/payments-stub";
+import {
+  ensurePaymentCustomer,
+  errorResponse,
+  json,
+  mirrorPaymentMethods,
+  requirePaymentUser,
+} from "@/app/api/payments/_shared";
+import { setDefaultPaymentMethod } from "@/lib/merchant/stripe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> },
-): Promise<Response> {
-  const userId = await resolvePaymentsUserId(req, getServerUser);
-  const { id } = await context.params;
-  if (!id) return json({ error: "missing_id" }, 400);
-  const method = setDefault(userId, id);
-  if (!method) return json({ error: "not_found" }, 404);
-  return json({ method });
+interface RouteContext {
+  params: { id: string };
 }
 
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": "application/json",
-      "cache-control": "no-store",
-    },
-  });
+export async function POST(_req: Request, ctx: RouteContext): Promise<Response> {
+  try {
+    const id = ctx.params.id;
+    if (!id) return json({ error: "missing_id" }, 400);
+    const user = await requirePaymentUser();
+    const customer = await ensurePaymentCustomer(user);
+    const method = await setDefaultPaymentMethod({
+      customerId: customer.stripe_customer_id,
+      paymentMethodId: id,
+    });
+    await mirrorPaymentMethods({
+      userId: user.id,
+      customerId: customer.stripe_customer_id,
+      methods: [method],
+    });
+    return json({ method });
+  } catch (error) {
+    return errorResponse(error);
+  }
 }
