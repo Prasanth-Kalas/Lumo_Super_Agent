@@ -3,6 +3,7 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-notif-1 | 2026-04-30 | MOBILE-NOTIF-1 iOS notifications + proactive moments (APNs + 4 categories + background fetch + in-app cards) |
+| Codex | Lumo_Super_Agent_codex | codex/perf-1-plus-2 | 2026-04-30 | PERF-1+2 latency instrumentation, prompt caching, and model routing |
 
 ## Closed lanes
 
@@ -67,3 +68,4 @@
 - 2026-04-30 — MERCHANT-1 branch opened; migration 043 drafted for early schema review
 - 2026-04-30 — MERCHANT-1 full review slice ready: Stripe-backed payments routes, ECDSA confirmation keys, webhook reconciliation, merchant SDK contract, stub merchant sample, and regression tests; gates green locally
 - 2026-04-30 — MERCHANT-1 merged to main; real Stripe-backed payment substrate live (SetupIntent + PaymentIntent + ECDSA device confirmation + webhook reconciliation); MOBILE-PAYMENTS-1.1 follow-up needed to swap iOS HMAC → ECDSA before production E2E. Codex queued for PERF-1+2.
+- 2026-04-30 — PERF-1+2 branch opened; migration 044 drafted for early schema review
