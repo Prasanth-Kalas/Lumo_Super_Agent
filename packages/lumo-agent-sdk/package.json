@@ -1,0 +1,19 @@
+{
+  "name": "@lumo/agent-sdk-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "lumo-agent": "./src/cli/submit.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lumo/agent-sdk": "git+https://github.com/Prasanth-Kalas/Lumo_Agent_SDK.git#9ebf421de5093e9ae900c94d7b4e999be014cd70"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "typescript": "^5.4.5"
+  }
+}
