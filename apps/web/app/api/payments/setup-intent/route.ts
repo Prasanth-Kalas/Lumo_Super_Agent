@@ -8,19 +8,20 @@
 // instead of invoking real PaymentSheet (which would fail without a
 // real client_secret).
 import type { NextRequest } from "next/server";
-import { requireServerUser } from "@/lib/auth";
+import { getServerUser } from "@/lib/auth";
+import { resolvePaymentsUserId } from "@/lib/payments-stub";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_req: NextRequest): Promise<Response> {
-  const user = await requireServerUser();
+export async function POST(req: NextRequest): Promise<Response> {
+  const userId = await resolvePaymentsUserId(req, getServerUser);
   const setupIntentId = `seti_test_${randomHex(16)}`;
   return json({
     stub: true,
     setupIntentId,
     clientSecret: null,
-    customerId: `cus_test_${user.id.replace(/-/g, "").slice(0, 16)}`,
+    customerId: `cus_test_${userId.replace(/-/g, "").slice(0, 16)}`,
   });
 }
 

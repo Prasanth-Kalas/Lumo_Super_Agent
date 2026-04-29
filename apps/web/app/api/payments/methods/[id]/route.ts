@@ -3,20 +3,21 @@
 // DELETE → removes a saved payment method from the stub store. In
 // production MERCHANT-1 calls `stripe.paymentMethods.detach()` to drop
 // the PaymentMethod from the customer.
-import { requireServerUser } from "@/lib/auth";
-import { removeMethod } from "@/lib/payments-stub";
+import type { NextRequest } from "next/server";
+import { getServerUser } from "@/lib/auth";
+import { removeMethod, resolvePaymentsUserId } from "@/lib/payments-stub";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function DELETE(
-  _req: Request,
+  req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  const user = await requireServerUser();
+  const userId = await resolvePaymentsUserId(req, getServerUser);
   const { id } = await context.params;
   if (!id) return json({ error: "missing_id" }, 400);
-  const ok = removeMethod(user.id, id);
+  const ok = removeMethod(userId, id);
   if (!ok) return json({ error: "not_found" }, 404);
   return json({ ok: true });
 }

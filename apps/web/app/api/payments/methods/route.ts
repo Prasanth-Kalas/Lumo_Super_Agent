@@ -7,23 +7,24 @@
 // production MERCHANT-1 attaches the PaymentMethod to the customer via
 // `stripe.paymentMethods.attach()` and lets Stripe own listing.
 import type { NextRequest } from "next/server";
-import { requireServerUser } from "@/lib/auth";
+import { getServerUser } from "@/lib/auth";
 import {
   addMethod,
   listMethods,
+  resolvePaymentsUserId,
   type StubCardBrand,
 } from "@/lib/payments-stub";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(): Promise<Response> {
-  const user = await requireServerUser();
-  return json({ methods: listMethods(user.id) });
+export async function GET(req: NextRequest): Promise<Response> {
+  const userId = await resolvePaymentsUserId(req, getServerUser);
+  return json({ methods: listMethods(userId) });
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
-  const user = await requireServerUser();
+  const userId = await resolvePaymentsUserId(req, getServerUser);
   const body = (await req.json().catch(() => null)) as {
     brand?: string;
     last4?: string;
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return json({ error: "invalid_exp_year" }, 400);
   }
 
-  const method = addMethod(user.id, { brand, last4, expMonth, expYear });
+  const method = addMethod(userId, { brand, last4, expMonth, expYear });
   return json({ method }, 201);
 }
 

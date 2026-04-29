@@ -131,6 +131,23 @@ export function resetStubState(): void {
   userState.clear();
 }
 
+/**
+ * Resolve the user ID for a payment route. Mirrors `apps/web/app/api/chat`
+ * which falls back to the `x-lumo-user-id` header when Supabase Auth
+ * isn't configured (local dev, iOS without browser cookies). Production
+ * MERCHANT-1 will require real auth — this fallback is dev-only.
+ */
+export async function resolvePaymentsUserId(
+  req: { headers: Headers },
+  getServerUser: () => Promise<{ id: string } | null>,
+): Promise<string> {
+  const authed = await getServerUser();
+  if (authed) return authed.id;
+  const header = req.headers.get("x-lumo-user-id");
+  if (header && header.trim().length > 0) return header.trim();
+  return "anon";
+}
+
 function cryptoRandom(bytes: number): string {
   const arr = new Uint8Array(bytes);
   if (typeof crypto !== "undefined" && crypto.getRandomValues) {

@@ -12,8 +12,12 @@
 // Stripe Issuing, and (d) records the transaction + receipt in
 // Postgres. None of that lives here.
 import type { NextRequest } from "next/server";
-import { requireServerUser } from "@/lib/auth";
-import { listMethods, recordReceipt } from "@/lib/payments-stub";
+import { getServerUser } from "@/lib/auth";
+import {
+  listMethods,
+  recordReceipt,
+  resolvePaymentsUserId,
+} from "@/lib/payments-stub";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +32,7 @@ interface ConfirmRequest {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
-  const user = await requireServerUser();
+  const userId = await resolvePaymentsUserId(req, getServerUser);
   const body = (await req.json().catch(() => null)) as ConfirmRequest | null;
   if (!body) return json({ error: "invalid_json" }, 400);
 
@@ -51,7 +55,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return json({ error: "invalid_confirmation_token" }, 400);
   }
 
-  const methods = listMethods(user.id);
+  const methods = listMethods(userId);
   const method = methods.find((m) => m.id === paymentMethodId);
   if (!method) return json({ error: "payment_method_not_found" }, 404);
 
@@ -61,7 +65,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       typeof item.amountCents === "number" ? Math.trunc(item.amountCents) : 0,
   }));
 
-  const receipt = recordReceipt(user.id, {
+  const receipt = recordReceipt(userId, {
     transactionId: `txn_test_${randomHex(16)}`,
     amountCents,
     currency,
