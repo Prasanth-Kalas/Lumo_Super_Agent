@@ -4,37 +4,37 @@
   "buildCommand": "npm run build --workspace apps/web",
   "outputDirectory": "apps/web/.next",
   "functions": {
-    "apps/web/app/api/chat/route.ts": {
+    "app/api/chat/route.ts": {
       "maxDuration": 60
     },
-    "apps/web/app/api/cron/proactive-scan/route.ts": {
+    "app/api/cron/proactive-scan/route.ts": {
       "maxDuration": 60
     },
-    "apps/web/app/api/cron/evaluate-intents/route.ts": {
+    "app/api/cron/evaluate-intents/route.ts": {
       "maxDuration": 60
     },
-    "apps/web/app/api/cron/detect-patterns/route.ts": {
+    "app/api/cron/detect-patterns/route.ts": {
       "maxDuration": 60
     },
-    "apps/web/app/api/cron/publish-due-posts/route.ts": {
+    "app/api/cron/publish-due-posts/route.ts": {
       "maxDuration": 30
     },
-    "apps/web/app/api/cron/sync-workspace/route.ts": {
+    "app/api/cron/sync-workspace/route.ts": {
       "maxDuration": 60
     },
-    "apps/web/app/api/cron/index-archive/route.ts": {
+    "app/api/cron/index-archive/route.ts": {
       "maxDuration": 60
     },
-    "apps/web/app/api/cron/kg-reconcile/route.ts": {
+    "app/api/cron/kg-reconcile/route.ts": {
       "maxDuration": 60
     },
-    "apps/web/app/api/cron/execute-mission-steps/route.ts": {
+    "app/api/cron/execute-mission-steps/route.ts": {
       "maxDuration": 60
     },
-    "apps/web/app/api/cron/rollback-missions/route.ts": {
+    "app/api/cron/rollback-missions/route.ts": {
       "maxDuration": 60
     },
-    "apps/web/app/api/cron/marketplace-version-sync/route.ts": {
+    "app/api/cron/marketplace-version-sync/route.ts": {
       "maxDuration": 60
     }
   },
