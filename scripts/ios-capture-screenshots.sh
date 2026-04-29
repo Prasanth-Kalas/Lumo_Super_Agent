@@ -111,6 +111,25 @@ case "$variant" in
         capture 13-receipt-detail light -LumoPaymentsFixture receipt-detail
         capture 13-receipt-detail dark  -LumoPaymentsFixture receipt-detail
         ;;
+    notifications)
+        # MOBILE-NOTIF-1 fixtures. `-LumoNotificationsFixture <name>`
+        # bypasses the normal app root and renders the targeted screen
+        # with deterministic seeded data via NotificationsFixtureRoot
+        # (compiled out of Release). System-level notification banners
+        # require either real APNs or `xcrun simctl push` and are
+        # captured manually — see the progress note for details.
+        echo "[shots] proactive cards above chat empty state"
+        capture 14-proactive-cards light -LumoNotificationsFixture proactive-cards
+        capture 14-proactive-cards dark  -LumoNotificationsFixture proactive-cards
+
+        echo "[shots] settings notifications section"
+        capture 15-notifications-settings light -LumoAutoSignIn YES -LumoStartTab settings
+        capture 15-notifications-settings dark  -LumoAutoSignIn YES -LumoStartTab settings
+
+        echo "[shots] notifications section — master disabled"
+        capture 16-notifications-disabled light -LumoNotificationsFixture permission-denied
+        capture 16-notifications-disabled dark  -LumoNotificationsFixture permission-denied
+        ;;
     *)
         echo "unknown variant: $variant"
         exit 1

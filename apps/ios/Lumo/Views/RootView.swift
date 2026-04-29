@@ -10,6 +10,8 @@ struct RootView: View {
     private let paymentService: PaymentServicing
     private let receiptStore: ReceiptStoring
     private let appConfig: AppConfig
+    private let proactiveCache: ProactiveMomentsCache
+    private let proactiveClient: ProactiveMomentsFetching
     private let onSignOut: () -> Void
     @State private var selection: Tab
 
@@ -19,6 +21,8 @@ struct RootView: View {
         paymentService: PaymentServicing,
         receiptStore: ReceiptStoring,
         appConfig: AppConfig,
+        proactiveCache: ProactiveMomentsCache,
+        proactiveClient: ProactiveMomentsFetching,
         onSignOut: @escaping () -> Void
     ) {
         self.chatService = chatService
@@ -26,6 +30,8 @@ struct RootView: View {
         self.paymentService = paymentService
         self.receiptStore = receiptStore
         self.appConfig = appConfig
+        self.proactiveCache = proactiveCache
+        self.proactiveClient = proactiveClient
         self.onSignOut = onSignOut
         // DEBUG-only `-LumoStartTab` launch arg lets the screenshot
         // script select Trips / Settings on cold-launch without
@@ -51,7 +57,12 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $selection) {
             NavigationStack {
-                ChatTab(chatService: chatService, tts: tts)
+                ChatTab(
+                    chatService: chatService,
+                    tts: tts,
+                    proactiveCache: proactiveCache,
+                    proactiveClient: proactiveClient
+                )
             }
             .tabItem {
                 Label("Chat", systemImage: "bubble.left.and.bubble.right.fill")
@@ -80,5 +91,23 @@ struct RootView: View {
             .tag(Tab.settings)
         }
         .tint(LumoColors.cyan)
+        .onReceive(NotificationActionHandler.shared.$lastRoute) { route in
+            // Bridge notification routes into tab selection. Deep nav
+            // (push to ReceiptDetailView, prefill chat composer)
+            // remains TODO — for v1 we land on the right tab and the
+            // user takes the next step.
+            guard let route else { return }
+            switch route {
+            case .openTrips:
+                selection = .trips
+            case .openChatWithPrefill:
+                selection = .chat
+            case .openReceiptID:
+                selection = .settings
+            case .openAlertsCenter, .dismissed, .snoozedAcknowledged:
+                break
+            }
+        }
     }
 }
+

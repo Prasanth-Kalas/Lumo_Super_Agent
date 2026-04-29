@@ -12,6 +12,8 @@ struct AppRootView: View {
     private let paymentService: PaymentServicing
     private let receiptStore: ReceiptStoring
     private let appConfig: AppConfig
+    private let proactiveCache: ProactiveMomentsCache
+    private let proactiveClient: ProactiveMomentsFetching
 
     init(
         authService: AuthServicing,
@@ -19,7 +21,9 @@ struct AppRootView: View {
         tts: TextToSpeechServicing,
         paymentService: PaymentServicing,
         receiptStore: ReceiptStoring,
-        appConfig: AppConfig
+        appConfig: AppConfig,
+        proactiveCache: ProactiveMomentsCache,
+        proactiveClient: ProactiveMomentsFetching
     ) {
         self.authService = authService
         self.chatService = chatService
@@ -27,6 +31,8 @@ struct AppRootView: View {
         self.paymentService = paymentService
         self.receiptStore = receiptStore
         self.appConfig = appConfig
+        self.proactiveCache = proactiveCache
+        self.proactiveClient = proactiveClient
         _authViewModel = StateObject(wrappedValue: AuthViewModel(auth: authService))
     }
 
@@ -40,6 +46,8 @@ struct AppRootView: View {
                     paymentService: paymentService,
                     receiptStore: receiptStore,
                     appConfig: appConfig,
+                    proactiveCache: proactiveCache,
+                    proactiveClient: proactiveClient,
                     onSignOut: handleSignOut
                 )
                     .environment(\.signedInUser, user)
