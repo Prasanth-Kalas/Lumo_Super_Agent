@@ -3,7 +3,6 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-voice-1 | 2026-04-29 | MOBILE-VOICE-1 (Apple Speech STT + ElevenLabs TTS + push-to-talk composer) |
-| Codex | Lumo_Super_Agent_codex | codex/dev-dash | 2026-04-29 | DEV-DASH developer dashboard |
 
 ## Closed lanes
 
@@ -17,6 +16,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/marketplace-1-distribution | 2026-04-29 | 2026-04-29 | MARKETPLACE-1 distribution |
 | Codex | Lumo_Super_Agent_codex | codex/cost-1-metering-budgets | 2026-04-29 | 2026-04-29 | COST-1 metering and budgets |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chat-1b | 2026-04-29 | 2026-04-29 | MOBILE-CHAT-1B (auth, Settings, tests, perf, screenshots; dark-mode artifact deferred to MOBILE-POLISH-1) |
+| Codex | Lumo_Super_Agent_codex | codex/dev-dash | 2026-04-29 | 2026-04-29 | DEV-DASH developer dashboard |
 
 ## Last push
 
@@ -43,3 +43,4 @@
 - 2026-04-29 — DEV-DASH branch opened; migration 040 drafted for early schema review
 - 2026-04-29 — DEV-DASH backend checkpoint drafted: developer library, API routes, and metrics rollup cron
 - 2026-04-29 — DEV-DASH UI and regression tests drafted for full review
+- 2026-04-29 — DEV-DASH merged to main; Codex queued for TRUST-1
