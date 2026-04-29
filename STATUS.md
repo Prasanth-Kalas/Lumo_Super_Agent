@@ -33,3 +33,4 @@
 - 2026-04-29 — MARKETPLACE-1 merged to main; Codex queued for COST-1
 - 2026-04-29 — claude-code/mobile-chat-1b opened from origin/main; auth + Settings + tests + perf + dark-mode fix + full screenshot pass underway
 - 2026-04-29 — COST-1 middle layer drafted: cost library, dispatch budget gate, model-call ledger writes, daily/monthly digest crons
+- 2026-04-29 — COST-1 dashboards and cost-core regression tests ready for full review; gates green locally
