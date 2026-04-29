@@ -7,12 +7,25 @@ import SwiftUI
 struct RootView: View {
     private let chatService: ChatService
     private let tts: TextToSpeechServicing
+    private let paymentService: PaymentServicing
+    private let receiptStore: ReceiptStoring
+    private let appConfig: AppConfig
     private let onSignOut: () -> Void
     @State private var selection: Tab
 
-    init(chatService: ChatService, tts: TextToSpeechServicing, onSignOut: @escaping () -> Void) {
+    init(
+        chatService: ChatService,
+        tts: TextToSpeechServicing,
+        paymentService: PaymentServicing,
+        receiptStore: ReceiptStoring,
+        appConfig: AppConfig,
+        onSignOut: @escaping () -> Void
+    ) {
         self.chatService = chatService
         self.tts = tts
+        self.paymentService = paymentService
+        self.receiptStore = receiptStore
+        self.appConfig = appConfig
         self.onSignOut = onSignOut
         // DEBUG-only `-LumoStartTab` launch arg lets the screenshot
         // script select Trips / Settings on cold-launch without
@@ -54,7 +67,12 @@ struct RootView: View {
             .tag(Tab.trips)
 
             NavigationStack {
-                SettingsTab(onSignOut: onSignOut)
+                SettingsTab(
+                    paymentService: paymentService,
+                    receiptStore: receiptStore,
+                    appConfig: appConfig,
+                    onSignOut: onSignOut
+                )
             }
             .tabItem {
                 Label("Settings", systemImage: "gearshape.fill")

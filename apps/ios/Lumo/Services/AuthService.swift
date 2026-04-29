@@ -21,6 +21,18 @@ enum AuthState: Equatable {
         default: return false
         }
     }
+
+    /// The user ID associated with the current state, if there is one.
+    /// Available across `.signedIn` and `.needsBiometric` (the user
+    /// row is known but the biometric gate hasn't unlocked yet).
+    var userID: String? {
+        switch self {
+        case .signedIn(let user), .needsBiometric(let user):
+            return user.id
+        case .signedOut, .signingIn:
+            return nil
+        }
+    }
 }
 
 struct LumoUser: Equatable {
