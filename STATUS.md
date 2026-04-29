@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/docs | 2026-04-29 | DOCS developer documentation site |
 
 ## Closed lanes
 
@@ -52,3 +53,4 @@
 - 2026-04-29 — TRUST-1 final review slice ready: signing verification, five-check pipeline, health monitor, and promotion/identity queue coverage; gates green locally
 - 2026-04-29 — TRUST-1 merged to main; auto-publish path live for experimental tier; reviewer queue active for community/verified/official; 6h health monitor cron registered; Codex queued for DOCS
 - 2026-04-29 — claude-code/mobile-voice-1 wrap-up cherry-picked onto main; voice lane closed; iOS path complete
+- 2026-04-29 — DOCS branch opened; migration 042 drafted for early schema review
