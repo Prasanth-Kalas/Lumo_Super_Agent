@@ -3,7 +3,6 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chat-1b | 2026-04-29 | MOBILE-CHAT-1B (auth, Settings, new tests, perf, dark-mode fix, full screenshots) |
-| Codex | Lumo_Super_Agent_codex | codex/cost-1-metering-budgets | 2026-04-29 | COST-1 metering and budgets |
 
 ## Closed lanes
 
@@ -15,6 +14,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/perm-1-permissions-and-consent | 2026-04-29 | 2026-04-29 | PERM-1 permissions and consent |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chat-1 | 2026-04-29 | 2026-04-29 | MOBILE-CHAT-1A foundation (auth/perf deferred to 1B) |
 | Codex | Lumo_Super_Agent_codex | codex/marketplace-1-distribution | 2026-04-29 | 2026-04-29 | MARKETPLACE-1 distribution |
+| Codex | Lumo_Super_Agent_codex | codex/cost-1-metering-budgets | 2026-04-29 | 2026-04-29 | COST-1 metering and budgets |
 
 ## Last push
 
@@ -34,3 +34,4 @@
 - 2026-04-29 — claude-code/mobile-chat-1b opened from origin/main; auth + Settings + tests + perf + dark-mode fix + full screenshot pass underway
 - 2026-04-29 — COST-1 middle layer drafted: cost library, dispatch budget gate, model-call ledger writes, daily/monthly digest crons
 - 2026-04-29 — COST-1 dashboards and cost-core regression tests ready for full review; gates green locally
+- 2026-04-29 — COST-1 merged to main; Codex queued for DEV-DASH
