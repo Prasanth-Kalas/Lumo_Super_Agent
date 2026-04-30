@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/app-install-ux-minimal-1 | 2026-05-01 | APP-INSTALL-UX-MINIMAL-1 redesign LumoMissionCard as a focused install prompt (icon + name + one-liner + scope summary + Approve/Cancel; rest behind Show details) |
 
 ## Closed lanes
 

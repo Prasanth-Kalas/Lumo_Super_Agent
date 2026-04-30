@@ -111,8 +111,14 @@ export function LumoMissionCard({
   onContinue,
 }: LumoMissionCardProps) {
   const [stateByAgent, setStateByAgent] = useState<Record<string, InstallState>>({});
+  const [declined, setDeclined] = useState<Set<string>>(new Set());
+  const [showDetails, setShowDetails] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Auto-installable AND not user-declined: this is the set whose
+  // approvals must complete before Continue unlocks. Cancelling a
+  // proposal removes it from the gate-set without changing the
+  // server contract — it just won't be installed this turn.
   const autoInstallable = useMemo(
     () => plan.install_proposals.filter((p) => p.can_auto_install),
     [plan.install_proposals],
@@ -121,10 +127,41 @@ export function LumoMissionCard({
     () => plan.install_proposals.filter((p) => p.action === "connect_oauth"),
     [plan.install_proposals],
   );
+  const activeAutoInstallable = useMemo(
+    () => autoInstallable.filter((p) => !declined.has(p.agent_id)),
+    [autoInstallable, declined],
+  );
   const allAutoInstalled =
-    autoInstallable.length > 0 &&
-    autoInstallable.every((p) => stateByAgent[p.agent_id] === "done");
-  const hasOAuth = oauthProposals.length > 0;
+    activeAutoInstallable.length > 0 &&
+    activeAutoInstallable.every((p) => stateByAgent[p.agent_id] === "done");
+  const hasOAuth = oauthProposals.some((p) => !declined.has(p.agent_id));
+
+  const hasDetailsContent =
+    plan.install_proposals.some((p) => p.profile_fields_requested.length > 0 || p.rank_score !== null) ||
+    Boolean(plan.ranked_recommendations?.length) ||
+    Boolean(plan.trip_optimization?.route?.length) ||
+    Boolean(plan.user_questions?.length) ||
+    Boolean(plan.confirmation_points?.length);
+
+  function declineProposal(proposal: LumoMissionProposal) {
+    if (disabled || stateByAgent[proposal.agent_id] === "working" || stateByAgent[proposal.agent_id] === "done") return;
+    logPreferenceEvent({
+      surface: "mission_card",
+      target_type: "agent",
+      target_id: proposal.agent_id,
+      event_type: "click",
+      context: {
+        action: "decline",
+        mission_id: plan.mission_id,
+        mission_title: plan.mission_title,
+      },
+    });
+    setDeclined((prev) => {
+      const next = new Set(prev);
+      next.add(proposal.agent_id);
+      return next;
+    });
+  }
   const missionContext = useMemo(
     () => missionPreferenceContext(plan),
     [plan],
@@ -211,6 +248,7 @@ export function LumoMissionCard({
       context: missionContext,
     });
     for (const proposal of autoInstallable) {
+      if (declined.has(proposal.agent_id)) continue;
       if (stateByAgent[proposal.agent_id] === "done") continue;
       const ok = await installProposal(proposal);
       if (!ok) return;
@@ -273,17 +311,71 @@ export function LumoMissionCard({
       <div className="mt-4 space-y-3">
         {plan.install_proposals.map((proposal) => {
           const state = stateByAgent[proposal.agent_id] ?? "idle";
+          const isDeclined = declined.has(proposal.agent_id);
           return (
             <div
               key={`${proposal.agent_id}-${proposal.action}`}
-              className="rounded-md border border-lumo-hair bg-lumo-elevated/55 p-3"
+              className={
+                "rounded-md border border-lumo-hair p-3 transition-opacity " +
+                (isDeclined
+                  ? "bg-lumo-elevated/30 opacity-55"
+                  : "bg-lumo-elevated/55")
+              }
+              data-testid={`mission-card.proposal.${proposal.agent_id}`}
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
+              <div className="flex items-start gap-3">
+                <AppIcon name={proposal.display_name} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13.5px] font-medium text-lumo-fg">
+                    {proposal.display_name}
+                  </div>
+                  <p className="mt-0.5 text-[12px] leading-relaxed text-lumo-fg-mid">
+                    {proposal.one_liner}
+                  </p>
+                  <p
+                    className="mt-1 text-[11.5px] leading-relaxed text-lumo-fg-low"
+                    data-testid="mission-card.scope-summary"
+                  >
+                    {scopeSummary(proposal)}
+                  </p>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  {isDeclined ? (
+                    <span className="text-[12px] text-lumo-fg-low">Cancelled</span>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={disabled || state === "working" || state === "done"}
+                        onClick={() => declineProposal(proposal)}
+                        className="h-8 rounded-md border border-lumo-hair px-3 text-[12px] text-lumo-fg-mid hover:border-lumo-edge hover:text-lumo-fg disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
+                        data-testid={`mission-card.cancel.${proposal.agent_id}`}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={disabled || state === "working" || state === "done"}
+                        onClick={() => void installProposal(proposal)}
+                        className="h-8 rounded-md bg-lumo-fg px-3 text-[12px] font-medium text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
+                        data-testid={`mission-card.approve.${proposal.agent_id}`}
+                      >
+                        {approveLabel(proposal, state)}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Show details: per-proposal extras (rank %, full chips,
+                  permission_copy, capability + risk + payment badges,
+                  Details deep link). Hidden by default — the brief
+                  scopes the default render to icon + name + one-liner
+                  + one-line scope + Approve/Cancel only. */}
+              {showDetails ? (
+                <div className="mt-3 border-t border-lumo-hair pt-3 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[13.5px] font-medium text-lumo-fg">
-                      {proposal.display_name}
-                    </span>
                     <span className="rounded-full border border-lumo-hair px-2 py-0.5 text-[10.5px] text-lumo-fg-low">
                       {proposal.capability_label}
                     </span>
@@ -296,21 +388,18 @@ export function LumoMissionCard({
                       <RiskBadge badge={proposal.risk_badge} />
                     ) : null}
                   </div>
-                  <p className="mt-1 text-[12px] leading-relaxed text-lumo-fg-mid">
-                    {proposal.one_liner}
-                  </p>
-                  <p className="mt-2 text-[11.5px] leading-relaxed text-lumo-fg-low">
+                  <p className="text-[11.5px] leading-relaxed text-lumo-fg-low">
                     {proposal.permission_copy}
                   </p>
                   {proposal.rank_score !== null ? (
-                    <p className="mt-1 text-[11.5px] leading-relaxed text-lumo-fg-low">
+                    <p className="text-[11.5px] leading-relaxed text-lumo-fg-low">
                       Rank {Math.round(proposal.rank_score * 100)}%
                       {proposal.rank_reasons.length > 0
                         ? ` · ${proposal.rank_reasons.slice(0, 2).join(" · ")}`
                         : ""}
                     </p>
                   ) : null}
-                  <div className="mt-2 flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {proposal.profile_fields_requested.length > 0 ? (
                       proposal.profile_fields_requested.map((field) => (
                         <span
@@ -326,9 +415,6 @@ export function LumoMissionCard({
                       </span>
                     )}
                   </div>
-                </div>
-
-                <div className="flex shrink-0 items-center gap-2">
                   <Link
                     href={proposal.marketplace_url}
                     onClick={() => {
@@ -346,20 +432,12 @@ export function LumoMissionCard({
                         },
                       });
                     }}
-                    className="h-8 rounded-md border border-lumo-hair px-3 text-[12px] leading-8 text-lumo-fg-mid hover:border-lumo-edge hover:text-lumo-fg transition-colors"
+                    className="inline-flex h-7 items-center rounded-md border border-lumo-hair px-2.5 text-[11.5px] text-lumo-fg-mid hover:border-lumo-edge hover:text-lumo-fg transition-colors"
                   >
-                    Details
+                    View in Marketplace →
                   </Link>
-                  <button
-                    type="button"
-                    disabled={disabled || state === "working" || state === "done"}
-                    onClick={() => void installProposal(proposal)}
-                    className="h-8 rounded-md bg-lumo-fg px-3 text-[12px] font-medium text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
-                  >
-                    {buttonLabel(proposal, state)}
-                  </button>
                 </div>
-              </div>
+              ) : null}
             </div>
           );
         })}
@@ -376,8 +454,38 @@ export function LumoMissionCard({
           </div>
         ))}
 
-        {plan.ranked_recommendations?.length ? (
-          <div className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3">
+        {/* Show details disclosure — only renders when there's
+            something behind it. Reveals the per-proposal extras
+            above + the alternatives / itinerary / questions /
+            confirmation-points blocks below. Default state is
+            collapsed so the card reads as a focused install prompt
+            rather than a developer dashboard. */}
+        {hasDetailsContent ? (
+          <button
+            type="button"
+            onClick={() => {
+              setShowDetails((v) => !v);
+              logPreferenceEvent({
+                surface: "mission_card",
+                target_type: "mission_action",
+                target_id: `${plan.mission_id}:show_details`,
+                event_type: "click",
+                context: { ...missionContext, expanded: !showDetails },
+              });
+            }}
+            className="text-[11.5px] text-lumo-accent hover:underline underline-offset-4"
+            data-testid="mission-card.show-details"
+            aria-expanded={showDetails}
+          >
+            {showDetails ? "Hide details" : "Show details"}
+          </button>
+        ) : null}
+
+        {showDetails && plan.ranked_recommendations?.length ? (
+          <div
+            className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3"
+            data-testid="mission-card.alternatives"
+          >
             <div className="text-[12px] font-medium text-lumo-fg">
               Ranked app matches
             </div>
@@ -395,8 +503,11 @@ export function LumoMissionCard({
           </div>
         ) : null}
 
-        {plan.trip_optimization?.route?.length ? (
-          <div className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3">
+        {showDetails && plan.trip_optimization?.route?.length ? (
+          <div
+            className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3"
+            data-testid="mission-card.itinerary"
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-[12px] font-medium text-lumo-fg">
                 Optimized itinerary
@@ -431,8 +542,11 @@ export function LumoMissionCard({
           </div>
         ) : null}
 
-        {plan.user_questions?.length ? (
-          <div className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3">
+        {showDetails && plan.user_questions?.length ? (
+          <div
+            className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3"
+            data-testid="mission-card.questions"
+          >
             <div className="text-[12px] font-medium text-lumo-fg">
               Questions before execution
             </div>
@@ -444,8 +558,11 @@ export function LumoMissionCard({
           </div>
         ) : null}
 
-        {plan.confirmation_points?.length ? (
-          <div className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3">
+        {showDetails && plan.confirmation_points?.length ? (
+          <div
+            className="rounded-md border border-lumo-hair bg-lumo-elevated/35 p-3"
+            data-testid="mission-card.confirmation-points"
+          >
             <div className="text-[12px] font-medium text-lumo-fg">
               Confirmation points
             </div>
@@ -471,19 +588,19 @@ export function LumoMissionCard({
             : "You can manage installed apps from the Marketplace at any time."}
         </div>
         <div className="flex items-center gap-2">
-          {autoInstallable.length > 1 ? (
+          {activeAutoInstallable.length > 1 ? (
             <button
               type="button"
               disabled={disabled}
               onClick={() => void installAllAndContinue()}
               className="h-8 rounded-md border border-lumo-hair px-3 text-[12px] text-lumo-fg-mid hover:border-lumo-edge hover:text-lumo-fg disabled:opacity-60 transition-colors"
             >
-              Install available
+              Approve all
             </button>
           ) : null}
           <button
             type="button"
-            disabled={disabled || hasOAuth || (autoInstallable.length > 0 && !allAutoInstalled)}
+            disabled={disabled || hasOAuth || (activeAutoInstallable.length > 0 && !allAutoInstalled)}
             onClick={continueMission}
             className="h-8 rounded-md bg-lumo-accent px-3 text-[12px] font-medium text-lumo-accent-ink disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
           >
@@ -517,7 +634,7 @@ function missionPreferenceContext(plan: LumoMissionPlan) {
   };
 }
 
-function buttonLabel(
+function approveLabel(
   proposal: LumoMissionProposal,
   state: InstallState,
 ): string {
@@ -525,7 +642,42 @@ function buttonLabel(
   if (state === "done") return "Approved";
   if (proposal.action === "connect_oauth") return "Connect";
   if (proposal.action === "grant_lumo_id") return "Allow";
-  return proposal.profile_fields_requested.length > 0 ? "Allow and install" : "Install";
+  // Brief asks for "Approve / Cancel" — match that copy on the
+  // primary action regardless of underlying install vs profile-grant
+  // semantics. The detailed "Allow and install" / "Install" flavor is
+  // surfaced in the Show-details panel via permission_copy.
+  return "Approve";
+}
+
+/// Condense the proposal's profile-fields list into one line
+/// readable at a glance. Matches the brief's example
+/// ("Will see: name, email, payment method") and clamps long lists.
+export function scopeSummary(proposal: LumoMissionProposal): string {
+  const fields = proposal.profile_fields_requested;
+  if (fields.length === 0) return "Won't access your profile";
+  if (fields.length === 1) return `Will see: ${fields[0]}`;
+  if (fields.length === 2) return `Will see: ${fields[0]} and ${fields[1]}`;
+  if (fields.length === 3) {
+    return `Will see: ${fields[0]}, ${fields[1]}, and ${fields[2]}`;
+  }
+  // 4+: surface the first two and a count for the rest.
+  return `Will see: ${fields[0]}, ${fields[1]}, and ${fields.length - 2} more`;
+}
+
+/// Compact app-icon stand-in. Real icons aren't part of the
+/// LumoMissionProposal payload yet — this draws a brand-tinted
+/// circle with the first letter of the display name. Same pattern
+/// as the LeftRail profile chip avatar.
+function AppIcon({ name }: { name: string }) {
+  const initial = (name.trim().charAt(0) || "·").toUpperCase();
+  return (
+    <div
+      className="h-9 w-9 shrink-0 rounded-md border border-lumo-hair bg-lumo-bg flex items-center justify-center text-[14px] font-semibold text-lumo-fg"
+      aria-hidden
+    >
+      {initial}
+    </div>
+  );
 }
 
 function RiskBadge({ badge }: { badge: LumoRiskBadge }) {
