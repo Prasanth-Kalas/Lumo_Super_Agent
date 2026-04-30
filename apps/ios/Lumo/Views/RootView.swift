@@ -179,26 +179,17 @@ struct RootView: View {
 
     private func handleNotificationRoute(_ route: NotificationRoute?) {
         guard let route else { return }
-        switch route {
-        case .openTrips:
-            path = NavigationPath()
-            path.append(DrawerDestination.trips)
-        case .openChatWithPrefill(let prefill):
-            path = NavigationPath()
-            chatViewModel.input = prefill
-        case .openReceiptID(let id):
-            path = NavigationPath()
-            path.append(DrawerDestination.receipts)
-            if let id, !id.isEmpty {
-                path.append(DrawerDestination.receiptDetail(id))
+        let resolution = NotificationRouteResolver.resolve(route)
+        switch resolution {
+        case .noChange:
+            return
+        case .replace(let destinations, let prefill):
+            var newPath = NavigationPath()
+            for d in destinations { newPath.append(d) }
+            self.path = newPath
+            if let prefill {
+                chatViewModel.input = prefill
             }
-        case .openAlertsCenter:
-            // No dedicated alerts surface yet. Settings is the closest
-            // related landing (notification preferences live there).
-            path = NavigationPath()
-            path.append(DrawerDestination.settings)
-        case .dismissed, .snoozedAcknowledged:
-            break
         }
     }
 
