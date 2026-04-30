@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/chat-suggested-chips-1 | 2026-05-01 | CHAT-SUGGESTED-CHIPS-1 server protocol + web suggested-reply chips |
 
 ## Closed lanes
 
