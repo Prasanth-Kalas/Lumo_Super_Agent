@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chatgpt-ui-1 | 2026-04-30 | MOBILE-CHATGPT-UI-1 iOS nav refactor (drop TabView → NavigationStack + side drawer ChatGPT-style) |
 
 ## Closed lanes
 
@@ -26,6 +25,7 @@
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-notif-1 | 2026-04-30 | 2026-04-30 | MOBILE-NOTIF-1 iOS notifications + proactive moments (APNs + 4 categories + background fetch + in-app cards + Settings section); 3 follow-ups filed (MOBILE-NOTIF-2-INIT, LOCAL-NOTIF-REFINE, MOBILE-API-1-NAV-PLUMB) |
 | Codex | Lumo_Super_Agent_codex | codex/mesh-1 | 2026-04-30 | 2026-04-30 | MESH-1 multi-agent orchestration substrate (supervisor + 4 sub-agents + dispatch planner) + Duffel flight agent (search/hold/book/cancel) + LUMO_USE_MESH feature flag |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/web-screens-1 | 2026-04-30 | 2026-04-30 | WEB-SCREENS-1 6 consumer web surfaces (trips, receipts, account, notif prefs, profile, settings index); 4 follow-ups filed (PAYMENTS-REFUND-1, NOTIF-PREFS-PERSIST-1, TRIPS-DETAIL-FAST-PATH-1, PROFILE-RICH-FIELDS-1) |
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chatgpt-ui-1 | 2026-04-30 | 2026-04-30 | MOBILE-CHATGPT-UI-1 iOS nav refactor (drop TabView → NavigationStack + side drawer ChatGPT-style); 2 follow-ups filed (MOBILE-SETTINGS-DEDUP-1, MOBILE-SCREENSHOT-MIGRATE-1) |
 
 ## Last push
 
@@ -85,3 +85,4 @@
 - 2026-04-30 — WEB-SCREENS-1 merged to main (rebased onto current origin/main due to MESH divergence; STATUS.md + apps/web/package.json conflicts resolved cleanly, force-with-lease push, FF-merge from canonical worktree). 6 consumer web surfaces live; 4 follow-ups filed (PAYMENTS-REFUND-1, NOTIF-PREFS-PERSIST-1, TRIPS-DETAIL-FAST-PATH-1, PROFILE-RICH-FIELDS-1). Both lanes idle; Codex queued for next sprint (recommend COMPOUND-EXEC-1), Claude Code awaits next sprint kickoff.
 - 2026-04-30 — claude-code/mobile-chatgpt-ui-1 opened from origin/main; iOS nav refactor (ChatGPT-style chat + side drawer, drop TabView) in flight.
 - 2026-04-30 — claude-code/mobile-chatgpt-ui-1 ready for review: all 10 deliverables shipped (RootView TabView → NavigationStack pivot, SideDrawerView w/ recents + 4 destinations + sign-out, BurgerMenuButton, ProfileView w/ ProfileSettings store, ReceiptDetailLookupView for notification deep-links, NotificationRouteResolver pure mapping, ChatViewModel.reset for "New Chat", chat empty-state polish — sparkles + "How can I help today?", DEBUG launch args for screenshot fixtures, 8 light+dark shots). 38 new tests across 4 LumoTests bundles (SideDrawerView, BurgerMenuToggle, ChatRootView, ProfileSettings) bringing total to 184; xcodebuild test green on iPhone 17 simulator. NotificationActionHandler routing rewritten to push onto chat NavigationStack instead of switching tabs; openAlertsCenter lands on Settings (no dedicated alerts surface today).
+- 2026-04-30 — claude-code/mobile-chatgpt-ui-1 → main (FF), MOBILE-CHATGPT-UI-1 closed. 2 follow-ups filed (MOBILE-SETTINGS-DEDUP-1 drop inline Sign Out from SettingsView; MOBILE-SCREENSHOT-MIGRATE-1 migrate legacy capture variants from -LumoStartTab to -LumoStartDestination). scripts/apply-staging-migrations.sh stayed untracked on the feature branch — confirmed not part of any sprint. Both lanes idle.
