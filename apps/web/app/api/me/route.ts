@@ -2,8 +2,8 @@
  * GET /api/me — canonical identity for the current user.
  *
  * Returns:
- *   200 { user: { id, email, full_name, first_name } }  when signed in
- *   401 { reason: "not_authenticated" }                  when signed out
+ *   200 { user: { id, email, full_name, first_name, member_since } }  when signed in
+ *   401 { reason: "not_authenticated" }                                when signed out
  *
  * Why this exists: the shell (chat page, header, /memory page) needs
  * to show "Hey Alex" and "signed in as alex@..." without every page
@@ -14,6 +14,10 @@
  * whitespace-split token) so the client doesn't have to duplicate
  * parsing. If no full_name is set, first_name is null and callers
  * should fall back to email-local-part or a generic greeting.
+ *
+ * `member_since` mirrors Supabase's `user.created_at`. /settings/account
+ * shows it under the email; consumer surfaces should prefer this over
+ * re-deriving from anywhere else.
  */
 
 import type { NextRequest } from "next/server";
@@ -36,6 +40,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
       email: user.email ?? null,
       full_name: fullName,
       first_name: firstName,
+      member_since: user.created_at ?? null,
     },
   });
 }

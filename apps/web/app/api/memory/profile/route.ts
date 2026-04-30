@@ -1,16 +1,26 @@
 /**
+ * GET   /api/memory/profile   → { profile: UserProfile | null }
  * PATCH /api/memory/profile   body: partial UserProfile
  *
- * Edit the structured profile row. Pass only the fields you want to
- * change; omitted leaves existing value, explicit null clears.
+ * GET reads the current row. /settings/account and /profile both read
+ * through this; cheap enough to hit per page render.
+ *
+ * PATCH edits the structured profile row. Pass only the fields you want
+ * to change; omitted leaves existing value, explicit null clears.
  */
 
 import type { NextRequest } from "next/server";
 import { requireServerUser } from "@/lib/auth";
-import { upsertProfile } from "@/lib/memory";
+import { getProfile, upsertProfile } from "@/lib/memory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+export async function GET(): Promise<Response> {
+  const user = await requireServerUser();
+  const profile = await getProfile(user.id);
+  return json({ profile });
+}
 
 export async function PATCH(req: NextRequest): Promise<Response> {
   const user = await requireServerUser();
