@@ -39,6 +39,7 @@
  * (follow-up task) consumes the plan returned here.
  */
 
+import { createHash } from "node:crypto";
 import type { ToolRoutingEntry } from "@lumo/agent-sdk";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -147,6 +148,187 @@ export interface RollbackPlan {
    * refund terms. Informational only — actual refund comes from vendor.
    */
   expected_refund_legs: number;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Ledger-backed compound replay — COMPOUND-EXEC-1
+// ──────────────────────────────────────────────────────────────────────────
+
+export type CompoundLegStatus =
+  | "pending"
+  | "awaiting_confirmation"
+  | "authorized"
+  | "in_flight"
+  | "committed"
+  | "failed"
+  | "rollback_pending"
+  | "rollback_in_flight"
+  | "rolled_back"
+  | "rollback_failed"
+  | "manual_review"
+  | "skipped";
+
+export type CompoundReplayActionKind =
+  | "execute_leg"
+  | "wait_for_in_flight"
+  | "start_rollback"
+  | "dispatch_compensation"
+  | "mark_manual_review"
+  | "mark_committed"
+  | "mark_rolled_back"
+  | "noop";
+
+export interface CompoundLegSnapshot {
+  leg_id: string;
+  transaction_id: string;
+  order: number;
+  agent_id: string;
+  capability_id: string;
+  compensation_capability_id?: string | null;
+  depends_on: string[];
+  status: CompoundLegStatus;
+  provider_reference?: string | null;
+  compensation_kind?: "perfect" | "best-effort" | "manual";
+  failure_policy?: "rollback" | "manual_review";
+}
+
+export interface CompoundTransactionReplaySnapshot {
+  compound_transaction_id: string;
+  status:
+    | "draft"
+    | "awaiting_confirmation"
+    | "authorized"
+    | "executing"
+    | "partially_committed"
+    | "committed"
+    | "rolling_back"
+    | "rolled_back"
+    | "rollback_failed"
+    | "failed"
+    | "manual_review"
+    | "cancelled";
+  failure_policy?: "rollback" | "manual_review";
+  legs: CompoundLegSnapshot[];
+}
+
+export interface CompoundReplayAction {
+  kind: CompoundReplayActionKind;
+  leg_id?: string;
+  transaction_id?: string;
+  agent_id?: string;
+  capability_id?: string;
+  compensation_capability_id?: string;
+  reason: string;
+}
+
+export interface CompoundReplayPlan {
+  compound_transaction_id: string;
+  next_actions: CompoundReplayAction[];
+  replay_hash: string;
+  graph_valid: boolean;
+  graph_error?: "duplicate_leg_id" | "missing_dependency" | "cyclic_dependency_graph";
+}
+
+export class SagaReplayError extends Error {
+  readonly code: NonNullable<CompoundReplayPlan["graph_error"]>;
+
+  constructor(code: NonNullable<CompoundReplayPlan["graph_error"]>) {
+    super(code);
+    this.name = "SagaReplayError";
+    this.code = code;
+  }
+}
+
+/**
+ * Deterministically derive the next saga actions from a ledger snapshot.
+ *
+ * Cycle prevention doctrine: the database only rejects self-loops. The
+ * graph creator / runner must call this planner before inserting
+ * dependency edges and reject `cyclic_dependency_graph` or
+ * `missing_dependency`; recursive DB triggers are intentionally avoided
+ * on the hot path.
+ */
+export function replayCompoundTransaction(
+  snapshot: CompoundTransactionReplaySnapshot,
+): CompoundReplayPlan {
+  const normalized = normalizeCompoundSnapshot(snapshot);
+  const validation = validateCompoundGraph(normalized.legs);
+  if (!validation.ok) {
+    return buildReplayPlan(normalized.compound_transaction_id, [
+      {
+        kind: "mark_manual_review",
+        reason: validation.error,
+      },
+    ], validation.error);
+  }
+
+  const legs = normalized.legs;
+  const rollbackMode =
+    normalized.status === "rolling_back" ||
+    normalized.status === "rollback_failed" ||
+    legs.some((leg) => leg.status === "failed");
+
+  if (normalized.status === "manual_review") {
+    return buildReplayPlan(normalized.compound_transaction_id, [
+      { kind: "noop", reason: "compound_already_manual_review" },
+    ]);
+  }
+
+  if (normalized.status === "cancelled") {
+    return buildReplayPlan(normalized.compound_transaction_id, [
+      { kind: "noop", reason: "compound_cancelled" },
+    ]);
+  }
+
+  if (rollbackMode) {
+    if (normalized.failure_policy === "manual_review") {
+      return buildReplayPlan(normalized.compound_transaction_id, [
+        { kind: "mark_manual_review", reason: "failure_policy_manual_review" },
+      ]);
+    }
+
+    const rollbackActions = eligibleRollbackActions(legs);
+    if (rollbackActions.length > 0) {
+      return buildReplayPlan(normalized.compound_transaction_id, rollbackActions);
+    }
+
+    if (legs.some((leg) => leg.status === "rollback_in_flight")) {
+      return buildReplayPlan(normalized.compound_transaction_id, [
+        { kind: "wait_for_in_flight", reason: "rollback_in_flight" },
+      ]);
+    }
+
+    if (legs.some((leg) => leg.status === "manual_review" || leg.status === "rollback_failed")) {
+      return buildReplayPlan(normalized.compound_transaction_id, [
+        { kind: "mark_manual_review", reason: "rollback_requires_manual_review" },
+      ]);
+    }
+
+    return buildReplayPlan(normalized.compound_transaction_id, [
+      { kind: "mark_rolled_back", reason: "all_committed_legs_compensated" },
+    ]);
+  }
+
+  const executable = eligibleForwardActions(legs);
+  if (executable.length > 0) {
+    return buildReplayPlan(normalized.compound_transaction_id, executable);
+  }
+
+  if (legs.some((leg) => leg.status === "in_flight" || leg.status === "rollback_in_flight")) {
+    return buildReplayPlan(normalized.compound_transaction_id, [
+      { kind: "wait_for_in_flight", reason: "forward_leg_in_flight" },
+    ]);
+  }
+
+  if (legs.every((leg) => leg.status === "committed" || leg.status === "skipped")) {
+    return buildReplayPlan(normalized.compound_transaction_id, [
+      { kind: "mark_committed", reason: "all_legs_committed_or_skipped" },
+    ]);
+  }
+
+  return buildReplayPlan(normalized.compound_transaction_id, [
+    { kind: "noop", reason: "no_eligible_action" },
+  ]);
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -319,6 +501,218 @@ function computeDepths(legs: LegExecutionSnapshot[]): Map<number, number> {
 
   for (const l of legs) depth(l.order, new Set());
   return depths;
+}
+
+function normalizeCompoundSnapshot(
+  snapshot: CompoundTransactionReplaySnapshot,
+): CompoundTransactionReplaySnapshot {
+  return {
+    ...snapshot,
+    failure_policy: snapshot.failure_policy ?? "rollback",
+    legs: snapshot.legs
+      .map((leg) => ({
+        ...leg,
+        depends_on: Array.from(new Set(leg.depends_on)).sort(),
+        compensation_kind: leg.compensation_kind ?? "best-effort",
+        failure_policy: leg.failure_policy ?? "rollback",
+      }))
+      .sort((a, b) => {
+        if (a.order !== b.order) return a.order - b.order;
+        return a.leg_id.localeCompare(b.leg_id);
+      }),
+  };
+}
+
+function validateCompoundGraph(
+  legs: CompoundLegSnapshot[],
+): { ok: true } | { ok: false; error: NonNullable<CompoundReplayPlan["graph_error"]> } {
+  const ids = new Set<string>();
+  for (const leg of legs) {
+    if (ids.has(leg.leg_id)) return { ok: false, error: "duplicate_leg_id" };
+    ids.add(leg.leg_id);
+  }
+
+  for (const leg of legs) {
+    for (const dep of leg.depends_on) {
+      if (!ids.has(dep)) return { ok: false, error: "missing_dependency" };
+    }
+  }
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const byId = new Map(legs.map((leg) => [leg.leg_id, leg]));
+
+  function visit(id: string): boolean {
+    if (visited.has(id)) return true;
+    if (visiting.has(id)) return false;
+    visiting.add(id);
+    const leg = byId.get(id);
+    for (const dep of leg?.depends_on ?? []) {
+      if (!visit(dep)) return false;
+    }
+    visiting.delete(id);
+    visited.add(id);
+    return true;
+  }
+
+  for (const leg of legs) {
+    if (!visit(leg.leg_id)) return { ok: false, error: "cyclic_dependency_graph" };
+  }
+
+  return { ok: true };
+}
+
+function eligibleForwardActions(legs: CompoundLegSnapshot[]): CompoundReplayAction[] {
+  const byId = new Map(legs.map((leg) => [leg.leg_id, leg]));
+  const readyStatuses = new Set<CompoundLegStatus>(["pending", "authorized"]);
+  const dependencySatisfied = (depId: string) => {
+    const dep = byId.get(depId);
+    return dep?.status === "committed" || dep?.status === "skipped";
+  };
+
+  return legs
+    .filter((leg) => readyStatuses.has(leg.status))
+    .filter((leg) => leg.depends_on.every(dependencySatisfied))
+    .map((leg) => ({
+      kind: "execute_leg",
+      leg_id: leg.leg_id,
+      transaction_id: leg.transaction_id,
+      agent_id: leg.agent_id,
+      capability_id: leg.capability_id,
+      reason: leg.depends_on.length === 0
+        ? "root_leg_ready"
+        : "dependencies_committed",
+    }));
+}
+
+function eligibleRollbackActions(legs: CompoundLegSnapshot[]): CompoundReplayAction[] {
+  const dependents = buildDependentsMap(legs);
+  const candidates = legs
+    .filter((leg) =>
+      leg.status === "committed" ||
+      leg.status === "rollback_pending" ||
+      leg.status === "rollback_failed"
+    )
+    .filter((leg) => {
+      const children = dependents.get(leg.leg_id) ?? [];
+      return children.every((child) =>
+        child.status === "rolled_back" ||
+        child.status === "manual_review" ||
+        child.status === "failed" ||
+        child.status === "skipped"
+      );
+    })
+    .sort((a, b) => {
+      const da = compoundDepth(a, legs);
+      const db = compoundDepth(b, legs);
+      if (da !== db) return db - da;
+      if (a.order !== b.order) return b.order - a.order;
+      return b.leg_id.localeCompare(a.leg_id);
+    });
+
+  return candidates.map((leg) => {
+    if (!leg.compensation_capability_id) {
+      return {
+        kind: "mark_manual_review",
+        leg_id: leg.leg_id,
+        transaction_id: leg.transaction_id,
+        agent_id: leg.agent_id,
+        capability_id: leg.capability_id,
+        reason: "missing_compensation_action",
+      };
+    }
+
+    if (leg.compensation_kind === "manual") {
+      return {
+        kind: "mark_manual_review",
+        leg_id: leg.leg_id,
+        transaction_id: leg.transaction_id,
+        agent_id: leg.agent_id,
+        capability_id: leg.capability_id,
+        compensation_capability_id: leg.compensation_capability_id,
+        reason: "manual_compensation_required",
+      };
+    }
+
+    return {
+      kind: "dispatch_compensation",
+      leg_id: leg.leg_id,
+      transaction_id: leg.transaction_id,
+      agent_id: leg.agent_id,
+      capability_id: leg.capability_id,
+      compensation_capability_id: leg.compensation_capability_id,
+      reason: leg.status === "rollback_failed"
+        ? "retry_failed_compensation"
+        : "reverse_topological_rollback",
+    };
+  });
+}
+
+function buildDependentsMap(legs: CompoundLegSnapshot[]): Map<string, CompoundLegSnapshot[]> {
+  const dependents = new Map<string, CompoundLegSnapshot[]>();
+  for (const leg of legs) {
+    for (const dep of leg.depends_on) {
+      const existing = dependents.get(dep) ?? [];
+      existing.push(leg);
+      dependents.set(dep, existing);
+    }
+  }
+  for (const rows of dependents.values()) {
+    rows.sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      return a.leg_id.localeCompare(b.leg_id);
+    });
+  }
+  return dependents;
+}
+
+function compoundDepth(leg: CompoundLegSnapshot, legs: CompoundLegSnapshot[]): number {
+  const byId = new Map(legs.map((row) => [row.leg_id, row]));
+  const memo = new Map<string, number>();
+  function depth(id: string, seen: Set<string>): number {
+    if (memo.has(id)) return memo.get(id)!;
+    if (seen.has(id)) return 0;
+    const row = byId.get(id);
+    if (!row || row.depends_on.length === 0) {
+      memo.set(id, 0);
+      return 0;
+    }
+    const next = new Set(seen);
+    next.add(id);
+    const value = Math.max(...row.depends_on.map((dep) => depth(dep, next) + 1));
+    memo.set(id, value);
+    return value;
+  }
+  return depth(leg.leg_id, new Set());
+}
+
+function buildReplayPlan(
+  compoundTransactionId: string,
+  actions: CompoundReplayAction[],
+  graphError?: NonNullable<CompoundReplayPlan["graph_error"]>,
+): CompoundReplayPlan {
+  const next_actions = actions.map((action) => ({ ...action }));
+  const replay_hash = createHash("sha256")
+    .update(stableStringify({ compound_transaction_id: compoundTransactionId, next_actions }))
+    .digest("hex");
+
+  return {
+    compound_transaction_id: compoundTransactionId,
+    next_actions,
+    replay_hash,
+    graph_valid: graphError === undefined,
+    ...(graphError ? { graph_error: graphError } : {}),
+  };
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(",")}}`;
 }
 
 /**
