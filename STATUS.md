@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/compound-exec-2 | 2026-04-30 | COMPOUND-EXEC-2 compound transaction API + persistence layer |
 
 ## Closed lanes
 
@@ -28,6 +27,7 @@
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/web-screens-1 | 2026-04-30 | 2026-04-30 | WEB-SCREENS-1 6 consumer web surfaces (trips, receipts, account, notif prefs, profile, settings index); 4 follow-ups filed (PAYMENTS-REFUND-1, NOTIF-PREFS-PERSIST-1, TRIPS-DETAIL-FAST-PATH-1, PROFILE-RICH-FIELDS-1) |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chatgpt-ui-1 | 2026-04-30 | 2026-04-30 | MOBILE-CHATGPT-UI-1 iOS nav refactor (drop TabView → NavigationStack + side drawer ChatGPT-style); 2 follow-ups filed (MOBILE-SETTINGS-DEDUP-1, MOBILE-SCREENSHOT-MIGRATE-1) |
 | Codex | Lumo_Super_Agent_codex | codex/compound-exec-1 | 2026-04-30 | 2026-04-30 | COMPOUND-EXEC-1 saga hardening + deterministic replay + SSE v2; COMPOUND-EXEC-2 follow-ups filed |
+| Codex | Lumo_Super_Agent_codex | codex/compound-exec-2 | 2026-04-30 | 2026-04-30 | COMPOUND-EXEC-2 compound transaction API + persistence layer; 3 follow-ups filed (COMPOUND-IDEMPOTENCY-CONFLICT-1, COMPOUND-SSE-INTEGRATION-TEST-1, COMPOUND-RPC-CYCLE-GUARD-1) |
 
 ## Last push
 
@@ -94,3 +94,4 @@
 - 2026-04-30 — codex/compound-exec-1 → main (FF), COMPOUND-EXEC-1 closed. COMPOUND-EXEC-2 scope filed: production dependency INSERT must validate via replayCompoundTransaction first; DB snapshot loader must read leg_status_events ordered by occurred_at asc, id asc; stub-3-leg-trip needs a runnable demo entry that drives runCompoundGraph/API end-to-end.
 - 2026-04-30 — COMPOUND-EXEC-2 branch opened; migration 046 applied to staging Supabase and zero-row verification passed for compound_transactions, compound_transaction_dependencies, leg_status_events, and compound-linked transactions.
 - 2026-04-30 — COMPOUND-EXEC-2 ready for review: atomic compound transaction creation RPC, POST /api/compound/transactions, SSE v2 replay stream, ordered snapshot loader, runnable stub-3-leg-trip API demo, and regression tests covering happy path, idempotency, cycle rejection, 404 scoping, and replay determinism. Gates green locally; migration 047 applied to staging for the persistence RPC.
+- 2026-04-30 — codex/compound-exec-2 → main (FF), COMPOUND-EXEC-2 closed. Saga substrate now has callable HTTP API + atomic persistence RPC + SSE v2 replay stream + runnable 3-leg demo; follow-ups filed for idempotency hash conflict 409, DB-backed SSE integration determinism, and RPC-side cycle guard.
