@@ -130,7 +130,7 @@ await t("supervisor runs sub-agents in parallel and summarizes fallback evidence
 await t("Duffel search creates v2 offer requests and projects offers", async () => {
   const calls = [];
   const client = new DuffelClient({
-    apiKey: "duffel_test_key",
+    apiKey: "test_key_placeholder",
     environment: "test",
     baseUrl: "https://api.duffel.test",
     fetchImpl: async (url, init) => {
@@ -181,7 +181,7 @@ await t("Duffel search creates v2 offer requests and projects offers", async () 
 await t("Duffel hold uses hold orders and rejects instant-payment offers", async () => {
   const paths = [];
   const client = new DuffelClient({
-    apiKey: "duffel_test_key",
+    apiKey: "test_key_placeholder",
     environment: "test",
     baseUrl: "https://api.duffel.test",
     fetchImpl: async (url, init) => {
@@ -277,7 +277,7 @@ await t("Vegas flight demo path plans, extracts slots, and returns Duffel offers
   assert.equal(slots.destination, "LAS");
 
   const client = new DuffelClient({
-    apiKey: "duffel_test_key",
+    apiKey: "test_key_placeholder",
     environment: "test",
     baseUrl: "https://api.duffel.test",
     fetchImpl: async () =>
