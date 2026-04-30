@@ -137,19 +137,23 @@ struct ChatView: View {
     // MARK: - Empty state
 
     private var emptyState: some View {
-        VStack(spacing: LumoSpacing.lg) {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 56))
+        // Cleaner, less-decorated stance per the ChatGPT-style nav
+        // refactor — single brand-cyan glyph + a one-line prompt. The
+        // longer "ask me to plan a trip..." copy moved into the chat
+        // composer's placeholder ("Ask Lumo…") so the empty surface
+        // doesn't compete with the input bar for attention.
+        VStack(spacing: LumoSpacing.md) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 48, weight: .light))
                 .foregroundStyle(LumoColors.cyan)
-            Text("Hi, I'm Lumo")
+                .accessibilityHidden(true)
+            Text("How can I help today?")
                 .font(LumoFonts.title)
                 .foregroundStyle(LumoColors.label)
-            Text("Ask me to plan a trip, find a restaurant, or anything else.")
-                .font(LumoFonts.body)
-                .foregroundStyle(LumoColors.labelSecondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, LumoSpacing.xl)
+                .accessibilityIdentifier("chat.empty.prompt")
         }
+        .padding(.bottom, LumoSpacing.xxl)
     }
 
     // MARK: - Error banner
@@ -228,6 +232,7 @@ struct ChatView: View {
                         .background(sendButtonBackground)
                 }
                 .accessibilityLabel("Send message")
+                .accessibilityIdentifier("chat.send")
                 .disabled(!canSend)
             }
         }
