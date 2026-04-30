@@ -3,7 +3,6 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-notif-1 | 2026-04-30 | MOBILE-NOTIF-1 iOS notifications + proactive moments (APNs + 4 categories + background fetch + in-app cards) |
-| Codex | Lumo_Super_Agent_codex | codex/perf-1-plus-2 | 2026-04-30 | PERF-1+2 latency instrumentation, prompt caching, and model routing |
 
 ## Closed lanes
 
@@ -23,6 +22,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/docs | 2026-04-29 | 2026-04-30 | DOCS developer documentation site |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-payments-1 | 2026-04-30 | 2026-04-30 | MOBILE-PAYMENTS-1 iOS payment surface (Stripe SDK + biometric confirmation + receipts; MERCHANT-1 swap path documented) |
 | Codex | Lumo_Super_Agent_codex | codex/merchant-1 | 2026-04-30 | 2026-04-30 | MERCHANT-1 merchant-of-record substrate (real Stripe SetupIntent + PaymentIntent + ECDSA device confirmation + webhook reconciliation) |
+| Codex | Lumo_Super_Agent_codex | codex/perf-1-plus-2 | 2026-04-30 | 2026-04-30 | PERF-1+2 latency instrumentation, prompt caching, parallel pre-LLM loads, intent classifier (Groq + Cerebras failover), Haiku fast-path + Sonnet reasoning router, /admin/perf dashboard |
 
 ## Last push
 
@@ -71,3 +71,4 @@
 - 2026-04-30 — PERF-1+2 branch opened; migration 044 drafted for early schema review
 - 2026-04-30 — PERF-1+2 pre-routing checkpoint drafted: orchestrator timing spans, /admin/perf dashboard, Anthropic prompt caching, pre-LLM load parallelization, and first-token SSE streaming
 - 2026-04-30 — PERF-1+2 model-routing checkpoint drafted: Groq intent classifier with Cerebras failover, Haiku fast/tool path router, Sonnet fallback, and perf-routing regression suite
+- 2026-04-30 — PERF-1+2 merged to main; latency substrate live (per-phase spans + dashboard + prompt caching + parallel preloads + Groq/Cerebras intent classifier + Haiku/Sonnet model router); live p50 verification blocked until migrations 037-044 applied to staging Supabase. Codex queued for COMPOUND-EXEC-1.
