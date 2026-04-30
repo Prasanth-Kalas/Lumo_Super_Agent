@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/compound-exec-1 | 2026-04-30 | COMPOUND-EXEC-1 saga hardening + deterministic replay + SSE v2 |
 
 ## Closed lanes
 
@@ -79,6 +80,7 @@
 - 2026-04-30 — MOBILE-NOTIF-1 merged to main; iOS notification surface complete (APNs + 4 categories + background fetch + proactive moments + Settings); 3 follow-ups filed (MOBILE-NOTIF-2-INIT app-delegate install timing, LOCAL-NOTIF-REFINE server-side double-notification flag, MOBILE-API-1-NAV-PLUMB deep-link receipt id + chat prefill). Claude Code queued for MOBILE-PAYMENTS-1.1 (HMAC → ECDSA biometric token swap; ~1 session of work).
 - 2026-04-30 — MESH-1 branch opened; migration 045 drafted for sub-agent call ledger early schema review
 - 2026-04-30 — MESH-1 ready for review: sub-agent call ledger, supervisor substrate, dispatch planner, Duffel test-mode flight agent, internal merchant-of-record flight tools, LUMO_USE_MESH feature flag, and Vegas-flight demo regression path; gates green locally (live Duffel/Stripe booking E2E blocked until staging migrations + Duffel env are applied).
+- 2026-04-30 — COMPOUND-EXEC-1 branch opened; migration 046 drafted for compound transaction graph, dependency edges, and SSE v2 leg status event ledger early schema review.
 - 2026-04-30 — MESH-1 merged to main; multi-agent orchestration substrate live with Duffel flight agent as first proof-of-life. JARVIS demo path now functional in test mode (planner → sub-agent fan-out → Duffel offer projection). Codex queued for next sprint (TRAVEL-AGENT-2 Booking on partnership key, OR COMPOUND-EXEC-1 saga hardening).
 - 2026-04-30 — claude-code/web-screens-1 opened from origin/main; audit doc proposed 6 consumer-screen gaps (trips, receipts, account, notif prefs, profile, settings index) with 5 open scope questions resolved by reviewer; build phase in flight.
 - 2026-04-30 — claude-code/web-screens-1 ready for review: all 6 audit gaps built (trips + receipts + /settings/account + /settings/notifications + /profile + /settings index), middleware gates added for /trips /receipts /profile /settings + /api/trips /api/receipts, header avatar repointed /memory → /settings/account, MobileNav + LeftRail wired, lib/transactions.ts (real reader against MERCHANT-1 transactions), in-memory STUBs for refund POST + notification prefs (NOTIF-PREFS-PERSIST-1 backlog filed), 36 new tests across 6 web-screens-* suites (total 8 routes, ~2000 LOC). All gates green (typecheck/lint/lint:registry/lint:commits/build/test); credential sweep clean.
