@@ -12,14 +12,15 @@
  * Surfaces:
  *   - New chat (primary CTA)
  *   - RECENT — last 8 sessions from /api/history
- *   - AGENTS — four specialists with live connection status (green
- *     dot = active, Reconnect link = expired/errored, Connect link
- *     = never linked). Same fused signal as LeftRail.
- *   - QUICK LINKS — History, Memory, Marketplace, Connections
- *   - AUTH footer — Sign in / Sign up when logged out; Sign out
- *     when logged in. (The sign-out button is stubbed and just
- *     links to /login for now — actual auth surface owned by the
- *     /login page.)
+ *   - EXPLORE — Workspace, Trips, Receipts, History, Memory, Settings,
+ *     Marketplace, Connections
+ *   - AUTH footer — Sign in / Sign up when logged out; Account
+ *     settings + Sign out when logged in.
+ *
+ * The previous AGENTS section (live connection status for the four
+ * specialists) was removed in WEB-REDESIGN-1. The four specialists
+ * are still real — their connection status is reachable via
+ * /connections (Explore section) for users who want to manage them.
  *
  * Accessibility:
  *   - role="dialog", aria-modal, focus-trap on first interactive
@@ -39,21 +40,6 @@ interface RecentSession {
   trip_count: number;
 }
 
-interface AgentRow {
-  agent_id: string;
-  display_name: string;
-  icon: string;
-  connection_status: "active" | "expired" | "revoked" | "error" | null;
-  registry_ok: boolean;
-}
-
-const BASELINE_AGENTS: Array<Omit<AgentRow, "connection_status" | "registry_ok">> = [
-  { agent_id: "flight", display_name: "Flight", icon: "✈" },
-  { agent_id: "hotel", display_name: "Hotel", icon: "⌂" },
-  { agent_id: "food", display_name: "Food", icon: "◉" },
-  { agent_id: "restaurant", display_name: "Reservation", icon: "◆" },
-];
-
 export interface MobileNavProps {
   open: boolean;
   onClose: () => void;
@@ -62,13 +48,6 @@ export interface MobileNavProps {
 
 export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) {
   const [recents, setRecents] = useState<RecentSession[]>([]);
-  const [agents, setAgents] = useState<AgentRow[]>(
-    BASELINE_AGENTS.map((a) => ({
-      ...a,
-      connection_status: null,
-      registry_ok: false,
-    })),
-  );
   const [isAuthed, setIsAuthed] = useState<boolean>(false);
 
   // Body scroll lock
@@ -121,55 +100,16 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
       }
     })();
 
-    // Agents = registry health + user connections
+    // Auth chip — single GET against /api/me. Drives whether the
+    // footer renders Sign in/Sign up vs Account settings/Sign out.
     void (async () => {
-      const [regRes, connRes] = await Promise.allSettled([
-        fetch("/api/registry", { cache: "no-store" }),
-        fetch("/api/connections", { cache: "no-store" }),
-      ]);
-
-      const scoreById = new Map<string, number>();
-      if (regRes.status === "fulfilled" && regRes.value.ok) {
-        try {
-          const j = (await regRes.value.json()) as {
-            agents?: Array<{ agent_id?: string; health_score?: number }>;
-          };
-          for (const a of j.agents ?? []) {
-            if (a.agent_id && typeof a.health_score === "number") {
-              scoreById.set(a.agent_id, a.health_score);
-            }
-          }
-        } catch {
-          /* ignore */
-        }
+      try {
+        const res = await fetch("/api/me", { cache: "no-store" });
+        if (cancelled) return;
+        setIsAuthed(res.ok);
+      } catch {
+        if (!cancelled) setIsAuthed(false);
       }
-      const connById = new Map<string, AgentRow["connection_status"]>();
-      let authed = false;
-      if (connRes.status === "fulfilled" && connRes.value.ok) {
-        authed = true;
-        try {
-          const j = (await connRes.value.json()) as {
-            connections?: Array<{ agent_id: string; status: string }>;
-          };
-          for (const c of j.connections ?? []) {
-            connById.set(
-              c.agent_id,
-              c.status as AgentRow["connection_status"],
-            );
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-      if (cancelled) return;
-      setIsAuthed(authed);
-      setAgents(
-        BASELINE_AGENTS.map((a) => ({
-          ...a,
-          connection_status: connById.get(a.agent_id) ?? null,
-          registry_ok: (scoreById.get(a.agent_id) ?? 0) > 0.4,
-        })),
-      );
     })();
 
     return () => {
@@ -292,52 +232,6 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
                   </li>
                 ))
               )}
-            </ul>
-          </div>
-
-          {/* Agents */}
-          <div className="pt-1 border-t border-lumo-hair">
-            <SectionHeader className="pt-3">Agents</SectionHeader>
-            <ul className="mt-2 space-y-0.5">
-              {agents.map((a) => {
-                const status = a.connection_status;
-                const needsConnect =
-                  status === null ||
-                  status === "revoked" ||
-                  status === "expired" ||
-                  status === "error";
-                const reconnect = status === "expired" || status === "error";
-                const active = status === "active" && a.registry_ok;
-                return (
-                  <li key={a.agent_id}>
-                    <Link
-                      href="/marketplace"
-                      onClick={onClose}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-[14.5px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors"
-                    >
-                      <span className="w-5 text-center text-[16px] text-lumo-accent opacity-90">
-                        {a.icon}
-                      </span>
-                      <span className="flex-1">{a.display_name}</span>
-                      {needsConnect ? (
-                        <span className="text-[11.5px] text-lumo-accent font-medium">
-                          {reconnect ? "Reconnect" : "Connect"}
-                        </span>
-                      ) : active ? (
-                        <span
-                          className="inline-block h-1.5 w-1.5 rounded-full bg-lumo-accent shadow-[0_0_8px_rgba(94,234,172,0.6)]"
-                          aria-label="connected"
-                        />
-                      ) : (
-                        <span
-                          className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400"
-                          aria-label="degraded"
-                        />
-                      )}
-                    </Link>
-                  </li>
-                );
-              })}
             </ul>
           </div>
 
