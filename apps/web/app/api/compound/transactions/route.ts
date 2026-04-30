@@ -45,6 +45,15 @@ function errorResponse(error: unknown): Response {
     return json({ error: error.code }, error.code === "not_authenticated" ? 401 : 403);
   }
   if (error instanceof CompoundPersistenceError) {
+    if (error.code === "idempotency_key_conflict") {
+      return json(
+        {
+          error: error.code,
+          existing_compound_id: error.details?.existing_compound_id ?? null,
+        },
+        error.status,
+      );
+    }
     return json({ error: error.code, message: error.message }, error.status);
   }
   console.error("[compound] create failed", error);

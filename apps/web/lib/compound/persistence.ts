@@ -100,12 +100,19 @@ export interface LegStatusEventRecord extends LegStatusEventRow {
 export class CompoundPersistenceError extends Error {
   readonly code: string;
   readonly status: number;
+  readonly details: Record<string, unknown> | undefined;
 
-  constructor(code: string, status = 400, message = code) {
+  constructor(
+    code: string,
+    status = 400,
+    message = code,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "CompoundPersistenceError";
     this.code = code;
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -293,9 +300,28 @@ export async function createCompoundTransaction(input: {
     payload: rpcPayload,
   });
   if (error) {
+    const conflict = parseIdempotencyConflict(error);
+    if (conflict) {
+      throw new CompoundPersistenceError(
+        "idempotency_key_conflict",
+        409,
+        "idempotency key already belongs to a different compound graph",
+        { existing_compound_id: conflict.existing_compound_id },
+      );
+    }
     throw new CompoundPersistenceError("compound_persist_failed", 500, error.message);
   }
   return parseCreateResult(data);
+}
+
+function parseIdempotencyConflict(error: {
+  message?: string | null;
+  hint?: string | null;
+}): { existing_compound_id: string } | null {
+  if (error.message !== "INVALID_COMPOUND_GRAPH_HASH_CONFLICT") return null;
+  const match = /(?:^|\b)existing_compound_id=([0-9a-f-]{36})(?:\b|$)/i.exec(error.hint ?? "");
+  const existingCompoundId = match?.[1] ?? "";
+  return { existing_compound_id: existingCompoundId };
 }
 
 export async function loadCompoundSnapshot(

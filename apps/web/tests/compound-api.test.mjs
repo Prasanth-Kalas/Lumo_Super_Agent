@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   CompoundPersistenceError,
+  createCompoundTransaction,
   legStatusFramesFromEvents,
   normalizeCompoundCreatePayload,
   stableStringify,
@@ -30,6 +31,7 @@ console.log("\ncompound-exec-2 api");
 
 const migration046 = readFileSync("../../db/migrations/046_compound_exec_1.sql", "utf8");
 const migration047 = readFileSync("../../db/migrations/047_compound_exec_2_persistence_rpc.sql", "utf8");
+const migration048 = readFileSync("../../db/migrations/048_compound_idempotency_conflict.sql", "utf8");
 const postRoute = readFileSync("app/api/compound/transactions/route.ts", "utf8");
 const streamRoute = readFileSync("app/api/compound/transactions/[id]/stream/route.ts", "utf8");
 const persistence = readFileSync("lib/compound/persistence.ts", "utf8");
@@ -56,6 +58,55 @@ await t("idempotency path is enforced by unique key and RPC existing-return bran
   assert.match(migration047, /'existing', true/);
   assert.match(migration046, /unique \(user_id, idempotency_key\)/);
   assert.match(postRoute, /result\.existing \? 200 : 201/);
+});
+
+await t("same graph idempotency returns the prior compound id", async () => {
+  const existingId = "11111111-1111-4111-8111-111111111111";
+  const result = await createCompoundTransaction({
+    userId: "22222222-2222-4222-8222-222222222222",
+    payload: makeVegasGraph("compound-api-same-key"),
+    db: {
+      rpc: async () => ({
+        error: null,
+        data: {
+          compound_transaction_id: existingId,
+          status: "authorized",
+          graph_hash: normalizeCompoundCreatePayload(makeVegasGraph("compound-api-same-key")).graph_hash,
+          existing: true,
+        },
+      }),
+    },
+  });
+  assert.equal(result.compound_transaction_id, existingId);
+  assert.equal(result.existing, true);
+});
+
+await t("divergent graph idempotency returns 409 with existing compound id", async () => {
+  const existingId = "33333333-3333-4333-8333-333333333333";
+  await assert.rejects(
+    () =>
+      createCompoundTransaction({
+        userId: "22222222-2222-4222-8222-222222222222",
+        payload: makeVegasGraph("compound-api-conflict"),
+        db: {
+          rpc: async () => ({
+            data: null,
+            error: {
+              message: "INVALID_COMPOUND_GRAPH_HASH_CONFLICT",
+              hint: `existing_compound_id=${existingId}`,
+            },
+          }),
+        },
+      }),
+    (error) =>
+      error instanceof CompoundPersistenceError &&
+      error.code === "idempotency_key_conflict" &&
+      error.status === 409 &&
+      error.details?.existing_compound_id === existingId,
+  );
+  assert.match(migration048, /INVALID_COMPOUND_GRAPH_HASH_CONFLICT/);
+  assert.match(migration048, /v_existing\.graph_hash is distinct from v_graph_hash/);
+  assert.match(postRoute, /existing_compound_id/);
 });
 
 await t("cycle rejection returns cyclic_dependency_graph before dependency insert", () => {
