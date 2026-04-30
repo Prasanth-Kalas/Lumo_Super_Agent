@@ -56,6 +56,14 @@ const PROTECTED_PAGE_PREFIXES = [
   // so the pages don't even render for signed-out users.
   "/publisher",
   "/admin",
+  // WEB-SCREENS-1 consumer surfaces — every one is per-user and
+  // would only render an error state for signed-out visitors.
+  "/trips",
+  "/receipts",
+  "/profile",
+  // /settings/* (account, notifications, voice, wake-word, cost) —
+  // each sub-route is per-user. Top-level prefix gates the index too.
+  "/settings",
 ];
 const PROTECTED_API_PREFIXES = [
   "/api/connections",
@@ -84,6 +92,11 @@ const PROTECTED_API_PREFIXES = [
   "/api/apps",
   // Inline Lumo marketplace installs mutate per-user app grants.
   "/api/lumo/mission/install",
+  // WEB-SCREENS-1 read APIs — both scope to user_id internally and
+  // would 401 on unauth anyway; gate at the edge so the consumer
+  // pages get the same redirect UX as everything else.
+  "/api/trips",
+  "/api/receipts",
 ];
 
 /**

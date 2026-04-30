@@ -351,8 +351,11 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
                 onNavigate={onClose}
                 highlight
               />
+              <MobileNavLink href="/trips" label="Trips" onNavigate={onClose} />
+              <MobileNavLink href="/receipts" label="Receipts" onNavigate={onClose} />
               <MobileNavLink href="/history" label="History" onNavigate={onClose} />
               <MobileNavLink href="/memory" label="Memory" onNavigate={onClose} />
+              <MobileNavLink href="/settings" label="Settings" onNavigate={onClose} />
               <MobileNavLink href="/marketplace" label="Marketplace" onNavigate={onClose} />
               <MobileNavLink href="/connections" label="Connections" onNavigate={onClose} />
             </ul>
@@ -367,7 +370,7 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
             {isAuthed ? (
               <div className="space-y-2">
                 <Link
-                  href="/memory"
+                  href="/settings/account"
                   onClick={onClose}
                   className="block w-full text-center h-11 leading-[2.75rem] rounded-lg border border-lumo-hair text-[14px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated/60 transition-colors"
                 >

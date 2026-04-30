@@ -260,8 +260,12 @@ export default function LeftRail({
       <div ref={menuRef} className="relative border-t border-lumo-hair p-2">
         {menuOpen ? (
           <div className="absolute bottom-full left-2 right-2 mb-2 rounded-lg border border-lumo-hair bg-lumo-elevated shadow-xl py-1 z-30">
-            <MenuLink href="/memory" label="Account" hint="Profile, dietary, addresses" />
-            <MenuLink href="/history" label="History" hint="Past trips and chats" />
+            <MenuLink href="/settings/account" label="Account" hint="Email, name, sign out" />
+            <MenuLink href="/profile" label="Profile" hint="Travel, food, stay preferences" />
+            <MenuLink href="/trips" label="Trips" hint="Bookings and itineraries" />
+            <MenuLink href="/receipts" label="Receipts" hint="Payments and refunds" />
+            <MenuLink href="/history" label="History" hint="Past chats" />
+            <MenuLink href="/settings" label="Settings" hint="Notifications, voice, cost" />
             <MenuLink href="/marketplace" label="Marketplace" hint="Connect more apps" />
             <MenuLink href="/admin" label="Admin" hint="Operator console" />
             <div className="my-1 border-t border-lumo-hair" />

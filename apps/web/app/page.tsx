@@ -783,12 +783,12 @@ export default function Home() {
                   • env not wired → render nothing (dev / stub deploy)
                   • env wired, signed out → "Sign in" link
                   • env wired, signed in → circular initial chip
-                    linking to /memory (shows full name + email there).
-                Hides on mobile; drawer owns that surface. */}
+                    linking to /settings/account (identity surface +
+                    sign-out). Hides on mobile; drawer owns that surface. */}
             {process.env.NEXT_PUBLIC_SUPABASE_URL ? (
               me ? (
                 <a
-                  href="/memory"
+                  href="/settings/account"
                   aria-label={
                     me.full_name
                       ? `Signed in as ${me.full_name}`
