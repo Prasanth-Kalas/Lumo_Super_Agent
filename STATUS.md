@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Claude Code | Lumo_Super_Agent_claude_code | claude-code/web-screens-1 | 2026-04-30 | WEB-SCREENS-1 missing consumer web pages (trips, receipts, account, notif prefs, profile, settings index) |
 
 ## Closed lanes
 
@@ -25,6 +24,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/perf-1-plus-2 | 2026-04-30 | 2026-04-30 | PERF-1+2 latency instrumentation, prompt caching, parallel pre-LLM loads, intent classifier (Groq + Cerebras failover), Haiku fast-path + Sonnet reasoning router, /admin/perf dashboard |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-notif-1 | 2026-04-30 | 2026-04-30 | MOBILE-NOTIF-1 iOS notifications + proactive moments (APNs + 4 categories + background fetch + in-app cards + Settings section); 3 follow-ups filed (MOBILE-NOTIF-2-INIT, LOCAL-NOTIF-REFINE, MOBILE-API-1-NAV-PLUMB) |
 | Codex | Lumo_Super_Agent_codex | codex/mesh-1 | 2026-04-30 | 2026-04-30 | MESH-1 multi-agent orchestration substrate (supervisor + 4 sub-agents + dispatch planner) + Duffel flight agent (search/hold/book/cancel) + LUMO_USE_MESH feature flag |
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/web-screens-1 | 2026-04-30 | 2026-04-30 | WEB-SCREENS-1 6 consumer web surfaces (trips, receipts, account, notif prefs, profile, settings index); 4 follow-ups filed (PAYMENTS-REFUND-1, NOTIF-PREFS-PERSIST-1, TRIPS-DETAIL-FAST-PATH-1, PROFILE-RICH-FIELDS-1) |
 
 ## Last push
 
@@ -81,3 +81,4 @@
 - 2026-04-30 — MESH-1 merged to main; multi-agent orchestration substrate live with Duffel flight agent as first proof-of-life. JARVIS demo path now functional in test mode (planner → sub-agent fan-out → Duffel offer projection). Codex queued for next sprint (TRAVEL-AGENT-2 Booking on partnership key, OR COMPOUND-EXEC-1 saga hardening).
 - 2026-04-30 — claude-code/web-screens-1 opened from origin/main; audit doc proposed 6 consumer-screen gaps (trips, receipts, account, notif prefs, profile, settings index) with 5 open scope questions resolved by reviewer; build phase in flight.
 - 2026-04-30 — claude-code/web-screens-1 ready for review: all 6 audit gaps built (trips + receipts + /settings/account + /settings/notifications + /profile + /settings index), middleware gates added for /trips /receipts /profile /settings + /api/trips /api/receipts, header avatar repointed /memory → /settings/account, MobileNav + LeftRail wired, lib/transactions.ts (real reader against MERCHANT-1 transactions), in-memory STUBs for refund POST + notification prefs (NOTIF-PREFS-PERSIST-1 backlog filed), 36 new tests across 6 web-screens-* suites (total 8 routes, ~2000 LOC). All gates green (typecheck/lint/lint:registry/lint:commits/build/test); credential sweep clean.
+- 2026-04-30 — WEB-SCREENS-1 merged to main (rebased onto current origin/main due to MESH divergence; STATUS.md + apps/web/package.json conflicts resolved cleanly, force-with-lease push, FF-merge from canonical worktree). 6 consumer web surfaces live; 4 follow-ups filed (PAYMENTS-REFUND-1, NOTIF-PREFS-PERSIST-1, TRIPS-DETAIL-FAST-PATH-1, PROFILE-RICH-FIELDS-1). Both lanes idle; Codex queued for next sprint (recommend COMPOUND-EXEC-1), Claude Code awaits next sprint kickoff.
