@@ -7,6 +7,7 @@
  *   - { type: "mission",    value: LumoMissionPlan }       (app install gate)
  *   - { type: "tool",       value: ToolCallTrace }           (debug only)
  *   - { type: "selection",  value: { kind, payload } }       (rich UI)
+ *   - { type: "assistant_suggestions", value: { kind, turn_id, suggestions } }
  *   - { type: "summary",    value: ConfirmationSummary }     (money gate)
  *   - { type: "leg_status", value: { order, status } }       (compound trip)
  *   - { type: "error",      value: { message } }

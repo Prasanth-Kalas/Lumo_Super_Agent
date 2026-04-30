@@ -80,6 +80,10 @@ import { createDefaultSubAgents } from "./mesh/default-subagents.ts";
 import { SupervisorOrchestrator } from "./mesh/supervisor.ts";
 import { buildSystemPrompt, type AmbientContext } from "./system-prompt.js";
 import {
+  buildAssistantSuggestions,
+  type AssistantSuggestionsFrameValue,
+} from "./chat-suggestions.js";
+import {
   forgetFact,
   getProfile,
   listHighConfidencePatterns,
@@ -197,6 +201,11 @@ export interface OrchestratorTurn {
    */
   selections: InteractiveSelection[];
   /**
+   * Suggested replies surfaced with a clarification question. Per-turn
+   * only; clients clear them as soon as the user submits any reply.
+   */
+  suggestions: AssistantSuggestionsFrameValue | null;
+  /**
    * When the turn materialised a compound trip draft, the trip_id. The
    * route handler uses this to bind SSE `leg_status` frames to the right
    * summary on the next (confirm) turn.
@@ -219,6 +228,7 @@ export type OrchestratorFrame =
       };
     }
   | { type: "selection"; value: InteractiveSelection }
+  | { type: "assistant_suggestions"; value: AssistantSuggestionsFrameValue }
   | { type: "summary"; value: ConfirmationSummary }
   | {
       type: "leg_status";
@@ -293,6 +303,7 @@ export async function runTurn(
       status: "ok",
       tool_call_count: turn.tool_calls.length,
       selection_count: turn.selections.length,
+      suggestion_count: turn.suggestions?.suggestions.length ?? 0,
       has_summary: turn.summary !== null,
       has_draft_trip: Boolean(turn.draft_trip_id),
     });
@@ -398,6 +409,7 @@ async function runTurnInner(
       tool_calls: [],
       summary: null,
       selections: [],
+      suggestions: null,
     };
   }
   if (
@@ -440,6 +452,7 @@ async function runTurnInner(
       tool_calls: [],
       summary: null,
       selections: [],
+      suggestions: null,
     };
   }
   const useMarketplaceIntelligence =
@@ -569,6 +582,7 @@ async function runTurnInner(
       tool_calls: [],
       summary: null,
       selections: [],
+      suggestions: null,
     };
   }
 
@@ -772,6 +786,7 @@ async function runTurnInner(
       tool_calls: [],
       summary: null,
       selections: [],
+      suggestions: null,
     };
   }
 
@@ -803,6 +818,7 @@ async function runTurnInner(
 
   let assistantText = "";
   let renderedSummary: ConfirmationSummary | null = null;
+  let assistantSuggestions: AssistantSuggestionsFrameValue | null = null;
   const loopAssistantMessages: Anthropic.MessageParam[] = [];
 
   const systemWithPromptCache = [
@@ -1239,11 +1255,24 @@ async function runTurnInner(
   if (!draft_trip_id && renderedSummary) {
     emit({ type: "summary", value: renderedSummary });
   }
+  if (!draft_trip_id && !renderedSummary && selections.length === 0) {
+    assistantSuggestions = buildAssistantSuggestions({
+      turnId: `${input.session_id}:${Date.now()}:suggestions`,
+      assistantText,
+      latestUserMessage: lastUser,
+      userRegion: input.user_region,
+      now: new Date(),
+    });
+    if (assistantSuggestions) {
+      emit({ type: "assistant_suggestions", value: assistantSuggestions });
+    }
+  }
   await postProcessingSpan.end({
     status: "ok",
     emitted_summary: renderedSummary !== null,
     draft_trip_created: Boolean(draft_trip_id),
     selection_count: selections.length,
+    suggestion_count: assistantSuggestions?.suggestions.length ?? 0,
   });
 
   return {
@@ -1251,6 +1280,7 @@ async function runTurnInner(
     tool_calls: toolCalls,
     summary: renderedSummary,
     selections,
+    suggestions: assistantSuggestions,
     draft_trip_id,
   };
 }

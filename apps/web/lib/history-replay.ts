@@ -9,6 +9,7 @@ export interface ReplayedChatMessage {
   created_at: string;
   summary?: unknown | null;
   selections?: Array<{ kind: string; payload: unknown }>;
+  suggestions?: unknown | null;
   mission?: unknown | null;
 }
 
@@ -18,6 +19,7 @@ interface AssistantDraft {
   content: string;
   summary: unknown | null;
   selections: Array<{ kind: string; payload: unknown }>;
+  suggestions: unknown | null;
   mission: unknown | null;
   hasFrame: boolean;
 }
@@ -51,6 +53,7 @@ export function replayEventsToMessages(
       created_at: assistant.created_at,
       summary: assistant.summary,
       selections: assistant.selections.length ? assistant.selections : undefined,
+      suggestions: assistant.suggestions,
       mission: assistant.mission,
     });
     assistant = null;
@@ -64,6 +67,7 @@ export function replayEventsToMessages(
         content: "",
         summary: null,
         selections: [],
+        suggestions: null,
         mission: null,
         hasFrame: false,
       };
@@ -126,6 +130,13 @@ export function replayEventsToMessages(
         ...draft.selections.filter((existing) => existing.kind !== kind),
         { kind, payload: selection["payload"] },
       ];
+      draft.hasFrame = true;
+      continue;
+    }
+
+    if (event.frame_type === "assistant_suggestions") {
+      const draft = ensureAssistant(event);
+      draft.suggestions = value ?? null;
       draft.hasFrame = true;
       continue;
     }

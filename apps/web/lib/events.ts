@@ -41,6 +41,7 @@ export type EventFrameType =
   | "mission"
   | "tool"
   | "selection"
+  | "assistant_suggestions"
   | "summary"
   | "leg_status"
   | "error"
