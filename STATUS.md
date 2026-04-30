@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/compound-exec-2 | 2026-04-30 | COMPOUND-EXEC-2 compound transaction API + persistence layer |
 
 ## Closed lanes
 
@@ -91,3 +92,4 @@
 - 2026-04-30 — claude-code/mobile-chatgpt-ui-1 → main (FF), MOBILE-CHATGPT-UI-1 closed. 2 follow-ups filed (MOBILE-SETTINGS-DEDUP-1 drop inline Sign Out from SettingsView; MOBILE-SCREENSHOT-MIGRATE-1 migrate legacy capture variants from -LumoStartTab to -LumoStartDestination). scripts/apply-staging-migrations.sh stayed untracked on the feature branch — confirmed not part of any sprint. Both lanes idle.
 - 2026-04-30 — COMPOUND-EXEC-1 ready for review: migration 046 compound graph substrate, deterministic saga replay, SDK compensationAction enforcement, SSE v2 leg-status frames, compound graph runner with reverse-topological rollback, stub-3-leg-trip sample, and regression suite covering graph cycles + rollback failure modes. Gates green locally; live staging E2E blocked until migrations 037-046 are applied.
 - 2026-04-30 — codex/compound-exec-1 → main (FF), COMPOUND-EXEC-1 closed. COMPOUND-EXEC-2 scope filed: production dependency INSERT must validate via replayCompoundTransaction first; DB snapshot loader must read leg_status_events ordered by occurred_at asc, id asc; stub-3-leg-trip needs a runnable demo entry that drives runCompoundGraph/API end-to-end.
+- 2026-04-30 — COMPOUND-EXEC-2 branch opened; migration 046 applied to staging Supabase and zero-row verification passed for compound_transactions, compound_transaction_dependencies, leg_status_events, and compound-linked transactions.
