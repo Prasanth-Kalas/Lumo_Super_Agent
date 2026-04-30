@@ -130,6 +130,15 @@ export async function middleware(req: NextRequest) {
   // auth cookies to this object as a side effect of getUser().
   const res = NextResponse.next({ request: { headers: req.headers } });
 
+  // Server-side dev escape hatch — when LUMO_WEB_DISABLE_AUTH_GATE=1
+  // is set in the process env, skip every auth check. Used for
+  // screenshot capture and offline preview. Never exposed to the
+  // client (no NEXT_PUBLIC_ prefix), so a leaked env in production
+  // would fail closed at the API layer the moment a real call lands.
+  if (process.env.LUMO_WEB_DISABLE_AUTH_GATE === "1") {
+    return res;
+  }
+
   const { pathname, search } = req.nextUrl;
 
   const isProtectedPage =
@@ -148,6 +157,10 @@ export async function middleware(req: NextRequest) {
 
   const supabase = getSupabaseMiddlewareClient(req, res);
   if (!supabase) {
+    // No Supabase = no session. Programmatic clients get a structured
+    // 503 (auth genuinely isn't available); pages redirect to /login
+    // so a misconfigured deploy fails into the same UX the
+    // unauthenticated path already produces, instead of a raw error.
     if (isProtectedApi) {
       return new NextResponse(
         JSON.stringify({ error: "auth_not_configured" }),
@@ -158,10 +171,10 @@ export async function middleware(req: NextRequest) {
       );
     }
     if (isProtectedPage) {
-      return new NextResponse("Authentication is not configured.", {
-        status: 503,
-        headers: { "content-type": "text/plain; charset=utf-8" },
-      });
+      const loginUrl = req.nextUrl.clone();
+      loginUrl.pathname = "/login";
+      loginUrl.searchParams.set("next", pathname + search);
+      return NextResponse.redirect(loginUrl);
     }
     return res;
   }
