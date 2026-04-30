@@ -1,4 +1,5 @@
 import type { AgentTimingBucket } from "./timing-spans.ts";
+import type { SubagentDispatchPlan } from "../mesh/types.ts";
 
 export interface IntentClassifierMessage {
   role: "user" | "assistant";
@@ -23,6 +24,7 @@ export interface IntentClassification {
   latencyMs: number;
   source: "provider" | "provider_unavailable" | "parse_error";
   errorCode?: string;
+  subagentDispatchPlan?: SubagentDispatchPlan;
 }
 
 interface ProviderConfig {
