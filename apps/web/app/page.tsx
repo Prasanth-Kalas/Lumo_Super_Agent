@@ -43,6 +43,9 @@ import {
   LumoMissionCard,
   type LumoMissionPlan,
 } from "@/components/LumoMissionCard";
+import SuggestionChips, {
+  type SuggestionChipItem,
+} from "@/components/SuggestionChips";
 import {
   ReservationConfirmationCard,
   type ReservationPayload,
@@ -96,12 +99,19 @@ interface UISelection {
   payload: unknown;
 }
 
+interface UIAssistantSuggestions {
+  kind: "assistant_suggestions";
+  turn_id: string;
+  suggestions: SuggestionChipItem[];
+}
+
 interface UIMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   summary?: UISummary | null;
   selections?: UISelection[];
+  suggestionsTurnId?: string;
   mission?: LumoMissionPlan | null;
 }
 
@@ -125,6 +135,9 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [legStatusesByMsg, setLegStatusesByMsg] = useState<
     Record<string, Record<number, LegDispatchStatus>>
+  >({});
+  const [suggestionsByTurn, setSuggestionsByTurn] = useState<
+    Record<string, UIAssistantSuggestions>
   >({});
 
   // Voice mode — see components/VoiceMode.tsx. `voiceEnabled` is the
@@ -310,12 +323,23 @@ export default function Home() {
         );
         if (!res.ok) throw new Error(`history_replay_http_${res.status}`);
         const body = (await res.json()) as { messages?: unknown[] };
+        const replaySuggestions: Record<string, UIAssistantSuggestions> = {};
         const replayed = Array.isArray(body.messages)
-          ? body.messages.map(replayMessageToUI).filter((m): m is UIMessage => !!m)
+          ? body.messages
+              .map((raw) => {
+                const message = replayMessageToUI(raw);
+                if (!message || !isRecord(raw)) return message;
+                const suggestions = assistantSuggestionsToUI(raw["suggestions"]);
+                if (!suggestions) return message;
+                replaySuggestions[suggestions.turn_id] = suggestions;
+                return { ...message, suggestionsTurnId: suggestions.turn_id };
+              })
+              .filter((m): m is UIMessage => !!m)
           : [];
         if (cancelled || sessionIdRef.current !== replaySessionId) return;
         if (replayed.length > 0) {
           setMessages(replayed);
+          setSuggestionsByTurn(replaySuggestions);
           setReplayPhase("loaded");
         } else {
           setReplayPhase("empty");
@@ -410,6 +434,7 @@ export default function Home() {
     };
 
     const history = [...messages, next];
+    setSuggestionsByTurn({});
     setMessages(history);
     setInput("");
     setBusy(true);
@@ -454,6 +479,7 @@ export default function Home() {
       let assistantSummary: UISummary | null = null;
       let assistantSelections: UISelection[] = [];
       let assistantMission: LumoMissionPlan | null = null;
+      let assistantSuggestionsTurnId: string | null = null;
       let buf = "";
       const assistantId = `a-${next.id}`;
 
@@ -503,6 +529,15 @@ export default function Home() {
                 ...assistantSelections.filter((x) => x.kind !== s.kind),
                 s,
               ];
+            }
+          } else if (frame.type === "assistant_suggestions") {
+            const suggestions = assistantSuggestionsToUI(frame.value);
+            if (suggestions) {
+              assistantSuggestionsTurnId = suggestions.turn_id;
+              setSuggestionsByTurn((prev) => ({
+                ...prev,
+                [suggestions.turn_id]: suggestions,
+              }));
             }
           } else if (frame.type === "leg_status") {
             const v = frame.value as {
@@ -555,6 +590,7 @@ export default function Home() {
                 selections: assistantSelections.length
                   ? assistantSelections
                   : undefined,
+                suggestionsTurnId: assistantSuggestionsTurnId ?? undefined,
               },
             ];
           });
@@ -641,6 +677,7 @@ export default function Home() {
           "I can book flights, order food, reserve hotels — and string them together into a single trip. What do you need?",
       },
     ]);
+    setSuggestionsByTurn({});
     setLegStatusesByMsg({});
     setInput("");
     const fresh =
@@ -796,6 +833,10 @@ export default function Home() {
                 : null;
             const tripStatuses = isTrip ? legStatusesByMsg[m.id] : undefined;
             const isUser = m.role === "user";
+            const suggestionFrame =
+              m.suggestionsTurnId && !userMessageExistsAfter(m.id).exists
+                ? suggestionsByTurn[m.suggestionsTurnId]
+                : null;
 
             return (
               <div key={m.id} className="animate-fade-up space-y-3">
@@ -819,6 +860,16 @@ export default function Home() {
                       </div>
                     </div>
                   )
+                ) : null}
+
+                {m.role === "assistant" && suggestionFrame ? (
+                  <div className="pl-[18px]">
+                    <SuggestionChips
+                      suggestions={suggestionFrame.suggestions}
+                      onChipSelect={(value) => void sendText(value)}
+                      disabled={busy || isReplayLoading}
+                    />
+                  </div>
                 ) : null}
 
                 {isItinerary && m.summary ? (
@@ -1095,6 +1146,36 @@ function replayMessageToUI(raw: unknown): UIMessage | null {
     mission: isRecord(raw["mission"])
       ? (raw["mission"] as unknown as LumoMissionPlan)
       : null,
+  };
+}
+
+function assistantSuggestionsToUI(value: unknown): UIAssistantSuggestions | null {
+  if (!isRecord(value)) return null;
+  if (value["kind"] !== "assistant_suggestions") return null;
+  const turnId = typeof value["turn_id"] === "string" ? value["turn_id"].trim() : "";
+  const rawSuggestions = Array.isArray(value["suggestions"]) ? value["suggestions"] : [];
+  const suggestions = rawSuggestions
+    .map((item, index): SuggestionChipItem | null => {
+      if (!isRecord(item)) return null;
+      const valueText = typeof item["value"] === "string" ? item["value"].trim() : "";
+      const labelText =
+        typeof item["label"] === "string" && item["label"].trim()
+          ? item["label"].trim()
+          : valueText;
+      const idText =
+        typeof item["id"] === "string" && item["id"].trim()
+          ? item["id"].trim()
+          : `s${index + 1}`;
+      if (!valueText || !labelText) return null;
+      return { id: idText, label: labelText, value: valueText };
+    })
+    .filter((item): item is SuggestionChipItem => item !== null)
+    .slice(0, 4);
+  if (!turnId || suggestions.length === 0) return null;
+  return {
+    kind: "assistant_suggestions",
+    turn_id: turnId,
+    suggestions,
   };
 }
 
