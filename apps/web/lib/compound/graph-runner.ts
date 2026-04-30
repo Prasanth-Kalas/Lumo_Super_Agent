@@ -4,11 +4,11 @@ import {
   type CompoundReplayAction,
   type CompoundReplayPlan,
   type CompoundTransactionReplaySnapshot,
-} from "../saga.js";
+} from "../saga.ts";
 import {
   buildLegStatusFrame,
   type LegStatusFrameV2,
-} from "../sse/leg-status.js";
+} from "../sse/leg-status.ts";
 
 export interface CompoundLegExecutionResult {
   ok: boolean;
