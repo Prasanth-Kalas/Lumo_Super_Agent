@@ -1,8 +1,19 @@
 import SwiftUI
 
-/// A single chat message rendered with role-aware styling. The view
-/// renders plain text by default; pass `markdown: true` to route the
-/// content through the lightweight `MarkdownRenderer`.
+/// A single chat message rendered with role-aware styling.
+///
+/// IOS-MIRROR-WEB-1 changed the visual posture to mirror the web chat
+/// thread (apps/web/app/page.tsx):
+///   • Assistant messages render as prose with a small "Lumo" label
+///     above — no rounded bubble background. Matches web's
+///     "messages are typographic, not bubbled" rule.
+///   • User messages stay right-aligned but in a soft elevated pill
+///     (LumoElevated) instead of the heavy filled cyanDeep bubble,
+///     matching web's lighter user-message treatment.
+///
+/// `userBubble` / `userBubbleText` / `assistantBubble` /
+/// `assistantBubbleText` tokens stay in LumoColors for any external
+/// callers; the values they resolve to drive the new look.
 
 struct MessageBubble: View {
     let message: ChatMessage
@@ -16,6 +27,9 @@ struct MessageBubble: View {
             if message.role == .user { Spacer(minLength: LumoSpacing.xxxl) }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: LumoSpacing.xxs) {
+                if message.role == .assistant {
+                    assistantHeader
+                }
                 bubble
                 footer
             }
@@ -25,24 +39,41 @@ struct MessageBubble: View {
         .contextMenu { menu }
     }
 
+    /// Small "Lumo" label that sits above each assistant message.
+    /// Matches web's `<div>Lumo</div>` row above the prose body.
+    private var assistantHeader: some View {
+        HStack(spacing: LumoSpacing.xs) {
+            Text("Lumo")
+                .font(LumoFonts.caption.weight(.medium))
+                .foregroundStyle(LumoColors.labelTertiary)
+                .textCase(.uppercase)
+                .tracking(1.2)
+        }
+    }
+
     @ViewBuilder
     private var bubble: some View {
-        Group {
-            if message.role == .assistant {
-                MarkdownRenderer(text: message.text)
-            } else {
-                Text(message.text)
-            }
+        if message.role == .assistant {
+            // Typographic — no background, no padding outside the
+            // text width. Prose flows naturally inside the column.
+            MarkdownRenderer(text: message.text)
+                .font(LumoFonts.body)
+                .foregroundStyle(LumoColors.label)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            // Soft elevated pill for user messages — right-aligned,
+            // muted background instead of saturated cyan-deep.
+            Text(message.text)
+                .font(LumoFonts.body)
+                .foregroundStyle(LumoColors.label)
+                .padding(.horizontal, LumoSpacing.md)
+                .padding(.vertical, LumoSpacing.sm + 2)
+                .background(
+                    RoundedRectangle(cornerRadius: LumoRadius.bubble)
+                        .fill(LumoColors.surfaceElevated)
+                )
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .font(LumoFonts.body)
-        .foregroundStyle(message.role == .user ? LumoColors.userBubbleText : LumoColors.assistantBubbleText)
-        .padding(.horizontal, LumoSpacing.md)
-        .padding(.vertical, LumoSpacing.sm + 2)
-        .background(
-            RoundedRectangle(cornerRadius: LumoRadius.bubble)
-                .fill(message.role == .user ? LumoColors.userBubble : LumoColors.assistantBubble)
-        )
-        .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
     }
 
     private var footer: some View {

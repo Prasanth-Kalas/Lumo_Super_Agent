@@ -200,54 +200,78 @@ struct ChatView: View {
     }
 
     // MARK: - Input bar
+    //
+    // IOS-MIRROR-WEB-1 reshapes the composer to match the web chat
+    // composer (apps/web/app/page.tsx): a bordered rounded block
+    // pinned to the bottom, with the text field on top and an
+    // explicit toolbar row beneath holding mic + Send. Both buttons
+    // are always visible — Send disables when the input is empty or
+    // a stream is in flight, mic stays available for push-to-talk.
 
     private var inputBar: some View {
-        HStack(spacing: LumoSpacing.sm) {
-            LumoTextField(
-                "Ask Lumo…",
-                text: $viewModel.input,
-                submitLabel: .send,
-                onSubmit: { viewModel.send(mode: .text) }
-            )
-            .focused($inputFocused)
+        VStack(spacing: 0) {
+            // Bordered composer block
+            VStack(spacing: 0) {
+                LumoTextField(
+                    "Ask Lumo to book a flight, order dinner, plan a trip…",
+                    text: $viewModel.input,
+                    submitLabel: .send,
+                    onSubmit: { viewModel.send(mode: .text) }
+                )
+                .focused($inputFocused)
+                .padding(.horizontal, LumoSpacing.md)
+                .padding(.top, LumoSpacing.md)
 
-            // Voice button only when the text field is empty — the
-            // common chat-app pattern: type to type, hold to speak.
-            // Once the user has typed anything the button swaps to
-            // the send affordance.
-            if viewModel.input.trimmingCharacters(in: .whitespaces).isEmpty {
-                VoicePushToTalkButton(
-                    isListening: voiceComposer.state.isListening,
-                    isDisabled: viewModel.isStreaming,
-                    onTap: { Task { await voiceComposer.tapToTalk() } },
-                    onLongPressBegan: { Task { await voiceComposer.pressBegan() } },
-                    onLongPressEnded: { voiceComposer.release() }
-                )
-            } else {
-                Button(action: handleSendTap) {
-                    Image(systemName: "paperplane.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(sendButtonBackground)
+                // Toolbar row — mic on left, Send on right.
+                HStack(spacing: LumoSpacing.sm) {
+                    VoicePushToTalkButton(
+                        isListening: voiceComposer.state.isListening,
+                        isDisabled: viewModel.isStreaming,
+                        onTap: { Task { await voiceComposer.tapToTalk() } },
+                        onLongPressBegan: { Task { await voiceComposer.pressBegan() } },
+                        onLongPressEnded: { voiceComposer.release() }
+                    )
+
+                    Spacer()
+
+                    Button(action: handleSendTap) {
+                        HStack(spacing: LumoSpacing.xs) {
+                            Text("Send")
+                                .font(LumoFonts.callout.weight(.medium))
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        // Inversion pair — bg uses the foreground color
+                        // (label) and text uses the page background.
+                        // Resolves to dark-text-on-light-pill in dark
+                        // mode and light-text-on-dark-pill in light
+                        // mode. Mirrors web's `bg-lumo-fg text-lumo-bg`.
+                        .foregroundStyle(canSend ? LumoColors.background : LumoColors.labelTertiary)
+                        .padding(.horizontal, LumoSpacing.md)
+                        .frame(height: 36)
+                        .background(
+                            Capsule().fill(canSend ? LumoColors.label : LumoColors.surfaceElevated)
+                        )
+                    }
+                    .accessibilityLabel("Send message")
+                    .accessibilityIdentifier("chat.send")
+                    .disabled(!canSend)
                 }
-                .accessibilityLabel("Send message")
-                .accessibilityIdentifier("chat.send")
-                .disabled(!canSend)
+                .padding(.horizontal, LumoSpacing.md)
+                .padding(.vertical, LumoSpacing.sm)
             }
+            .background(
+                RoundedRectangle(cornerRadius: LumoRadius.lg)
+                    .fill(LumoColors.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: LumoRadius.lg)
+                    .stroke(LumoColors.separator, lineWidth: 1)
+            )
+            .padding(.horizontal, LumoSpacing.md)
+            .padding(.bottom, LumoSpacing.sm)
         }
-        .padding(LumoSpacing.md)
-        .background(
-            LumoColors.surface
-                .overlay(
-                    Rectangle()
-                        .fill(LumoColors.separator)
-                        .frame(height: 0.5),
-                    alignment: .top
-                )
-                .ignoresSafeArea(edges: .bottom)
-        )
-        .animation(LumoAnimation.quick, value: viewModel.input.isEmpty)
+        .background(LumoColors.background.ignoresSafeArea(edges: .bottom))
     }
 
     // MARK: - Voice → chat handoff
@@ -267,10 +291,6 @@ struct ChatView: View {
 
     private var canSend: Bool {
         !viewModel.input.trimmingCharacters(in: .whitespaces).isEmpty && !viewModel.isStreaming
-    }
-
-    private var sendButtonBackground: some View {
-        Circle().fill(canSend ? LumoColors.cyan : LumoColors.labelTertiary)
     }
 
     private func handleSendTap() {
