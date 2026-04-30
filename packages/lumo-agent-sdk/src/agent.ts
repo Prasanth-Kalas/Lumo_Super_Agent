@@ -37,6 +37,12 @@ export interface MerchantAgentContext {
   evidence?: Record<string, unknown>;
 }
 
+export interface CompensationActionContext extends MerchantAgentContext {
+  original_transaction_id: string;
+  original_provider_reference?: string;
+  reason: string;
+}
+
 export abstract class LumoAgent<TManifest = unknown> {
   readonly manifest: TManifest;
 
@@ -57,4 +63,10 @@ export abstract class MerchantOfRecordAgent<TManifest = unknown> extends LumoAge
   ): Promise<RefundResult>;
 
   abstract getTransactionStatus(transactionId: string): Promise<TransactionState>;
+
+  abstract compensationAction(
+    capabilityId: string,
+    input: unknown,
+    context: CompensationActionContext,
+  ): Promise<RefundResult | TransactionResult>;
 }

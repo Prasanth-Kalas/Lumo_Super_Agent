@@ -187,13 +187,14 @@ await t("merchant manifest validation enforces commerce block and compensation",
     transaction_capabilities: [
       {
         ...sampleManifest.transaction_capabilities[0],
+        compensationAction: undefined,
         compensation_action_capability_id: undefined,
       },
     ],
   };
   const compensationResult = validateMerchantManifest(missingCompensation);
   assert.equal(compensationResult.ok, false);
-  assert.match(compensationResult.errors.join("\n"), /compensation_action_capability_id/);
+  assert.match(compensationResult.errors.join("\n"), /compensationAction/);
 });
 
 await t("stub merchant agent validates and executes deterministic $1 flow", async () => {

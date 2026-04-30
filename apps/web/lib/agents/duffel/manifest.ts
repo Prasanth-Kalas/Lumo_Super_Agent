@@ -15,4 +15,15 @@ export const DUFFEL_FLIGHT_AGENT_MANIFEST = {
     confirmation_required: true,
     min_trust_tier: "verified",
   },
+  transaction_capabilities: [
+    {
+      id: "book_flight",
+      kind: "book_flight",
+      requires_confirmation: true,
+      idempotency_key_field: "idempotencyKey",
+      compensationAction: "cancel_flight",
+      compensation_action_capability_id: "cancel_flight",
+      max_single_transaction_amount: { currency: "USD", amount: 5000 },
+    },
+  ],
 } as const;

@@ -478,6 +478,7 @@ function buildDuffelFlightsEntry(): RegistryEntry {
         kind: "book_flight",
         requires_confirmation: true,
         idempotency_key_field: "idempotencyKey",
+        compensationAction: "cancel_flight",
         compensation_action_capability_id: "cancel_flight",
         max_single_transaction_amount: { currency: "USD", amount: 5000 },
       },

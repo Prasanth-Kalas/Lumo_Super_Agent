@@ -54,6 +54,7 @@
         "currency": "USD"
       },
       "refund_eligibility_window": "P7D",
+      "compensationAction": "refund_test_reservation",
       "compensation_action_capability_id": "refund_test_reservation",
       "requires_confirmation": true
     },
