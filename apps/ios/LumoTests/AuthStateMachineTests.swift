@@ -169,6 +169,8 @@ final class FakeAuthService: AuthServicing {
 
     var scriptedRestore: AuthState = .signedOut
     var nextSignInError: Error?
+    var nextGoogleSignInError: Error?
+    var nextGoogleSignInUser: LumoUser = LumoUser(id: "google-fake", email: "alex@example.com", displayName: "Alex")
     var nextBiometricResult: Result<Bool, Error> = .success(true)
 
     init() {
@@ -189,6 +191,15 @@ final class FakeAuthService: AuthServicing {
         }
         let user = LumoUser(id: credential.userID, email: credential.email, displayName: nil)
         state = .signedIn(user)
+    }
+
+    func signInWithGoogle() async throws {
+        state = .signingIn
+        if let error = nextGoogleSignInError {
+            state = .signedOut
+            throw error
+        }
+        state = .signedIn(nextGoogleSignInUser)
     }
 
     func unlockWithBiometric() async throws {
