@@ -22,6 +22,7 @@ export interface LumoMissionProposal {
     | "connect_oauth"
     | "grant_lumo_id";
   can_auto_install: boolean;
+  approval_idempotency_key?: string | null;
   permission_title: string;
   permission_copy: string;
   profile_fields_requested: string[];
@@ -84,6 +85,7 @@ export interface LumoUnavailableCapability {
 
 export interface LumoMissionPlan {
   mission_id: string;
+  session_id?: string | null;
   original_request: string;
   mission_title: string;
   message: string;
@@ -179,7 +181,9 @@ export function LumoMissionCard({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           agent_id: proposal.agent_id,
+          approval_idempotency_key: proposal.approval_idempotency_key,
           mission_id: plan.mission_id,
+          session_id: plan.session_id,
           original_request: plan.original_request,
           user_approved: true,
           profile_fields_approved: proposal.profile_fields_requested,

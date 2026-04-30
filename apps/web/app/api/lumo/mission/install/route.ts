@@ -7,6 +7,7 @@
  */
 
 import type { NextRequest } from "next/server";
+import type { AgentManifest } from "@lumo/agent-sdk";
 import { ensureRegistry } from "@/lib/agent-registry";
 import { AuthError, requireServerUser } from "@/lib/auth";
 import {
@@ -14,13 +15,17 @@ import {
   upsertAgentInstall,
 } from "@/lib/app-installs";
 import { resolvePermissionGate } from "@/lib/mission-gate-resolution";
+import { upsertSessionAppApproval } from "@/lib/session-app-approvals";
+import { sessionApprovalIdempotencyKey } from "@/lib/session-app-approvals-core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 interface Body {
   agent_id?: unknown;
+  approval_idempotency_key?: unknown;
   mission_id?: unknown;
+  session_id?: unknown;
   original_request?: unknown;
   user_approved?: unknown;
   profile_fields_approved?: unknown;
@@ -44,6 +49,18 @@ export async function POST(req: NextRequest): Promise<Response> {
     const agent_id =
       typeof body.agent_id === "string" ? body.agent_id.trim() : "";
     if (!agent_id) return json({ error: "missing_agent_id" }, 400);
+    const session_id =
+      typeof body.session_id === "string" ? body.session_id.trim() : "";
+    const approvalKey =
+      typeof body.approval_idempotency_key === "string"
+        ? body.approval_idempotency_key.trim()
+        : "";
+    if (session_id && approvalKey) {
+      const expected = sessionApprovalIdempotencyKey(session_id, agent_id);
+      if (approvalKey !== expected) {
+        return json({ error: "approval_idempotency_key_mismatch" }, 400);
+      }
+    }
 
     const registry = await ensureRegistry();
     const entry =
@@ -89,6 +106,14 @@ export async function POST(req: NextRequest): Promise<Response> {
       permissions,
       install_source: "lumo",
     });
+    const sessionApproval = session_id
+      ? await upsertSessionAppApproval({
+          user_id: user.id,
+          session_id,
+          agent_id,
+          granted_scopes: grantedScopesForApproval(manifest, approvedFields),
+        })
+      : null;
     await resolvePermissionGate(user.id, agent_id).catch((gateErr) => {
       console.warn("[lumo/mission/install] mission permission gate resolution failed", {
         agent_id,
@@ -98,6 +123,13 @@ export async function POST(req: NextRequest): Promise<Response> {
 
     return json({
       install,
+      session_approval: sessionApproval
+        ? {
+            session_id: sessionApproval.session_id,
+            agent_id: sessionApproval.agent_id,
+            approved_at: sessionApproval.approved_at,
+          }
+        : null,
       agent: {
         agent_id,
         display_name: manifest.display_name,
@@ -110,6 +142,21 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
     throw err;
   }
+}
+
+function grantedScopesForApproval(
+  manifest: AgentManifest,
+  approvedFields: string[],
+): string[] {
+  const scopes = new Set<string>();
+  if (manifest.connect.model === "oauth2") {
+    for (const scope of manifest.connect.scopes) {
+      if (scope.required) scopes.add(`oauth:${scope.name}`);
+    }
+  }
+  for (const field of approvedFields) scopes.add(`profile:${field}`);
+  if (manifest.requires_payment) scopes.add("payment:confirmation_required");
+  return Array.from(scopes).sort();
 }
 
 async function readBody(req: NextRequest): Promise<Body | null> {

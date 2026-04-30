@@ -14,6 +14,7 @@ import type { AppInstall } from "./app-installs.js";
 import type { ConnectionMeta } from "./connections.js";
 import type { RankedAgentResult, RiskBadge } from "./marketplace-intelligence-core.js";
 import { persistMission } from "./mission-execution.ts";
+import { sessionApprovalIdempotencyKey } from "./session-app-approvals-core.ts";
 import type { TripOptimizationResult } from "./trip-optimization.js";
 
 export type MissionAgentState =
@@ -65,6 +66,7 @@ export interface MissionAgentCandidate {
 export interface MissionInstallProposal extends MissionAgentCandidate {
   action: MissionInstallAction;
   can_auto_install: boolean;
+  approval_idempotency_key: string | null;
   permission_title: string;
   permission_copy: string;
   profile_fields_requested: AgentManifest["pii_scope"];
@@ -79,6 +81,7 @@ export interface MissionUnavailableCapability {
 
 export interface LumoMissionPlan {
   mission_id: string;
+  session_id: string | null;
   original_request: string;
   mission_title: string;
   message: string;
@@ -101,6 +104,7 @@ export interface BuildMissionPlanInput {
   installs?: AppInstall[];
   user_id?: string | null;
   session_id?: string | null;
+  session_approved_agent_ids?: string[];
   continue_approved?: boolean;
   ranked_agents?: RankedAgentResult[];
   risk_badges?: Record<string, RiskBadge> | Map<string, RiskBadge>;
@@ -314,6 +318,9 @@ export function buildLumoMissionPlan(
   const installedAgentIds = new Set(
     installs.filter((i) => i.status === "installed").map((i) => i.agent_id),
   );
+  for (const agentId of input.session_approved_agent_ids ?? []) {
+    if (agentId.trim()) installedAgentIds.add(agentId.trim());
+  }
   const toolTextByAgent = buildToolTextByAgent(input.registry);
   const required_agents: MissionAgentCandidate[] = [];
   const unavailable_capabilities: MissionUnavailableCapability[] = [];
@@ -361,7 +368,7 @@ export function buildLumoMissionPlan(
     ? []
     : missionAgents
         .filter((a) => a.state !== "ready" && a.state !== "unavailable")
-        .map(toInstallProposal);
+        .map((agent) => toInstallProposal(agent, input.session_id));
 
   const mission_id = stableMissionId(request, dedupedAgents, unavailable_capabilities);
   const mission_title = inferMissionTitle(request, dedupedAgents);
@@ -385,6 +392,7 @@ export function buildLumoMissionPlan(
 
   const plan: LumoMissionPlan = {
     mission_id,
+    session_id: input.session_id ?? null,
     original_request: request,
     mission_title,
     message,
@@ -613,6 +621,7 @@ function stateForAgent(
 
 function toInstallProposal(
   candidate: MissionAgentCandidate,
+  session_id?: string | null,
 ): MissionInstallProposal {
   const hasProfileFields = candidate.pii_scope.length > 0;
   const action: MissionInstallAction =
@@ -640,6 +649,9 @@ function toInstallProposal(
     ...candidate,
     action,
     can_auto_install: action !== "connect_oauth",
+    approval_idempotency_key: session_id
+      ? sessionApprovalIdempotencyKey(session_id, candidate.agent_id)
+      : null,
     permission_title:
       action === "connect_oauth"
         ? `Connect ${candidate.display_name}`

@@ -30,6 +30,7 @@ import { ensureRegistry, userScopedBridge } from "./agent-registry.js";
 import { listConnectionsForUser } from "./connections.js";
 import { getSetting, isFeatureEnabled } from "./admin-settings.js";
 import { listInstalledAgentsForUser } from "./app-installs.js";
+import { listSessionAppApprovals } from "./session-app-approvals.js";
 import {
   buildLumoMissionPlan,
   type LumoMissionPlan,
@@ -323,10 +324,13 @@ async function runTurnInner(
   timing: AgentTimingRecorder,
 ): Promise<OrchestratorTurn> {
   const authenticated = Boolean(input.user_id && input.user_id !== "anon");
-  const [registry, connections, installs] = await withAgentTimingSpan(
+  const [registry, connections, installs, sessionApprovals] = await withAgentTimingSpan(
     timing,
     "pre_llm_data_load",
-    { load_group: "registry_connections_installs", user_authenticated: authenticated },
+    {
+      load_group: "registry_connections_installs_session_approvals",
+      user_authenticated: authenticated,
+    },
     async () => {
       const registryPromise = ensureRegistry();
       const connectionsPromise = authenticated
@@ -335,12 +339,21 @@ async function runTurnInner(
       const installsPromise = authenticated
         ? listInstalledAgentsForUser(input.user_id)
         : Promise.resolve([] as Awaited<ReturnType<typeof listInstalledAgentsForUser>>);
-      return Promise.all([registryPromise, connectionsPromise, installsPromise] as const);
+      const sessionApprovalsPromise = authenticated
+        ? listSessionAppApprovals(input.user_id, input.session_id)
+        : Promise.resolve([] as Awaited<ReturnType<typeof listSessionAppApprovals>>);
+      return Promise.all([
+        registryPromise,
+        connectionsPromise,
+        installsPromise,
+        sessionApprovalsPromise,
+      ] as const);
     },
-    ([loadedRegistry, loadedConnections, loadedInstalls]) => ({
+    ([loadedRegistry, loadedConnections, loadedInstalls, loadedSessionApprovals]) => ({
       agent_count: Object.keys(loadedRegistry.agents).length,
       connection_count: loadedConnections.length,
       install_count: loadedInstalls.length,
+      session_approval_count: loadedSessionApprovals.length,
     }),
   );
   // Appstore (v0.4): filter the Claude tool bridge to agents the current
@@ -355,6 +368,10 @@ async function runTurnInner(
   const installedAgentIds = new Set(
     installs.filter((i) => i.status === "installed").map((i) => i.agent_id),
   );
+  const sessionApprovedAgentIds = new Set(
+    sessionApprovals.map((approval) => approval.agent_id),
+  );
+  for (const agentId of sessionApprovedAgentIds) installedAgentIds.add(agentId);
 
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
@@ -493,6 +510,7 @@ async function runTurnInner(
       installs,
       user_id: input.user_id,
       session_id: input.session_id,
+      session_approved_agent_ids: Array.from(sessionApprovedAgentIds),
       continue_approved: missionContinueApproved,
       ranked_agents: rankResult?.ranked_agents,
       risk_badges: riskBadges,
