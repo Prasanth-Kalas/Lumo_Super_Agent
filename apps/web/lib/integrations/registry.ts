@@ -92,6 +92,15 @@ import {
   META_TOKEN_URL,
   isMetaConfigured,
 } from "./meta.js";
+import {
+  DUFFEL_FLIGHT_AGENT_MANIFEST,
+} from "../agents/duffel/manifest.ts";
+import { searchOffers } from "../agents/duffel/flight-search.ts";
+import { createHold } from "../agents/duffel/flight-hold.ts";
+import {
+  cancelFlightOrder,
+  confirmBooking,
+} from "../agents/duffel/flight-book.ts";
 
 // ──────────────────────────────────────────────────────────────────────────
 // Public API
@@ -116,6 +125,7 @@ export function getInternalAgentEntries(): RegistryEntry[] {
   if (isMicrosoftConfigured()) entries.push(buildMicrosoftEntry());
   if (isSpotifyConfigured()) entries.push(buildSpotifyEntry());
   if (isMetaConfigured()) entries.push(buildMetaEntry());
+  entries.push(buildDuffelFlightsEntry());
   // Future: Slack, Notion, GitHub, LinkedIn, X, Threads, Newsletter
   return entries;
 }
@@ -131,13 +141,18 @@ export async function dispatchInternalTool(args: {
   tool_name: string;
   access_token: string;
   args: Record<string, unknown>;
+  user_id?: string;
 }): Promise<unknown> {
   const handler = INTERNAL_TOOL_HANDLERS[args.tool_name];
   if (!handler) {
     throw new Error(`[integrations] no handler for ${args.tool_name}`);
   }
   try {
-    return await handler({ access_token: args.access_token, args: args.args });
+    return await handler({
+      access_token: args.access_token,
+      args: args.args,
+      user_id: args.user_id,
+    });
   } catch (err) {
     // Known API error shapes propagate as-is so router.ts can map
     // HTTP status → AgentErrorCode uniformly.
@@ -155,6 +170,7 @@ export async function dispatchInternalTool(args: {
 type InternalHandler = (args: {
   access_token: string;
   args: Record<string, unknown>;
+  user_id?: string;
 }) => Promise<unknown>;
 
 const INTERNAL_TOOL_HANDLERS: Record<string, InternalHandler> = {
@@ -260,6 +276,42 @@ const INTERNAL_TOOL_HANDLERS: Record<string, InternalHandler> = {
       access_token,
       max_results: typeof args.max_results === "number" ? args.max_results : undefined,
     }),
+
+  // ── Duffel flights ──────────────────────────────────────────────
+  duffel_search_flights: async ({ args }) =>
+    searchOffers({
+      origin: String(args.origin ?? ""),
+      destination: String(args.destination ?? ""),
+      departDate: String(args.departDate ?? args.depart_date ?? ""),
+      returnDate:
+        typeof args.returnDate === "string"
+          ? args.returnDate
+          : typeof args.return_date === "string"
+            ? args.return_date
+            : null,
+      passengers: typeof args.passengers === "number" ? args.passengers : 1,
+      cabinClass: normalizeCabinClass(args.cabinClass ?? args.cabin_class),
+    }),
+  duffel_hold_flight: async ({ args }) =>
+    createHold(
+      String(args.offerId ?? args.offer_id ?? ""),
+      normalizePassengers(args.passengers),
+    ),
+  duffel_book_flight: async ({ args, user_id }) =>
+    confirmBooking({
+      userId: user_id ?? String(args.userId ?? args.user_id ?? ""),
+      offerId: String(args.offerId ?? args.offer_id ?? ""),
+      paymentMethodId: String(args.paymentMethodId ?? args.payment_method_id ?? ""),
+      passengers: normalizePassengers(args.passengers),
+      idempotencyKey:
+        typeof args.idempotencyKey === "string"
+          ? args.idempotencyKey
+          : typeof args.idempotency_key === "string"
+            ? args.idempotency_key
+            : undefined,
+    }),
+  duffel_cancel_flight: async ({ args }) =>
+    cancelFlightOrder(String(args.orderId ?? args.order_id ?? "")),
 };
 
 const INTERNAL_AGENT_IDS = new Set<string>([
@@ -267,6 +319,7 @@ const INTERNAL_AGENT_IDS = new Set<string>([
   MICROSOFT_AGENT_ID,
   SPOTIFY_AGENT_ID,
   META_AGENT_ID,
+  DUFFEL_FLIGHT_AGENT_MANIFEST.agent_id,
 ]);
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -378,6 +431,190 @@ function buildGoogleEntry(): RegistryEntry {
     last_health: { status: "ok", agent_id: GOOGLE_AGENT_ID, version: "0.1.0", checked_at: Date.now() },
     health_score: 1.0,
     manifest_loaded_at: Date.now(),
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Duffel Flights — synthesized manifest + tools + routing
+// ──────────────────────────────────────────────────────────────────────────
+
+function buildDuffelFlightsEntry(): RegistryEntry {
+  const manifest: AgentManifest & Record<string, unknown> = {
+    agent_id: DUFFEL_FLIGHT_AGENT_MANIFEST.agent_id,
+    version: "0.1.0",
+    domain: "travel",
+    display_name: "Lumo Flights",
+    one_liner:
+      "Search, hold, and book real flight offers through Duffel test mode with Lumo's merchant-of-record payment rail.",
+    intents: ["search_flights", "hold_flight", "book_flight", "cancel_flight"],
+    example_utterances: [
+      "find me a flight from NYC to Vegas on May 5",
+      "hold the cheapest flight",
+      "book that flight with my saved Visa",
+    ],
+    openapi_url: `${process.env.LUMO_SHELL_PUBLIC_URL ?? "https://lumo-super-agent.vercel.app"}/.well-known/internal/duffel-flights`,
+    ui: { components: ["flight-offers", "receipt"] },
+    health_url: `${process.env.LUMO_SHELL_PUBLIC_URL ?? "https://lumo-super-agent.vercel.app"}/api/health`,
+    sla: { p50_latency_ms: 1200, p95_latency_ms: 4500, availability_target: 0.99 },
+    pii_scope: ["name", "email", "phone", "dob", "payment_method_id", "traveler_profile"],
+    requires_payment: true,
+    supported_regions: ["US"],
+    capabilities: {
+      sdk_version: "0.1.0",
+      supports_compound_bookings: true,
+      implements_cancellation: true,
+    },
+    connect: { model: "none" },
+    agent_class: "merchant_of_record",
+    merchant_provider: "duffel",
+    commerce: {
+      provider: "duffel",
+      confirmation_required: true,
+      min_trust_tier: "verified",
+    },
+    transaction_capabilities: [
+      {
+        id: "book_flight",
+        kind: "book_flight",
+        requires_confirmation: true,
+        idempotency_key_field: "idempotencyKey",
+        compensation_action_capability_id: "cancel_flight",
+        max_single_transaction_amount: { currency: "USD", amount: 5000 },
+      },
+    ],
+    listing: {
+      category: "Travel",
+      pricing_note: "Pay per booking · Duffel test mode in development",
+      about_paragraphs: [
+        "Lumo Flights searches Duffel offers, holds eligible fares, and books through Lumo's merchant-of-record payment rail after explicit user confirmation.",
+      ],
+    },
+  };
+
+  return {
+    key: "lumo-flights",
+    system: true,
+    base_url: `internal://${DUFFEL_FLIGHT_AGENT_MANIFEST.agent_id}`,
+    manifest,
+    openapi: {} as never,
+    last_health: {
+      status: "ok",
+      agent_id: DUFFEL_FLIGHT_AGENT_MANIFEST.agent_id,
+      version: "0.1.0",
+      checked_at: Date.now(),
+    },
+    health_score: 1.0,
+    manifest_loaded_at: Date.now(),
+  };
+}
+
+function buildDuffelFlightClaudeTools(): ClaudeTool[] {
+  return [
+    {
+      name: "duffel_search_flights",
+      description:
+        "Search Duffel flight offers. Use for user requests like 'find flights from NYC to Vegas on May 5'. Returns ranked offer IDs, prices, slices, carriers, and whether an offer can be held.",
+      input_schema: {
+        type: "object",
+        properties: {
+          origin: { type: "string", description: "IATA airport/city code, e.g. JFK or NYC." },
+          destination: { type: "string", description: "IATA airport/city code, e.g. LAS." },
+          departDate: { type: "string", description: "Departure date YYYY-MM-DD." },
+          returnDate: { type: "string", description: "Optional return date YYYY-MM-DD." },
+          passengers: { type: "number", description: "Adult passenger count, 1..9. Default 1." },
+          cabinClass: {
+            type: "string",
+            enum: ["economy", "premium_economy", "business", "first"],
+          },
+        },
+        required: ["origin", "destination", "departDate"],
+      },
+    },
+    {
+      name: "duffel_hold_flight",
+      description:
+        "Hold a Duffel flight offer without charging the user, when the offer supports deferred payment.",
+      input_schema: {
+        type: "object",
+        properties: {
+          offerId: { type: "string" },
+          passengers: {
+            type: "array",
+            items: { type: "object" },
+            description: "Duffel passenger payloads.",
+          },
+        },
+        required: ["offerId", "passengers"],
+      },
+    },
+    {
+      name: "duffel_book_flight",
+      description:
+        "Book a Duffel flight offer through Lumo merchant-of-record payments. MONEY-MOVING: only call after Lumo has shown and confirmed a booking summary.",
+      input_schema: {
+        type: "object",
+        properties: {
+          offerId: { type: "string" },
+          paymentMethodId: { type: "string" },
+          passengers: { type: "array", items: { type: "object" } },
+          idempotencyKey: { type: "string" },
+        },
+        required: ["offerId", "paymentMethodId", "passengers"],
+      },
+    },
+    {
+      name: "duffel_cancel_flight",
+      description:
+        "Cancel a Duffel flight order as the compensation action for a failed or user-cancelled flight booking.",
+      input_schema: {
+        type: "object",
+        properties: {
+          orderId: { type: "string" },
+        },
+        required: ["orderId"],
+      },
+    },
+  ];
+}
+
+function buildDuffelFlightRouting(): Record<string, ToolRoutingEntry> {
+  const common = {
+    agent_id: DUFFEL_FLIGHT_AGENT_MANIFEST.agent_id,
+    http_method: "POST" as const,
+    pii_required: [] as string[],
+    intent_tags: ["travel", "flight"],
+  };
+  return {
+    duffel_search_flights: {
+      ...common,
+      path: "/internal/duffel_search_flights",
+      cost_tier: "metered",
+      operation_id: "search_flights",
+      requires_confirmation: false,
+    },
+    duffel_hold_flight: {
+      ...common,
+      path: "/internal/duffel_hold_flight",
+      cost_tier: "metered",
+      operation_id: "hold_flight",
+      requires_confirmation: false,
+      pii_required: ["name", "email", "phone"],
+    },
+    duffel_book_flight: {
+      ...common,
+      path: "/internal/duffel_book_flight",
+      cost_tier: "money",
+      operation_id: "book_flight",
+      requires_confirmation: "structured-reservation",
+      pii_required: ["name", "email", "phone", "dob", "payment_method_id"],
+    },
+    duffel_cancel_flight: {
+      ...common,
+      path: "/internal/duffel_cancel_flight",
+      cost_tier: "metered",
+      operation_id: "cancel_flight",
+      requires_confirmation: false,
+    },
   };
 }
 
@@ -1023,7 +1260,33 @@ export function mergeInternalIntoBridge(
     } else if (e.manifest.agent_id === SPOTIFY_AGENT_ID) {
       tools.push(...buildSpotifyClaudeTools());
       for (const [k, v] of Object.entries(buildSpotifyRouting())) routing[k] = v;
+    } else if (e.manifest.agent_id === DUFFEL_FLIGHT_AGENT_MANIFEST.agent_id) {
+      tools.push(...buildDuffelFlightClaudeTools());
+      for (const [k, v] of Object.entries(buildDuffelFlightRouting())) routing[k] = v;
     }
   }
   return { tools, routing };
+}
+
+function normalizeCabinClass(
+  value: unknown,
+): "economy" | "premium_economy" | "business" | "first" | undefined {
+  if (
+    value === "economy" ||
+    value === "premium_economy" ||
+    value === "business" ||
+    value === "first"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function normalizePassengers(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value) && value.length > 0) {
+    return value
+      .filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null)
+      .slice(0, 9);
+  }
+  return [{ type: "adult" }];
 }

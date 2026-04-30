@@ -324,6 +324,7 @@ export async function dispatchToolCall(
         tool_name: toolName,
         access_token,
         args,
+        user_id: ctx.user_id,
       });
       recordSuccess(routing.agent_id);
       if (connectionId) void touchLastUsed(connectionId);

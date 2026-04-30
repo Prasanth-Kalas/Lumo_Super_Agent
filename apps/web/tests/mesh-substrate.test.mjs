@@ -32,6 +32,7 @@ console.log("\nmesh-1 substrate");
 
 const migration045 = readFileSync("../../db/migrations/045_mesh_subagent_calls.sql", "utf8");
 const orchestrator = readFileSync("lib/orchestrator.ts", "utf8");
+const integrationRegistry = readFileSync("lib/integrations/registry.ts", "utf8");
 
 await t("migration 045 declares subagent_calls with append-only evidence", () => {
   assert.match(migration045, /create table if not exists public\.subagent_calls/);
@@ -236,6 +237,20 @@ await t("orchestrator feature flag wires mesh without removing legacy path", () 
   assert.match(orchestrator, /SupervisorOrchestrator/);
   assert.match(orchestrator, /<mesh_context request_id=/);
   assert.match(orchestrator, /runTurnInner\(input, emit, timing\)/);
+});
+
+await t("Duffel flight tools are registered as internal merchant-of-record tools", () => {
+  for (const tool of [
+    "duffel_search_flights",
+    "duffel_hold_flight",
+    "duffel_book_flight",
+    "duffel_cancel_flight",
+  ]) {
+    assert.match(integrationRegistry, new RegExp(tool));
+  }
+  assert.match(integrationRegistry, /buildDuffelFlightsEntry/);
+  assert.match(integrationRegistry, /requires_confirmation: "structured-reservation"/);
+  assert.match(integrationRegistry, /cost_tier: "money"/);
 });
 
 if (fail) {
