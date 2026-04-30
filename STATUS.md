@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/compound-idempotency-conflict-1 | 2026-04-30 | COMPOUND-IDEMPOTENCY-CONFLICT-1 idempotency graph-hash conflict 409 |
 
 ## Closed lanes
 
