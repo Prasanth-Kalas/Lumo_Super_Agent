@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/auth-oauth-1b | 2026-04-30 | AUTH-OAUTH-1b Continue-with-Google + Continue-with-Apple buttons (web /login + /signup, iOS native) |
 
 ## Closed lanes
 

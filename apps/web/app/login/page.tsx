@@ -27,6 +27,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
+import OAuthButtons from "@/components/OAuthButtons";
 import { seedProfile } from "@/lib/seed-profile";
 
 /**
@@ -183,6 +184,10 @@ function LoginForm() {
         <p className="text-[13.5px] text-lumo-fg-mid mb-6">
           One account. Every connected app.
         </p>
+
+        <div className="mb-4">
+          <OAuthButtons next={next} disabled={busy} />
+        </div>
 
         <form onSubmit={onSubmit} className="space-y-3">
           <label className="block">
