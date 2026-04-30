@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-notif-1 | 2026-04-30 | MOBILE-NOTIF-1 iOS notifications + proactive moments (APNs + 4 categories + background fetch + in-app cards) |
 
 ## Closed lanes
 
@@ -23,6 +22,7 @@
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-payments-1 | 2026-04-30 | 2026-04-30 | MOBILE-PAYMENTS-1 iOS payment surface (Stripe SDK + biometric confirmation + receipts; MERCHANT-1 swap path documented) |
 | Codex | Lumo_Super_Agent_codex | codex/merchant-1 | 2026-04-30 | 2026-04-30 | MERCHANT-1 merchant-of-record substrate (real Stripe SetupIntent + PaymentIntent + ECDSA device confirmation + webhook reconciliation) |
 | Codex | Lumo_Super_Agent_codex | codex/perf-1-plus-2 | 2026-04-30 | 2026-04-30 | PERF-1+2 latency instrumentation, prompt caching, parallel pre-LLM loads, intent classifier (Groq + Cerebras failover), Haiku fast-path + Sonnet reasoning router, /admin/perf dashboard |
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-notif-1 | 2026-04-30 | 2026-04-30 | MOBILE-NOTIF-1 iOS notifications + proactive moments (APNs + 4 categories + background fetch + in-app cards + Settings section); 3 follow-ups filed (MOBILE-NOTIF-2-INIT, LOCAL-NOTIF-REFINE, MOBILE-API-1-NAV-PLUMB) |
 
 ## Last push
 
@@ -73,3 +73,4 @@
 - 2026-04-30 — PERF-1+2 model-routing checkpoint drafted: Groq intent classifier with Cerebras failover, Haiku fast/tool path router, Sonnet fallback, and perf-routing regression suite
 - 2026-04-30 — PERF-1+2 merged to main; latency substrate live (per-phase spans + dashboard + prompt caching + parallel preloads + Groq/Cerebras intent classifier + Haiku/Sonnet model router); live p50 verification blocked until migrations 037-044 applied to staging Supabase. Codex queued for COMPOUND-EXEC-1.
 - 2026-04-30 — claude-code/mobile-notif-1 ready for review: all 10 deliverable groups done (APNs entitlement + UIBackgroundModes + BGTaskSchedulerPermittedIdentifiers, NotificationService w/ device register+unregister, 5 backend stubs under /api/notifications/* and /api/proactive/*, 4 UNNotificationCategory definitions per Option A — payment-receipt has no dispute action, NotificationActionHandler with category × action routing + tab selection, BGTaskScheduler 4h cadence, ProactiveMomentsCache + ViewModel + in-app cards above chat composer, Settings notifications section w/ master + 4 categories + quiet-hours, 48 new tests bringing total to 146, 6 light+dark screenshots via NotificationsFixtureRoot); E2E APNs push delivery deferred until auth key + push sender ship (Phase 4.5); deep nav for notification taps lands tab selection but full plumb is MOBILE-API-1 work
+- 2026-04-30 — MOBILE-NOTIF-1 merged to main; iOS notification surface complete (APNs + 4 categories + background fetch + proactive moments + Settings); 3 follow-ups filed (MOBILE-NOTIF-2-INIT app-delegate install timing, LOCAL-NOTIF-REFINE server-side double-notification flag, MOBILE-API-1-NAV-PLUMB deep-link receipt id + chat prefill). Claude Code queued for MOBILE-PAYMENTS-1.1 (HMAC → ECDSA biometric token swap; ~1 session of work).
