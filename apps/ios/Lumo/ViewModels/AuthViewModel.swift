@@ -63,6 +63,24 @@ final class AuthViewModel: ObservableObject {
 
     func clearError() { error = nil }
 
+    /// Kicks off the Google OAuth flow via AuthService.signInWithGoogle.
+    /// User-cancel is suppressed (no error banner); other errors surface
+    /// the same way Apple's failure path does.
+    func startGoogleSignIn() {
+        Task { await startGoogleSignInAsync() }
+    }
+
+    private func startGoogleSignInAsync() async {
+        do {
+            try await auth.signInWithGoogle()
+        } catch GoogleSignInError.userCancelled {
+            // User dismissed the auth sheet — silent recovery.
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+        }
+    }
+
     func devSignIn() {
         Task { await auth.devSignIn() }
     }

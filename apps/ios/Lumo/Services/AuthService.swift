@@ -64,6 +64,11 @@ protocol AuthServicing: AnyObject {
     /// session and transition to `signedIn`.
     func signInWithApple(_ credential: AppleCredential) async throws
 
+    /// Run the Google OAuth flow via ASWebAuthenticationSession against
+    /// Supabase's /authorize endpoint, exchange the returned code for
+    /// a session, and transition to `signedIn`.
+    func signInWithGoogle() async throws
+
     /// Pass the post-cold-launch biometric gate. If not currently in
     /// `needsBiometric`, no-op.
     func unlockWithBiometric() async throws
@@ -93,6 +98,10 @@ final class AuthService: AuthServicing {
     private let config: AppConfig
     private let biometric: BiometricUnlockServicing
     private let isBiometricGateEnabled: () -> Bool
+    /// Built lazily on first Google sign-in to avoid spinning up a
+    /// presentation-context provider for users who never tap the
+    /// Google button. Test path injects a fake via init.
+    private var google: GoogleSignInServicing
 
     /// Supabase client is lazy-constructed on first use rather than at
     /// AuthService.init. Keeps cold-start fast on the common path
@@ -122,11 +131,17 @@ final class AuthService: AuthServicing {
     init(
         config: AppConfig,
         biometric: BiometricUnlockServicing = BiometricUnlockService(),
-        isBiometricGateEnabled: @escaping () -> Bool = { AuthService.defaultBiometricGateGetter() }
+        isBiometricGateEnabled: @escaping () -> Bool = { AuthService.defaultBiometricGateGetter() },
+        google: GoogleSignInServicing? = nil
     ) {
         self.config = config
         self.biometric = biometric
         self.isBiometricGateEnabled = isBiometricGateEnabled
+        // GoogleSignInService is @MainActor; constructing it in the
+        // default-arg expression triggers a Swift 6 isolation diag
+        // because the caller may not be MainActor-isolated. Build it
+        // here in the @MainActor init body instead.
+        self.google = google ?? GoogleSignInService()
 
         var continuation: AsyncStream<AuthState>.Continuation!
         self.stateChange = AsyncStream { continuation = $0 }
@@ -178,6 +193,31 @@ final class AuthService: AuthServicing {
             let user = Self.lumoUser(from: session.user, fallbackEmail: credential.email, fallbackName: credential.fullName)
             // After fresh sign-in the user has just authenticated with
             // Apple; skip the biometric gate for this session.
+            state = .signedIn(user)
+        } catch {
+            state = .signedOut
+            throw error
+        }
+    }
+
+    func signInWithGoogle() async throws {
+        guard let client, let supabaseURL = config.supabaseURL else {
+            throw AuthServiceError.notConfigured
+        }
+        state = .signingIn
+        do {
+            let authorizeURL = google.authorizeURL(supabaseURL: supabaseURL)
+            let callback = try await google.presentAuthSession(authorizeURL: authorizeURL)
+            if let providerError = GoogleSignInService.extractError(from: callback) {
+                throw GoogleSignInError.provider(providerError)
+            }
+            guard let code = GoogleSignInService.extractAuthCode(from: callback) else {
+                throw GoogleSignInError.missingAuthCode
+            }
+            let session = try await client.auth.exchangeCodeForSession(authCode: code)
+            let user = Self.lumoUser(from: session.user)
+            // Fresh sign-in — skip the biometric gate for this session,
+            // matching the Apple path.
             state = .signedIn(user)
         } catch {
             state = .signedOut

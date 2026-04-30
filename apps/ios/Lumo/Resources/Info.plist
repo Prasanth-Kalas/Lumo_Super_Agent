@@ -86,5 +86,41 @@
 	<array>
 		<string>com.lumo.rentals.ios.proactive-refresh</string>
 	</array>
+	<!--
+	  AUTH-OAUTH-1b URL schemes:
+	  - lumo://auth/callback        — Supabase OAuth callback target.
+	                                   ASWebAuthenticationSession matches
+	                                   on `lumo` and resumes our session.
+	  - com.googleusercontent.apps.971943870024-97g5erdstdg2ue3ho4skr4126e4sovkr
+	                                — Google Sign-In reversed-client-ID,
+	                                   registered for compatibility with
+	                                   the Google identity SDK pattern
+	                                   even though we use the Supabase
+	                                   web flow rather than the GoogleSignIn
+	                                   SDK (kept the bundle clean per brief).
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.lumo.rentals.ios.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>lumo</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.lumo.rentals.ios.googleoauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.971943870024-97g5erdstdg2ue3ho4skr4126e4sovkr</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

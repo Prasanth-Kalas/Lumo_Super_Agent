@@ -71,6 +71,23 @@ struct AuthView: View {
             .clipShape(RoundedRectangle(cornerRadius: LumoRadius.md))
             .accessibilityIdentifier("auth.signInWithApple")
 
+            Button {
+                viewModel.startGoogleSignIn()
+            } label: {
+                HStack(spacing: LumoSpacing.sm) {
+                    GoogleGlyph()
+                    Text("Continue with Google")
+                        .font(LumoFonts.bodyEmphasized)
+                }
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .overlay(
+                    RoundedRectangle(cornerRadius: LumoRadius.md)
+                        .stroke(LumoColors.separator, lineWidth: 1)
+                )
+            }
+            .foregroundStyle(LumoColors.label)
+            .accessibilityIdentifier("auth.signInWithGoogle")
+
             #if DEBUG
             Button {
                 viewModel.devSignIn()
@@ -86,6 +103,34 @@ struct AuthView: View {
             }
             .accessibilityIdentifier("auth.devSignIn")
             #endif
+        }
+    }
+
+    /// Inline Google "G" mark — drawn rather than referenced as an
+    /// asset so we don't ship a Google-branded image. Geometry matches
+    /// the standard quartered logo per Google's brand guidelines and
+    /// sits right alongside the SwiftUI `SignInWithAppleButton` glyph.
+    private struct GoogleGlyph: View {
+        var body: some View {
+            ZStack {
+                Path { p in
+                    p.addEllipse(in: CGRect(x: 0, y: 0, width: 18, height: 18))
+                }
+                .fill(Color.white)
+                Text("G")
+                    .font(.system(size: 13, weight: .bold, design: .default))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.26, green: 0.52, blue: 0.96),
+                                Color(red: 0.92, green: 0.26, blue: 0.21),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            .frame(width: 18, height: 18)
         }
     }
 
