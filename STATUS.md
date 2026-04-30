@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/mesh-1 | 2026-04-30 | MESH-1 multi-agent orchestration substrate + Duffel flight agent |
 
 ## Closed lanes
 
@@ -74,3 +75,4 @@
 - 2026-04-30 — PERF-1+2 merged to main; latency substrate live (per-phase spans + dashboard + prompt caching + parallel preloads + Groq/Cerebras intent classifier + Haiku/Sonnet model router); live p50 verification blocked until migrations 037-044 applied to staging Supabase. Codex queued for COMPOUND-EXEC-1.
 - 2026-04-30 — claude-code/mobile-notif-1 ready for review: all 10 deliverable groups done (APNs entitlement + UIBackgroundModes + BGTaskSchedulerPermittedIdentifiers, NotificationService w/ device register+unregister, 5 backend stubs under /api/notifications/* and /api/proactive/*, 4 UNNotificationCategory definitions per Option A — payment-receipt has no dispute action, NotificationActionHandler with category × action routing + tab selection, BGTaskScheduler 4h cadence, ProactiveMomentsCache + ViewModel + in-app cards above chat composer, Settings notifications section w/ master + 4 categories + quiet-hours, 48 new tests bringing total to 146, 6 light+dark screenshots via NotificationsFixtureRoot); E2E APNs push delivery deferred until auth key + push sender ship (Phase 4.5); deep nav for notification taps lands tab selection but full plumb is MOBILE-API-1 work
 - 2026-04-30 — MOBILE-NOTIF-1 merged to main; iOS notification surface complete (APNs + 4 categories + background fetch + proactive moments + Settings); 3 follow-ups filed (MOBILE-NOTIF-2-INIT app-delegate install timing, LOCAL-NOTIF-REFINE server-side double-notification flag, MOBILE-API-1-NAV-PLUMB deep-link receipt id + chat prefill). Claude Code queued for MOBILE-PAYMENTS-1.1 (HMAC → ECDSA biometric token swap; ~1 session of work).
+- 2026-04-30 — MESH-1 branch opened; migration 045 drafted for sub-agent call ledger early schema review
