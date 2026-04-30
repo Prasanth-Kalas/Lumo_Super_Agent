@@ -2,7 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/mesh-1 | 2026-04-30 | MESH-1 multi-agent orchestration substrate + Duffel flight agent |
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/web-screens-1 | 2026-04-30 | WEB-SCREENS-1 missing consumer web pages (trips, receipts, account, notif prefs, profile, settings index) |
 
 ## Closed lanes
 
@@ -24,6 +24,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/merchant-1 | 2026-04-30 | 2026-04-30 | MERCHANT-1 merchant-of-record substrate (real Stripe SetupIntent + PaymentIntent + ECDSA device confirmation + webhook reconciliation) |
 | Codex | Lumo_Super_Agent_codex | codex/perf-1-plus-2 | 2026-04-30 | 2026-04-30 | PERF-1+2 latency instrumentation, prompt caching, parallel pre-LLM loads, intent classifier (Groq + Cerebras failover), Haiku fast-path + Sonnet reasoning router, /admin/perf dashboard |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-notif-1 | 2026-04-30 | 2026-04-30 | MOBILE-NOTIF-1 iOS notifications + proactive moments (APNs + 4 categories + background fetch + in-app cards + Settings section); 3 follow-ups filed (MOBILE-NOTIF-2-INIT, LOCAL-NOTIF-REFINE, MOBILE-API-1-NAV-PLUMB) |
+| Codex | Lumo_Super_Agent_codex | codex/mesh-1 | 2026-04-30 | 2026-04-30 | MESH-1 multi-agent orchestration substrate (supervisor + 4 sub-agents + dispatch planner) + Duffel flight agent (search/hold/book/cancel) + LUMO_USE_MESH feature flag |
 
 ## Last push
 
@@ -77,3 +78,5 @@
 - 2026-04-30 — MOBILE-NOTIF-1 merged to main; iOS notification surface complete (APNs + 4 categories + background fetch + proactive moments + Settings); 3 follow-ups filed (MOBILE-NOTIF-2-INIT app-delegate install timing, LOCAL-NOTIF-REFINE server-side double-notification flag, MOBILE-API-1-NAV-PLUMB deep-link receipt id + chat prefill). Claude Code queued for MOBILE-PAYMENTS-1.1 (HMAC → ECDSA biometric token swap; ~1 session of work).
 - 2026-04-30 — MESH-1 branch opened; migration 045 drafted for sub-agent call ledger early schema review
 - 2026-04-30 — MESH-1 ready for review: sub-agent call ledger, supervisor substrate, dispatch planner, Duffel test-mode flight agent, internal merchant-of-record flight tools, LUMO_USE_MESH feature flag, and Vegas-flight demo regression path; gates green locally (live Duffel/Stripe booking E2E blocked until staging migrations + Duffel env are applied).
+- 2026-04-30 — MESH-1 merged to main; multi-agent orchestration substrate live with Duffel flight agent as first proof-of-life. JARVIS demo path now functional in test mode (planner → sub-agent fan-out → Duffel offer projection). Codex queued for next sprint (TRAVEL-AGENT-2 Booking on partnership key, OR COMPOUND-EXEC-1 saga hardening).
+- 2026-04-30 — claude-code/web-screens-1 opened from origin/main; audit doc proposed 6 consumer-screen gaps (trips, receipts, account, notif prefs, profile, settings index) with 5 open scope questions resolved by reviewer; build phase in flight.
