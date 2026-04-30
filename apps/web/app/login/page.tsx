@@ -23,7 +23,7 @@
  * hydrates on the client with the real ?next param.
  */
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
@@ -86,10 +86,15 @@ function LoginForm() {
   const params = useSearchParams();
   const next = params.get("next") ?? "/";
 
+  const [mounted, setMounted] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -120,6 +125,13 @@ function LoginForm() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // The auth env check can differ between the server render and the
+  // browser bundle in local/dev setups. Render the static shell until
+  // hydration completes so React never sees mismatched first-paint text.
+  if (!mounted) {
+    return <LoginShell />;
   }
 
   // Auth env not configured — tell the user plainly instead of

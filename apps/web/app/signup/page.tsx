@@ -18,7 +18,7 @@
  * the hook consumer.
  */
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
@@ -66,12 +66,17 @@ function SignupForm() {
   const params = useSearchParams();
   const next = params.get("next") ?? "/";
 
+  const [mounted, setMounted] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [awaitingConfirm, setAwaitingConfirm] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -150,6 +155,13 @@ function SignupForm() {
         </div>
       </main>
     );
+  }
+
+  // Keep first paint identical between prerender and browser hydration.
+  // Auth env detection is intentionally client-only after mount because
+  // local dev can expose NEXT_PUBLIC_* differently to the two passes.
+  if (!mounted) {
+    return <SignupShell />;
   }
 
   // Auth env not baked into this build — show a plain explainer
