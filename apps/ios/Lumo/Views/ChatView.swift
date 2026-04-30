@@ -24,9 +24,11 @@ struct ChatView: View {
         _voiceComposer = StateObject(wrappedValue: VoiceComposerViewModel(speech: SpeechRecognitionService()))
     }
 
-    /// Test-only initialiser — accepts pre-built view-models so unit
-    /// tests can drive both pipelines without spinning up a real
-    /// SFSpeechRecognizer.
+    /// Hoisted-state initialiser — `RootView` owns the chat + voice
+    /// view-models so the drawer's "New Chat" can call `reset()` and
+    /// notification deep-links can mutate `input` without re-creating
+    /// the view tree. Also used by unit tests to drive both pipelines
+    /// without spinning up a real `SFSpeechRecognizer`.
     init(viewModel: ChatViewModel, voiceComposer: VoiceComposerViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
         _voiceComposer = StateObject(wrappedValue: voiceComposer)

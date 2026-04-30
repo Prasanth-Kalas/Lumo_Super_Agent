@@ -104,6 +104,19 @@ final class ChatViewModel: ObservableObject {
 
     func clearError() { error = nil }
 
+    /// Wipe the thread back to a clean slate. Wired to the drawer's
+    /// "New Chat" affordance: cancels any in-flight stream, drops all
+    /// messages, clears the composer + error, and resets the latency
+    /// probe so the next turn measures from a true cold start.
+    func reset() {
+        cancelStream()
+        messages = []
+        input = ""
+        error = nil
+        isStreaming = false
+        lastFirstTokenLatency = nil
+    }
+
     /// Cancel any in-flight stream. Called when the view disappears
     /// or the user starts a new message.
     func cancelStream() {

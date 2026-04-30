@@ -149,7 +149,7 @@ struct NotificationsFixtureRoot: View {
             // the denied/disabled visual state.
             let _: () = NotificationSettings.isPushEnabled = false
         }
-        SettingsTab(
+        SettingsView(
             paymentService: PaymentServiceStub(),
             receiptStore: ReceiptStoreStub(),
             appConfig: appConfig,

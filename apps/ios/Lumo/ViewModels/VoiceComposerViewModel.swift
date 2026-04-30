@@ -64,7 +64,7 @@ final class VoiceComposerViewModel: ObservableObject {
 
     private let speech: SpeechRecognitionServicing
     /// Bumped every time the user finishes a successful voice turn.
-    /// `SettingsTab` reads this to decide whether to show the voice
+    /// `SettingsView` reads this to decide whether to show the voice
     /// section (default OFF until first use).
     static let voiceUsageDefaultsKey = "lumo.voice.lastUsedAt"
 

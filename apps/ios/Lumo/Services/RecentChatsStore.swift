@@ -11,8 +11,8 @@ import Foundation
 final class RecentChatsStore: ObservableObject {
     @Published private(set) var items: [RecentChatItem] = []
 
-    static let defaultsKey = "LumoRecentChats.v1"
-    static let maxItems = 30
+    nonisolated static let defaultsKey = "LumoRecentChats.v1"
+    nonisolated static let maxItems = 30
 
     private let defaults: UserDefaults
     private let key: String
