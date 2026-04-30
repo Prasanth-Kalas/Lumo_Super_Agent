@@ -111,6 +111,31 @@ case "$variant" in
         capture 13-receipt-detail light -LumoPaymentsFixture receipt-detail
         capture 13-receipt-detail dark  -LumoPaymentsFixture receipt-detail
         ;;
+    ios-mirror-web-1)
+        # IOS-MIRROR-WEB-1: drawer adopts the web mobile-drawer EXPLORE
+        # order + account chip footer + ported color tokens. Same launch
+        # args as chatgpt-ui — only the output filenames differ so the
+        # progress doc can pair them with the web counterparts.
+        echo "[shots] chat empty"
+        capture chat-empty light -LumoAutoSignIn YES
+        capture chat-empty dark  -LumoAutoSignIn YES
+
+        echo "[shots] chat with text"
+        capture chat-with-text light -LumoAutoSignIn YES \
+            -LumoStartChatInput "Plan a weekend trip to Vegas"
+        capture chat-with-text dark  -LumoAutoSignIn YES \
+            -LumoStartChatInput "Plan a weekend trip to Vegas"
+
+        echo "[shots] drawer open (no recents)"
+        capture drawer-open light -LumoAutoSignIn YES -LumoStartDrawerOpen YES
+        capture drawer-open dark  -LumoAutoSignIn YES -LumoStartDrawerOpen YES
+
+        echo "[shots] drawer with recent chats seeded"
+        capture drawer-with-recents light -LumoAutoSignIn YES \
+            -LumoStartDrawerOpen YES -LumoSeedRecents YES
+        capture drawer-with-recents dark  -LumoAutoSignIn YES \
+            -LumoStartDrawerOpen YES -LumoSeedRecents YES
+        ;;
     chatgpt-ui)
         # MOBILE-CHATGPT-UI-1: ChatGPT-style nav refactor.
         # `-LumoStartDrawerOpen YES` opens the side drawer on cold launch.
