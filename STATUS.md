@@ -70,3 +70,4 @@
 - 2026-04-30 — MERCHANT-1 merged to main; real Stripe-backed payment substrate live (SetupIntent + PaymentIntent + ECDSA device confirmation + webhook reconciliation); MOBILE-PAYMENTS-1.1 follow-up needed to swap iOS HMAC → ECDSA before production E2E. Codex queued for PERF-1+2.
 - 2026-04-30 — PERF-1+2 branch opened; migration 044 drafted for early schema review
 - 2026-04-30 — PERF-1+2 pre-routing checkpoint drafted: orchestrator timing spans, /admin/perf dashboard, Anthropic prompt caching, pre-LLM load parallelization, and first-token SSE streaming
+- 2026-04-30 — PERF-1+2 model-routing checkpoint drafted: Groq intent classifier with Cerebras failover, Haiku fast/tool path router, Sonnet fallback, and perf-routing regression suite

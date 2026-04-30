@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getSupabase } from "../db.js";
+import { getSupabase } from "../db.ts";
 
 export const AGENT_TIMING_PHASES = [
   "pre_llm_data_load",
@@ -42,10 +42,24 @@ export function createAgentTimingRecorder({
 }
 
 export class AgentTimingRecorder {
+  private currentBucket: AgentTimingBucket;
+  readonly requestId: string;
+
   constructor(
-    readonly requestId: string,
-    readonly bucket: AgentTimingBucket = "reasoning_path",
-  ) {}
+    requestId: string,
+    bucket: AgentTimingBucket = "reasoning_path",
+  ) {
+    this.requestId = requestId;
+    this.currentBucket = bucket;
+  }
+
+  setBucket(bucket: AgentTimingBucket): void {
+    this.currentBucket = bucket;
+  }
+
+  get bucket(): AgentTimingBucket {
+    return this.currentBucket;
+  }
 
   start(
     phase: AgentTimingPhase,
@@ -53,7 +67,7 @@ export class AgentTimingRecorder {
   ): AgentTimingSpan {
     return new AgentTimingSpan({
       requestId: this.requestId,
-      bucket: this.bucket,
+      getBucket: () => this.currentBucket,
       phase,
       metadata,
     });
@@ -63,15 +77,21 @@ export class AgentTimingRecorder {
 export class AgentTimingSpan {
   private readonly startedAt = new Date();
   private ended = false;
+  private readonly input: {
+    requestId: string;
+    getBucket: () => AgentTimingBucket;
+    phase: AgentTimingPhase;
+    metadata: AgentTimingMetadata;
+  };
 
-  constructor(
-    private readonly input: {
+  constructor(input: {
       requestId: string;
-      bucket: AgentTimingBucket;
+      getBucket: () => AgentTimingBucket;
       phase: AgentTimingPhase;
       metadata: AgentTimingMetadata;
-    },
-  ) {}
+    }) {
+    this.input = input;
+  }
 
   async end(metadata: AgentTimingMetadata = {}): Promise<void> {
     if (this.ended) return;
@@ -79,7 +99,7 @@ export class AgentTimingSpan {
     const endedAt = new Date();
     await recordAgentTimingSpan({
       requestId: this.input.requestId,
-      bucket: this.input.bucket,
+      bucket: this.input.getBucket(),
       phase: this.input.phase,
       startedAt: this.startedAt,
       endedAt,

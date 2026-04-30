@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type {
   AgentTimingRecorder,
   AgentTimingMetadata,
-} from "./timing-spans.js";
+} from "./timing-spans.ts";
 
 export interface AnthropicStreamResult {
   message: Anthropic.Message;

@@ -70,6 +70,11 @@ import {
   withAgentTimingSpan,
   type AgentTimingRecorder,
 } from "./perf/timing-spans.js";
+import { classifyIntent } from "./perf/intent-classifier.js";
+import {
+  routeModelForIntent,
+  toolsForModelRoute,
+} from "./perf/model-router.js";
 import { buildSystemPrompt, type AmbientContext } from "./system-prompt.js";
 import {
   forgetFact,
@@ -662,6 +667,54 @@ async function runTurnInner(
     })) as unknown as typeof META_TOOLS),
   ];
 
+  const priorSummary = findPriorSummary(input.messages);
+  const lastUser = input.messages.findLast((m) => m.role === "user")?.content ?? "";
+  const userConfirmed = isAffirmative(lastUser);
+  const defaultModel = await resolveModel();
+  const intentClassification = await withAgentTimingSpan(
+    timing,
+    "intelligence_pass",
+    { pass: "intent_classifier" },
+    () =>
+      classifyIntent({
+        messages: input.messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+        toolCount: toolsForClaude.length,
+        installedAgentCount: installedAgentIds.size,
+        connectedAgentCount: connectedAgentIds.size,
+        hasPriorSummary: priorSummary !== null,
+        mode: input.mode === "voice" ? "voice" : "text",
+      }),
+    (result) => ({
+      bucket: result.bucket,
+      confidence: result.confidence,
+      provider: result.provider,
+      model_used: result.model,
+      source: result.source,
+      latency_ms: result.latencyMs,
+    }),
+  );
+  const modelRoute = routeModelForIntent({
+    classification: intentClassification,
+    defaultModel,
+  });
+  timing.setBucket(modelRoute.bucket);
+  emit({
+    type: "internal",
+    value: {
+      kind: "perf_intent_route",
+      detail: {
+        bucket: modelRoute.bucket,
+        model_used: modelRoute.model,
+        classifier_provider: modelRoute.classifierProvider,
+        confidence: modelRoute.confidence,
+        tools_enabled: modelRoute.toolsEnabled,
+      },
+    },
+  });
+
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicApiKey) {
     const message =
@@ -683,10 +736,6 @@ async function runTurnInner(
   }
 
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
-
-  const priorSummary = findPriorSummary(input.messages);
-  const lastUser = input.messages.findLast((m) => m.role === "user")?.content ?? "";
-  const userConfirmed = isAffirmative(lastUser);
 
   // Convert our ChatMessage[] → Anthropic messages. Summaries are inlined as
   // JSON blocks so Claude can reference them when computing summary_hash.
@@ -716,10 +765,6 @@ async function runTurnInner(
   let renderedSummary: ConfirmationSummary | null = null;
   const loopAssistantMessages: Anthropic.MessageParam[] = [];
 
-  // Resolve the model once per turn (not per loop iteration) so a
-  // mid-tool-call admin flip doesn't accidentally swap models in the
-  // middle of a Saga. Cache TTL inside getSetting keeps this cheap.
-  const model = await resolveModel();
   const systemWithPromptCache = [
     {
       type: "text",
@@ -729,18 +774,26 @@ async function runTurnInner(
   ] as unknown as Anthropic.MessageStreamParams["system"];
 
   for (let i = 0; i < MAX_TOOL_LOOP; i++) {
-    const { message: response, streamedText } =
-      await createStreamingAnthropicMessage({
+    const toolsForThisPass = toolsForModelRoute(
+      i === 0 ? modelRoute : { toolsEnabled: true },
+      toolsForClaude,
+    );
+    let modelUsed = modelRoute.model;
+    let fallbackModelUsed: string | false = false;
+    let response: Anthropic.Message;
+    let streamedText = "";
+    try {
+      const result = await createStreamingAnthropicMessage({
         anthropic,
         params: {
-          model,
+          model: modelUsed,
           max_tokens: 1024,
           system: systemWithPromptCache,
-          tools: toolsForClaude,
+          ...(toolsForThisPass.length > 0 ? { tools: toolsForThisPass } : {}),
           messages: [...messages, ...loopAssistantMessages],
         },
         recorder: timing,
-        model,
+        model: modelUsed,
         loopIndex: i,
         promptCaching: true,
         onText: (delta) => {
@@ -748,6 +801,48 @@ async function runTurnInner(
           emit({ type: "text", value: delta });
         },
       });
+      response = result.message;
+      streamedText = result.streamedText;
+    } catch (error) {
+      if (!modelRoute.fallbackModel || modelRoute.fallbackModel === modelUsed) {
+        throw error;
+      }
+      const failedModel = modelUsed;
+      modelUsed = modelRoute.fallbackModel;
+      fallbackModelUsed = modelUsed;
+      emit({
+        type: "internal",
+        value: {
+          kind: "perf_model_fallback",
+          detail: {
+            from_model: failedModel,
+            to_model: modelUsed,
+            bucket: modelRoute.bucket,
+            error_code: error instanceof Error ? error.name : "unknown_error",
+          },
+        },
+      });
+      const result = await createStreamingAnthropicMessage({
+        anthropic,
+        params: {
+          model: modelUsed,
+          max_tokens: 1024,
+          system: systemWithPromptCache,
+          tools: toolsForClaude,
+          messages: [...messages, ...loopAssistantMessages],
+        },
+        recorder: timing,
+        model: modelUsed,
+        loopIndex: i,
+        promptCaching: true,
+        onText: (delta) => {
+          assistantText += delta;
+          emit({ type: "text", value: delta });
+        },
+      });
+      response = result.message;
+      streamedText = result.streamedText;
+    }
     const inputTokens = response.usage?.input_tokens ?? 0;
     const outputTokens = response.usage?.output_tokens ?? 0;
     void recordInvocationCost({
@@ -756,19 +851,20 @@ async function runTurnInner(
       agentId: "lumo-super-agent",
       agentVersion: "orchestrator",
       capabilityId: "orchestrator.messages.create",
-      modelUsed: model,
+      modelUsed,
       promptTokens: inputTokens,
       completionTokens: outputTokens,
       modelTokensInput: inputTokens,
       modelTokensOutput: outputTokens,
-      modelTokensCostUsd: estimateModelTokenCost(model, inputTokens, outputTokens),
-      costUsdTotal: estimateModelTokenCost(model, inputTokens, outputTokens),
+      modelTokensCostUsd: estimateModelTokenCost(modelUsed, inputTokens, outputTokens),
+      costUsdTotal: estimateModelTokenCost(modelUsed, inputTokens, outputTokens),
       status: "completed",
       evidence: {
         actual_source: "anthropic_usage",
         forecast_source: "anthropic_usage",
-        fallback_model_used: false,
+        fallback_model_used: fallbackModelUsed,
         loop_index: i,
+        bucket: modelRoute.bucket,
         cache_read_input_tokens:
           (response.usage as Anthropic.Usage & {
             cache_read_input_tokens?: number;
