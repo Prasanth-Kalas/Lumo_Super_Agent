@@ -53,7 +53,11 @@ import { BrandMark } from "@/components/BrandMark";
 import VoiceMode, { type VoiceState } from "@/components/VoiceMode";
 import { LumoWordmark } from "@/components/BrandMark";
 import LeftRail from "@/components/LeftRail";
-import RightRail, { type ActiveTripView, type LegStatusLite } from "@/components/RightRail";
+// RightRail import removed in WEB-REDESIGN-1. ActiveTripView /
+// LegStatusLite type imports went with it; the activeTrip useMemo
+// they fed has been removed below. The RightRail.tsx file is kept
+// for reference until COMPOUND-EXEC-2 reintroduces per-leg dispatch
+// inline in the chat thread.
 import MobileNav from "@/components/MobileNav";
 import { seedProfile } from "@/lib/seed-profile";
 import {
@@ -133,8 +137,9 @@ export default function Home() {
   // Hands-free is always-on when voice is enabled (#85 removed
   // push-to-talk). State kept for VoiceMode API compatibility.
   const [handsFree, setHandsFree] = useState<boolean>(true);
-  // Bumped after each agent turn so RightRail's MemoryPanel re-fetches.
-  const [memoryRefreshKey, setMemoryRefreshKey] = useState<number>(0);
+  // memoryRefreshKey state removed in WEB-REDESIGN-1 — its only
+  // consumer was RightRail's MemoryPanel. /memory page re-fetches
+  // on its own mount; no central refresh signal is needed today.
   // Mobile drawer open/close.
   const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
   // Auth'd user (id/email/full_name/first_name) — populated from
@@ -568,11 +573,10 @@ export default function Home() {
     } finally {
       busyRef.current = false;
       setBusy(false);
-      // Bump memory refresh key — the orchestrator may have called
-      // memory_save / profile_update / memory_forget during this
-      // turn. RightRail's MemoryPanel re-fetches /api/memory when
-      // this changes.
-      setMemoryRefreshKey((k) => k + 1);
+      // Memory may have been mutated this turn (memory_save /
+      // profile_update / memory_forget). The /memory page re-fetches
+      // on its own mount, so no central refresh signal is wired
+      // post-WEB-REDESIGN-1.
     }
   }
 
@@ -657,36 +661,11 @@ export default function Home() {
     );
   }, [messages]);
 
-  // Derive the active trip for the right-rail HUD. We scan backwards
-  // through the thread looking for the most recent assistant message
-  // that carries a structured-trip summary. Legs merge with live
-  // statuses from legStatusesByMsg (set by SSE leg_status frames).
-  const activeTrip: ActiveTripView | null = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (!m || m.role !== "assistant") continue;
-      if (m.summary?.kind !== "structured-trip") continue;
-      const p = (m.summary.payload ?? {}) as {
-        trip_title?: string;
-        total_amount?: string;
-        currency?: string;
-        legs?: Array<{ order: number; agent_id: string }>;
-      };
-      const statuses = legStatusesByMsg[m.id] ?? {};
-      const legs: LegStatusLite[] = (p.legs ?? []).map((l) => ({
-        order: l.order,
-        agent_id: l.agent_id,
-        status: (statuses[l.order] ?? "pending") as LegStatusLite["status"],
-      }));
-      return {
-        trip_title: p.trip_title,
-        total_amount: p.total_amount,
-        currency: p.currency,
-        legs,
-      };
-    }
-    return null;
-  }, [messages, legStatusesByMsg]);
+  // activeTrip derivation removed with the RightRail in WEB-REDESIGN-1.
+  // legStatusesByMsg is still populated by SSE leg_status frames so
+  // COMPOUND-EXEC-2 can reuse it when per-leg dispatch returns inline
+  // in the chat thread.
+
 
   return (
     <main className="flex h-dvh flex-col bg-lumo-bg text-lumo-fg-high">
@@ -772,10 +751,12 @@ export default function Home() {
         onNewChat={newThread}
       />
 
-      {/* ─── 3-column operator console ──────────────────────────────
-          The Lumo dashboard layout. LeftRail hides below `lg`
-          (1024); RightRail hides below `xl` (1280). Center column
-          always renders.
+      {/* ─── 2-column shell — LeftRail + chat ────────────────────────
+          Claude-Desktop posture (WEB-REDESIGN-1). LeftRail hides
+          below `lg` (1024); the chat column always renders. The
+          previous right rail / live operator HUD was removed; per-leg
+          dispatch will return inline in the chat thread once
+          COMPOUND-EXEC-2 ships.
       ──────────────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
         <LeftRail
@@ -1070,31 +1051,10 @@ export default function Home() {
         </div>
       </div>
         </div>
-        {/* ─── Right rail — live operator HUD ───────────────────── */}
-        <RightRail
-          activeTrip={activeTrip}
-          voiceState={voiceState}
-          voiceEnabled={voiceEnabled}
-          voiceMuted={voiceMuted}
-          onToggleVoice={() => setVoiceEnabled((v) => !v)}
-          onToggleMuted={() => setVoiceMuted((m) => !m)}
-          userRegion="US"
-          onSuggestion={(t) => {
-            logPreferenceEvent({
-              surface: "chat_suggestion",
-              target_type: "suggestion",
-              target_id: preferenceTargetId("suggestion", t),
-              event_type: "click",
-              session_id: sessionIdRef.current,
-              context: {
-                source: "right_rail",
-                text_preview: compactPreferenceText(t),
-              },
-            });
-            if (!busyRef.current && !isReplayLoading) void sendText(t);
-          }}
-          memoryRefreshKey={memoryRefreshKey}
-        />
+        {/* RightRail removed in WEB-REDESIGN-1 — Claude-Desktop posture
+            has no right rail. Per-leg dispatch and the live operator
+            HUD will return as inline chat-thread elements once
+            COMPOUND-EXEC-2 ships the stream protocol. */}
       </div>
 
       {/* Post-sign-in location prompt — renders nothing until we have
