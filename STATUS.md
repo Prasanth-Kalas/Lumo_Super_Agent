@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chatgpt-ui-1 | 2026-04-30 | MOBILE-CHATGPT-UI-1 iOS nav refactor (drop TabView → NavigationStack + side drawer ChatGPT-style) |
 
 ## Closed lanes
 
@@ -82,3 +83,5 @@
 - 2026-04-30 — claude-code/web-screens-1 opened from origin/main; audit doc proposed 6 consumer-screen gaps (trips, receipts, account, notif prefs, profile, settings index) with 5 open scope questions resolved by reviewer; build phase in flight.
 - 2026-04-30 — claude-code/web-screens-1 ready for review: all 6 audit gaps built (trips + receipts + /settings/account + /settings/notifications + /profile + /settings index), middleware gates added for /trips /receipts /profile /settings + /api/trips /api/receipts, header avatar repointed /memory → /settings/account, MobileNav + LeftRail wired, lib/transactions.ts (real reader against MERCHANT-1 transactions), in-memory STUBs for refund POST + notification prefs (NOTIF-PREFS-PERSIST-1 backlog filed), 36 new tests across 6 web-screens-* suites (total 8 routes, ~2000 LOC). All gates green (typecheck/lint/lint:registry/lint:commits/build/test); credential sweep clean.
 - 2026-04-30 — WEB-SCREENS-1 merged to main (rebased onto current origin/main due to MESH divergence; STATUS.md + apps/web/package.json conflicts resolved cleanly, force-with-lease push, FF-merge from canonical worktree). 6 consumer web surfaces live; 4 follow-ups filed (PAYMENTS-REFUND-1, NOTIF-PREFS-PERSIST-1, TRIPS-DETAIL-FAST-PATH-1, PROFILE-RICH-FIELDS-1). Both lanes idle; Codex queued for next sprint (recommend COMPOUND-EXEC-1), Claude Code awaits next sprint kickoff.
+- 2026-04-30 — claude-code/mobile-chatgpt-ui-1 opened from origin/main; iOS nav refactor (ChatGPT-style chat + side drawer, drop TabView) in flight.
+- 2026-04-30 — claude-code/mobile-chatgpt-ui-1 ready for review: all 10 deliverables shipped (RootView TabView → NavigationStack pivot, SideDrawerView w/ recents + 4 destinations + sign-out, BurgerMenuButton, ProfileView w/ ProfileSettings store, ReceiptDetailLookupView for notification deep-links, NotificationRouteResolver pure mapping, ChatViewModel.reset for "New Chat", chat empty-state polish — sparkles + "How can I help today?", DEBUG launch args for screenshot fixtures, 8 light+dark shots). 38 new tests across 4 LumoTests bundles (SideDrawerView, BurgerMenuToggle, ChatRootView, ProfileSettings) bringing total to 184; xcodebuild test green on iPhone 17 simulator. NotificationActionHandler routing rewritten to push onto chat NavigationStack instead of switching tabs; openAlertsCenter lands on Settings (no dedicated alerts surface today).
