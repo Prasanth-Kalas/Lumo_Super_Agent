@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/compound-exec-1 | 2026-04-30 | COMPOUND-EXEC-1 saga hardening + deterministic replay + SSE v2 |
 
 ## Closed lanes
 
@@ -27,6 +26,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/mesh-1 | 2026-04-30 | 2026-04-30 | MESH-1 multi-agent orchestration substrate (supervisor + 4 sub-agents + dispatch planner) + Duffel flight agent (search/hold/book/cancel) + LUMO_USE_MESH feature flag |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/web-screens-1 | 2026-04-30 | 2026-04-30 | WEB-SCREENS-1 6 consumer web surfaces (trips, receipts, account, notif prefs, profile, settings index); 4 follow-ups filed (PAYMENTS-REFUND-1, NOTIF-PREFS-PERSIST-1, TRIPS-DETAIL-FAST-PATH-1, PROFILE-RICH-FIELDS-1) |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chatgpt-ui-1 | 2026-04-30 | 2026-04-30 | MOBILE-CHATGPT-UI-1 iOS nav refactor (drop TabView → NavigationStack + side drawer ChatGPT-style); 2 follow-ups filed (MOBILE-SETTINGS-DEDUP-1, MOBILE-SCREENSHOT-MIGRATE-1) |
+| Codex | Lumo_Super_Agent_codex | codex/compound-exec-1 | 2026-04-30 | 2026-04-30 | COMPOUND-EXEC-1 saga hardening + deterministic replay + SSE v2; COMPOUND-EXEC-2 follow-ups filed |
 
 ## Last push
 
@@ -90,3 +90,4 @@
 - 2026-04-30 — claude-code/mobile-chatgpt-ui-1 ready for review: all 10 deliverables shipped (RootView TabView → NavigationStack pivot, SideDrawerView w/ recents + 4 destinations + sign-out, BurgerMenuButton, ProfileView w/ ProfileSettings store, ReceiptDetailLookupView for notification deep-links, NotificationRouteResolver pure mapping, ChatViewModel.reset for "New Chat", chat empty-state polish — sparkles + "How can I help today?", DEBUG launch args for screenshot fixtures, 8 light+dark shots). 38 new tests across 4 LumoTests bundles (SideDrawerView, BurgerMenuToggle, ChatRootView, ProfileSettings) bringing total to 184; xcodebuild test green on iPhone 17 simulator. NotificationActionHandler routing rewritten to push onto chat NavigationStack instead of switching tabs; openAlertsCenter lands on Settings (no dedicated alerts surface today).
 - 2026-04-30 — claude-code/mobile-chatgpt-ui-1 → main (FF), MOBILE-CHATGPT-UI-1 closed. 2 follow-ups filed (MOBILE-SETTINGS-DEDUP-1 drop inline Sign Out from SettingsView; MOBILE-SCREENSHOT-MIGRATE-1 migrate legacy capture variants from -LumoStartTab to -LumoStartDestination). scripts/apply-staging-migrations.sh stayed untracked on the feature branch — confirmed not part of any sprint. Both lanes idle.
 - 2026-04-30 — COMPOUND-EXEC-1 ready for review: migration 046 compound graph substrate, deterministic saga replay, SDK compensationAction enforcement, SSE v2 leg-status frames, compound graph runner with reverse-topological rollback, stub-3-leg-trip sample, and regression suite covering graph cycles + rollback failure modes. Gates green locally; live staging E2E blocked until migrations 037-046 are applied.
+- 2026-04-30 — codex/compound-exec-1 → main (FF), COMPOUND-EXEC-1 closed. COMPOUND-EXEC-2 scope filed: production dependency INSERT must validate via replayCompoundTransaction first; DB snapshot loader must read leg_status_events ordered by occurred_at asc, id asc; stub-3-leg-trip needs a runnable demo entry that drives runCompoundGraph/API end-to-end.
