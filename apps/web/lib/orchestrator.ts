@@ -75,6 +75,9 @@ import {
   routeModelForIntent,
   toolsForModelRoute,
 } from "./perf/model-router.js";
+import { attachDispatchPlan } from "./mesh/dispatch-planner.ts";
+import { createDefaultSubAgents } from "./mesh/default-subagents.ts";
+import { SupervisorOrchestrator } from "./mesh/supervisor.ts";
 import { buildSystemPrompt, type AmbientContext } from "./system-prompt.js";
 import {
   forgetFact,
@@ -671,7 +674,7 @@ async function runTurnInner(
   const lastUser = input.messages.findLast((m) => m.role === "user")?.content ?? "";
   const userConfirmed = isAffirmative(lastUser);
   const defaultModel = await resolveModel();
-  const intentClassification = await withAgentTimingSpan(
+  let intentClassification = await withAgentTimingSpan(
     timing,
     "intelligence_pass",
     { pass: "intent_classifier" },
@@ -696,6 +699,13 @@ async function runTurnInner(
       latency_ms: result.latencyMs,
     }),
   );
+  intentClassification = attachDispatchPlan(intentClassification, {
+    userId: input.user_id,
+    lastUserMessage: lastUser,
+    installedAgentCount: installedAgentIds.size,
+    connectedAgentCount: connectedAgentIds.size,
+    hasRegistryAgents: Object.keys(registry.agents).length > 0,
+  });
   const modelRoute = routeModelForIntent({
     classification: intentClassification,
     defaultModel,
@@ -711,9 +721,39 @@ async function runTurnInner(
         classifier_provider: modelRoute.classifierProvider,
         confidence: modelRoute.confidence,
         tools_enabled: modelRoute.toolsEnabled,
+        subagent_count: intentClassification.subagentDispatchPlan?.agents.length ?? 0,
       },
     },
   });
+
+  if (process.env.LUMO_USE_MESH === "true" && intentClassification.subagentDispatchPlan) {
+    const supervisor = new SupervisorOrchestrator(createDefaultSubAgents());
+    const mesh = await supervisor.run({
+      requestId: timing.requestId,
+      userId: input.user_id,
+      sessionId: input.session_id,
+      query: lastUser,
+      registry,
+      installedAgentIds: Array.from(installedAgentIds),
+      connectedAgentIds: Array.from(connectedAgentIds),
+      dispatchPlan: intentClassification.subagentDispatchPlan,
+      timing,
+    });
+    system = `${system}\n\n<mesh_context request_id="${mesh.requestId}">\n${mesh.contextSummary}\n</mesh_context>`;
+    emit({
+      type: "internal",
+      value: {
+        kind: "mesh_supervisor",
+        detail: {
+          enabled: true,
+          subagent_count: mesh.results.length,
+          completed_count: mesh.results.filter((result) => result.status === "completed").length,
+          fallback_count: mesh.results.filter((result) => result.status === "fallback").length,
+          failed_count: mesh.results.filter((result) => result.status === "failed" || result.status === "timeout").length,
+        },
+      },
+    });
+  }
 
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicApiKey) {
