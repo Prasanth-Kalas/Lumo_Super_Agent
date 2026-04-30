@@ -2,7 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/chat-suggested-chips-1 | 2026-05-01 | CHAT-SUGGESTED-CHIPS-1 server protocol + web suggested-reply chips |
+| Codex | Lumo_Super_Agent_codex | codex/app-install-idempotent-2 | 2026-05-01 | APP-INSTALL-IDEMPOTENT-2 per-session app approval idempotency |
 
 ## Closed lanes
 
