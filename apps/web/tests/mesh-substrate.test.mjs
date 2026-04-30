@@ -253,6 +253,69 @@ await t("Duffel flight tools are registered as internal merchant-of-record tools
   assert.match(integrationRegistry, /cost_tier: "money"/);
 });
 
+await t("Vegas flight demo path plans, extracts slots, and returns Duffel offers", async () => {
+  const userMessage = "find me a flight from NYC to Vegas on May 5";
+  const plan = planSubagentsForTurn({
+    classification: {
+      bucket: "tool_path",
+      confidence: 0.95,
+      reasoning: "travel search",
+      provider: "fallback",
+      model: null,
+      latencyMs: 0,
+      source: "provider_unavailable",
+    },
+    userId: "11111111-1111-1111-1111-111111111111",
+    lastUserMessage: userMessage,
+    installedAgentCount: 1,
+    connectedAgentCount: 0,
+    hasRegistryAgents: true,
+  });
+  assert.equal(plan.agents.some((agent) => agent.name === "intent-deep"), true);
+  const slots = extractIntentSlots(userMessage);
+  assert.equal(slots.origin, "JFK");
+  assert.equal(slots.destination, "LAS");
+
+  const client = new DuffelClient({
+    apiKey: "duffel_test_key",
+    environment: "test",
+    baseUrl: "https://api.duffel.test",
+    fetchImpl: async () =>
+      jsonResponse({
+        data: {
+          id: "orq_vegas",
+          offers: [
+            {
+              id: "off_cheap",
+              total_amount: "88.00",
+              total_currency: "USD",
+              payment_requirements: { requires_instant_payment: false },
+              slices: [{ origin: { iata_code: "JFK" }, destination: { iata_code: "LAS" } }],
+            },
+            {
+              id: "off_fast",
+              total_amount: "120.00",
+              total_currency: "USD",
+              payment_requirements: { requires_instant_payment: true },
+              slices: [{ origin: { iata_code: "JFK" }, destination: { iata_code: "LAS" } }],
+            },
+          ],
+        },
+      }),
+  });
+  const offers = await searchOffers(
+    {
+      origin: slots.origin,
+      destination: slots.destination,
+      departDate: "2026-05-05",
+      passengers: slots.passengerCount,
+    },
+    client,
+  );
+  assert.equal(offers[0].id, "off_cheap");
+  assert.equal(offers[0].summary, "JFK to LAS for USD 88.00");
+});
+
 if (fail) {
   console.error(`\n${fail} mesh-1 tests failed; ${pass} passed`);
   process.exit(1);
