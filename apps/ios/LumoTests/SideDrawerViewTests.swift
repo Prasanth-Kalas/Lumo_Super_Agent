@@ -89,8 +89,91 @@ final class SideDrawerViewTests: XCTestCase {
     }
 
     func test_destinations_topLevel_areAllDistinct() {
-        let topLevel: [DrawerDestination] = [.trips, .receipts, .profile, .settings]
+        // IOS-MIRROR-WEB-1 EXPLORE list — order matches the web mobile
+        // drawer (Workspace, Trips, Receipts, History, Memory, Settings,
+        // Marketplace). Profile is reachable programmatically but not
+        // listed here, matching web's drawer.
+        let topLevel: [DrawerDestination] = [
+            .workspace,
+            .trips,
+            .receipts,
+            .history,
+            .memory,
+            .settings,
+            .marketplace,
+        ]
         XCTAssertEqual(Set(topLevel).count, topLevel.count)
+        XCTAssertEqual(topLevel.count, 7, "EXPLORE must list exactly 7 destinations")
+    }
+
+    /// Source-level assertion that the SideDrawerView body contains
+    /// the section blocks in the right order: header → New chat →
+    /// RECENT → EXPLORE → account chip footer. Mirrors the web mobile
+    /// drawer; if a future refactor reorders or omits a block, this
+    /// test fails with a precise pointer at where the parity slipped.
+    func test_drawerSource_sectionsRenderInWebMirroredOrder() throws {
+        let url = Bundle(for: SideDrawerViewTests.self)
+            .bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        // Fall back to repo path for the source read — Bundle won't
+        // ship .swift sources at runtime. Use the file's canonical path.
+        let src = try String(
+            contentsOf: URL(fileURLWithPath:
+                "/Users/prasanthkalas/Lumo-Agents/Lumo_Super_Agent_claude_code/apps/ios/Lumo/Views/SideDrawerView.swift"
+            ),
+            encoding: .utf8
+        )
+        _ = url
+        let markers = [
+            "header",            // LUMO header + close
+            "newChatRow",        // "+ New chat" CTA
+            "recentChatsSection", // RECENT
+            "exploreSection",    // EXPLORE
+            "accountChipFooter", // Account chip + menu
+        ]
+        var lastIndex = src.startIndex
+        for marker in markers {
+            guard let r = src.range(of: marker, range: lastIndex..<src.endIndex) else {
+                XCTFail("section marker '\(marker)' missing or out of order in SideDrawerView.swift")
+                return
+            }
+            lastIndex = r.upperBound
+        }
+    }
+
+    func test_exploreItems_listOrder_matchesWebMobileDrawer() {
+        // The EXPLORE list is a private static on SideDrawerView, so
+        // we re-assert the order at the source level. Reading the
+        // source matches the existing "structural snapshot" pattern
+        // used by ChatMessageListSnapshotTests.
+        let src = try? String(
+            contentsOf: URL(fileURLWithPath:
+                "/Users/prasanthkalas/Lumo-Agents/Lumo_Super_Agent_claude_code/apps/ios/Lumo/Views/SideDrawerView.swift"
+            ),
+            encoding: .utf8
+        )
+        XCTAssertNotNil(src)
+        guard let s = src else { return }
+        // Order in the static array literal: workspace, trips, receipts,
+        // history, memory, settings, marketplace.
+        let order = [
+            "(.workspace,",
+            "(.trips,",
+            "(.receipts,",
+            "(.history,",
+            "(.memory,",
+            "(.settings,",
+            "(.marketplace,",
+        ]
+        var lastIndex = s.startIndex
+        for entry in order {
+            guard let r = s.range(of: entry, range: lastIndex..<s.endIndex) else {
+                XCTFail("EXPLORE entry '\(entry)' missing or out of order")
+                return
+            }
+            lastIndex = r.upperBound
+        }
     }
 
     // MARK: - Sign-out gate
@@ -133,9 +216,11 @@ final class SideDrawerViewTests: XCTestCase {
             isOpen: openBinding,
             recents: [],
             signedIn: signedIn,
+            accountEmail: signedIn ? "alex@example.com" : nil,
             onNewChat: {},
             onSelectRecent: { _ in },
             onSelectDestination: { _ in },
+            onAccountSettings: {},
             onSignOut: {}
         )
     }

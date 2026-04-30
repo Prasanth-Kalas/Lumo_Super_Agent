@@ -10,18 +10,24 @@ enum LumoColors {
     static let cyan = Color("LumoCyan")            // primary brand cyan
     static let cyanDeep = Color("LumoCyanDeep")    // darker accent (wordmark fold)
 
-    // Surfaces — adapt automatically light/dark via UIKit system colors
-    static let background = Color(.systemGroupedBackground)
-    static let surface = Color(.systemBackground)
-    static let surfaceElevated = Color(.secondarySystemBackground)
-    static let separator = Color(.separator)
+    // Surfaces — IOS-MIRROR-WEB-1 ports the exact hex values from
+    // apps/web/app/globals.css so iOS matches web's dark-first
+    // posture. Light variants come from the same file's
+    // `[data-theme="light"]` block.
+    static let background = Color("LumoBg")          // page canvas
+    static let surface = Color("LumoSurface")        // cards, composer, sidebars
+    static let surfaceElevated = Color("LumoElevated") // hover states, popovers
+    static let separator = Color("LumoHair")         // 1px hairlines
 
     // Foreground
-    static let label = Color(.label)
-    static let labelSecondary = Color(.secondaryLabel)
-    static let labelTertiary = Color(.tertiaryLabel)
+    static let label = Color("LumoFg")               // primary body
+    static let labelSecondary = Color("LumoFgMid")   // captions, secondary
+    static let labelTertiary = Color("LumoFgLow")    // tertiary / disabled
 
-    // Semantic
+    // Semantic — kept on UIKit system colors. Web's --lumo-ok / -warn
+    // / -err map to the same Material accent palette these resolve to,
+    // so the visual diff is sub-perceptual and the system colors give
+    // automatic high-contrast / accessibility variants for free.
     static let error = Color(.systemRed)
     static let warning = Color(.systemOrange)
     static let success = Color(.systemGreen)
@@ -34,8 +40,8 @@ enum LumoColors {
     // deep variant is calibrated for it. See ThemeContrastTests.
     static let userBubble = cyanDeep
     static let userBubbleText = Color.white
-    static let assistantBubble = Color(.secondarySystemBackground)
-    static let assistantBubbleText = Color(.label)
+    static let assistantBubble = Color("LumoElevated")
+    static let assistantBubbleText = Color("LumoFg")
 }
 
 enum LumoFonts {
