@@ -111,6 +111,33 @@ case "$variant" in
         capture 13-receipt-detail light -LumoPaymentsFixture receipt-detail
         capture 13-receipt-detail dark  -LumoPaymentsFixture receipt-detail
         ;;
+    chatgpt-ui)
+        # MOBILE-CHATGPT-UI-1: ChatGPT-style nav refactor.
+        # `-LumoStartDrawerOpen YES` opens the side drawer on cold launch.
+        # `-LumoStartChatInput "..."` pre-fills the chat composer.
+        # `-LumoSeedRecents YES` seeds three deterministic recent-chat
+        # rows so the drawer's "Recent" section renders predictably for
+        # the shot.
+        echo "[shots] chat empty (mic visible)"
+        capture 18-chat-empty light -LumoAutoSignIn YES
+        capture 18-chat-empty dark  -LumoAutoSignIn YES
+
+        echo "[shots] composer with text (send button visible)"
+        capture 19-composer-with-text light -LumoAutoSignIn YES \
+            -LumoStartChatInput "Plan a weekend trip to Vegas"
+        capture 19-composer-with-text dark  -LumoAutoSignIn YES \
+            -LumoStartChatInput "Plan a weekend trip to Vegas"
+
+        echo "[shots] drawer open (no recents)"
+        capture 20-drawer-open light -LumoAutoSignIn YES -LumoStartDrawerOpen YES
+        capture 20-drawer-open dark  -LumoAutoSignIn YES -LumoStartDrawerOpen YES
+
+        echo "[shots] drawer open with recent chats seeded"
+        capture 21-drawer-with-recents light -LumoAutoSignIn YES \
+            -LumoStartDrawerOpen YES -LumoSeedRecents YES
+        capture 21-drawer-with-recents dark  -LumoAutoSignIn YES \
+            -LumoStartDrawerOpen YES -LumoSeedRecents YES
+        ;;
     notifications)
         # MOBILE-NOTIF-1 fixtures. `-LumoNotificationsFixture <name>`
         # bypasses the normal app root and renders the targeted screen
