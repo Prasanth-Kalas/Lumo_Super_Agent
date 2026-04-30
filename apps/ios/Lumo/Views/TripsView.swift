@@ -1,10 +1,10 @@
 import SwiftUI
 
 /// Stub. The real Trips view ships in MOBILE-TRIP-1. The empty-state
-/// copy points the user back to the Chat tab so the value of the
-/// orchestrator booking flow is still discoverable.
+/// copy points the user back to chat so the value of the orchestrator
+/// booking flow is still discoverable.
 
-struct TripsTab: View {
+struct TripsView: View {
     var body: some View {
         VStack(spacing: LumoSpacing.lg) {
             Image(systemName: "airplane.circle")
@@ -13,7 +13,7 @@ struct TripsTab: View {
             Text("No trips yet")
                 .font(LumoFonts.title)
                 .foregroundStyle(LumoColors.label)
-            Text("Trips you book through Lumo will appear here. Try saying \"plan a trip to Vegas\" in chat to get started.")
+            Text("Trips you book through Lumo will appear here. Try saying \"plan a trip to Vegas\" to get started.")
                 .font(LumoFonts.body)
                 .foregroundStyle(LumoColors.labelSecondary)
                 .multilineTextAlignment(.center)

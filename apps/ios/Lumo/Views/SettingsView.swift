@@ -1,10 +1,14 @@
 import SwiftUI
 
 /// Account, security, about, and support content. Reads the signed-in
-/// user from the host (passed via environment so the tab doesn't need
-/// to own a reference to AuthService directly).
+/// user from the host (passed via environment so this view doesn't
+/// need to own a reference to AuthService directly).
+///
+/// Reachable from the side drawer; pushed onto the chat NavigationStack
+/// rather than rendered as a tab. The internal layout is unchanged
+/// from the prior tab era — only the entry point moved.
 
-struct SettingsTab: View {
+struct SettingsView: View {
     let paymentService: PaymentServicing
     let receiptStore: ReceiptStoring
     let appConfig: AppConfig
@@ -24,10 +28,10 @@ struct SettingsTab: View {
     @State private var paymentReceiptsEnabled: Bool = NotificationSettings.isCategoryEnabled(.paymentReceipt)
     @State private var alertsEnabled: Bool = NotificationSettings.isCategoryEnabled(.alert)
     @State private var quietHoursEnabled: Bool = (NotificationSettings.quietHoursStart != nil)
-    @State private var quietStartDate: Date = SettingsTab.makeQuietDate(
+    @State private var quietStartDate: Date = SettingsView.makeQuietDate(
         from: NotificationSettings.quietHoursStart ?? 22 * 60
     )
-    @State private var quietEndDate: Date = SettingsTab.makeQuietDate(
+    @State private var quietEndDate: Date = SettingsView.makeQuietDate(
         from: NotificationSettings.quietHoursEnd ?? 7 * 60
     )
 
