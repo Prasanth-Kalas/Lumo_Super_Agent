@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/web-redesign-1 | 2026-04-30 | WEB-REDESIGN-1 web /chat shell to Claude Desktop look-and-feel (gate / for unauthed, drop AGENTS section, drop top-right chrome buttons, drop RightRail) |
 
 ## Closed lanes
 

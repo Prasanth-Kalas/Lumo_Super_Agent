@@ -10,25 +10,25 @@
  *      Without this, a user whose access token lapsed between clicks
  *      would hit a 401 on the next server-side read.
  *
- *   2. Gate publisher/admin, memory, ops, MCP, and user-data
- *      routes behind an authenticated user. Logged-out visitors to pages
- *      get redirected to /login?next=... . Unauth'd protected API
- *      requests get a 401.
+ *   2. Gate publisher/admin, memory, ops, MCP, user-data, and the
+ *      chat shell at `/` behind an authenticated user. Logged-out
+ *      visitors to pages get redirected to /login?next=... . Unauth'd
+ *      protected API requests get a 401.
  *
  * Public routes (no gate):
  *
- *   - /            — the landing chat (for now; will be replaced with a
- *                    marketing landing + authed chat behind /chat later).
- *                    We still REFRESH the session here so a transient
- *                    refresh token doesn't go stale.
  *   - /login, /signup, /auth/callback, /landing
  *   - /api/health, /api/registry
  *   - /.well-known/*  (reserved)
  *
  * Protected:
  *
+ *   - /              — the chat shell. Authed users land on it.
+ *                      Unauthed visitors are redirected to
+ *                      /login?next=/  (WEB-REDESIGN-1).
  *   - /connections, /memory, /intents, /autonomy, /ops,
  *     /history, /onboarding, /publisher, /admin
+ *   - /trips, /receipts, /profile, /settings
  *   - protected /api/* surfaces for user data, publisher/admin, MCP, and ops
  *
  * The matcher at the bottom excludes static assets, images, and Next
@@ -37,6 +37,19 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseMiddlewareClient } from "@/lib/auth";
+
+/**
+ * Exact-match protected paths. Use this list rather than
+ * PROTECTED_PAGE_PREFIXES when you only want to gate one specific
+ * pathname — adding a path to the prefix list would (incorrectly)
+ * also gate everything beneath it that we don't actually own.
+ *
+ * "/" is here because the chat shell is now authenticated-only
+ * (WEB-REDESIGN-1). Adding "/" to PROTECTED_PAGE_PREFIXES would gate
+ * the entire site, which we don't want — the prefix list assumes
+ * proper sub-tree ownership.
+ */
+const PROTECTED_PAGE_EXACT = ["/"];
 
 const PROTECTED_PAGE_PREFIXES = [
   "/connections",
@@ -119,9 +132,11 @@ export async function middleware(req: NextRequest) {
 
   const { pathname, search } = req.nextUrl;
 
-  const isProtectedPage = PROTECTED_PAGE_PREFIXES.some((p) =>
-    pathname === p || pathname.startsWith(`${p}/`),
-  );
+  const isProtectedPage =
+    PROTECTED_PAGE_EXACT.includes(pathname) ||
+    PROTECTED_PAGE_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(`${p}/`),
+    );
   const isPublicException = PUBLIC_API_EXCEPTIONS.some((p) =>
     pathname === p || pathname.startsWith(`${p}/`),
   );
