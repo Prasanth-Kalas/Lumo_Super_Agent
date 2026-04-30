@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { logPreferenceEvent } from "@/lib/preference-events-client";
+import { scopeSummary } from "@/lib/lumo-mission-card-helpers";
 
 export interface LumoMissionScope {
   name: string;
@@ -647,21 +648,6 @@ function approveLabel(
   // semantics. The detailed "Allow and install" / "Install" flavor is
   // surfaced in the Show-details panel via permission_copy.
   return "Approve";
-}
-
-/// Condense the proposal's profile-fields list into one line
-/// readable at a glance. Matches the brief's example
-/// ("Will see: name, email, payment method") and clamps long lists.
-export function scopeSummary(proposal: LumoMissionProposal): string {
-  const fields = proposal.profile_fields_requested;
-  if (fields.length === 0) return "Won't access your profile";
-  if (fields.length === 1) return `Will see: ${fields[0]}`;
-  if (fields.length === 2) return `Will see: ${fields[0]} and ${fields[1]}`;
-  if (fields.length === 3) {
-    return `Will see: ${fields[0]}, ${fields[1]}, and ${fields[2]}`;
-  }
-  // 4+: surface the first two and a count for the rest.
-  return `Will see: ${fields[0]}, ${fields[1]}, and ${fields.length - 2} more`;
 }
 
 /// Compact app-icon stand-in. Real icons aren't part of the
