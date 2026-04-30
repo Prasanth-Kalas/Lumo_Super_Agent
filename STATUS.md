@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-mirror-web-1 | 2026-04-30 | IOS-MIRROR-WEB-1 iOS chat shell adopts the web Claude-Desktop pattern (drawer EXPLORE order, account chip footer, typographic message style, bordered composer) |
 
 ## Closed lanes
 

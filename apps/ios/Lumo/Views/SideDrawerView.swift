@@ -1,22 +1,24 @@
 import SwiftUI
 
-/// Slide-in drawer from the left edge — ChatGPT-style navigation
-/// surface for the iOS app. Hosted by `RootView`; rendered as an
-/// overlay above the chat content with a dim backdrop that dismisses
-/// on tap.
+/// Slide-in drawer from the left edge. Mirrors the web mobile drawer
+/// (after WEB-REDESIGN-1 dropped the AGENTS section) — see
+/// docs/notes/web-redesign-1-screenshots/04-mobile-drawer-{light,dark}.png
+/// for the parity reference.
 ///
-/// Layout (top → bottom):
-///   • "New Chat" button.
-///   • "Recent Chats" header + scrollable list.
-///   • Divider.
-///   • Trips, Receipts, Profile, Settings rows.
-///   • Sign Out button (only when signed in; destructive style).
+/// Layout (top → bottom, matches web):
+///   • LUMO header + close button
+///   • "+ New chat" primary CTA
+///   • RECENT — scrollable list of past conversations
+///   • EXPLORE — Workspace, Trips, Receipts, History, Memory,
+///                Settings, Marketplace
+///   • Account chip footer — avatar + email + chevron, taps to expand
+///                            into a small menu (Account settings,
+///                            Sign out). Only renders when signed in.
 ///
 /// Width:
 ///   • iPhone — 80% of screen width.
 ///   • iPad — capped at 320 points so the drawer doesn't stretch
-///     across the whole compact layout. SwiftUI's
-///     horizontalSizeClass distinguishes the two.
+///     across the whole compact layout.
 ///
 /// Animation: spring slide via `LumoAnimation.smooth`. The parent
 /// drives `isOpen`; transitions happen inside an `.animation()`
@@ -25,13 +27,34 @@ struct SideDrawerView: View {
     @Binding var isOpen: Bool
     let recents: [RecentChatItem]
     let signedIn: Bool
+    /// Email shown on the account chip. Nil when no `/api/me` data is
+    /// available yet — the chip falls back to "Signed in".
+    let accountEmail: String?
 
     var onNewChat: () -> Void
     var onSelectRecent: (RecentChatItem) -> Void
     var onSelectDestination: (DrawerDestination) -> Void
+    var onAccountSettings: () -> Void
     var onSignOut: () -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// Whether the account-chip footer is showing the (Account settings,
+    /// Sign out) menu. Toggled by tapping the chip, dismissed by tapping
+    /// either menu row or by re-tapping the chip.
+    @State private var accountMenuOpen: Bool = false
+
+    /// EXPLORE destinations in order. Locked here so future surfaces
+    /// register in one place and match the web drawer's section.
+    private static let exploreItems: [(DrawerDestination, String, String)] = [
+        (.workspace,    "Workspace",   "square.grid.2x2"),
+        (.trips,        "Trips",       "airplane"),
+        (.receipts,     "Receipts",    "doc.text"),
+        (.history,      "History",     "clock.arrow.circlepath"),
+        (.memory,       "Memory",      "brain.head.profile"),
+        (.settings,     "Settings",    "gearshape"),
+        (.marketplace,  "Marketplace", "square.grid.3x2"),
+    ]
 
     var body: some View {
         GeometryReader { proxy in
@@ -78,16 +101,27 @@ struct SideDrawerView: View {
                     Divider().padding(.vertical, LumoSpacing.sm)
                     recentChatsSection
                     Divider().padding(.vertical, LumoSpacing.sm)
-                    destinationRow(.trips, label: "Trips", icon: "airplane")
-                    destinationRow(.receipts, label: "Receipts", icon: "doc.text")
-                    destinationRow(.profile, label: "Profile", icon: "person.crop.circle")
-                    destinationRow(.settings, label: "Settings", icon: "gearshape")
+                    exploreSection
                 }
                 .padding(.horizontal, LumoSpacing.md)
             }
-            footer
+            accountChipFooter
         }
         .padding(.top, LumoSpacing.lg)
+    }
+
+    @ViewBuilder
+    private var exploreSection: some View {
+        VStack(alignment: .leading, spacing: LumoSpacing.xxs) {
+            Text("Explore")
+                .font(LumoFonts.footnote)
+                .foregroundStyle(LumoColors.labelTertiary)
+                .padding(.vertical, LumoSpacing.xs)
+                .accessibilityIdentifier("drawer.explore.header")
+            ForEach(Self.exploreItems, id: \.1) { entry in
+                destinationRow(entry.0, label: entry.1, icon: entry.2)
+            }
+        }
     }
 
     private var header: some View {
@@ -205,29 +239,100 @@ struct SideDrawerView: View {
         .accessibilityIdentifier("drawer.\(label.lowercased())")
     }
 
+    /// Account chip footer — mirrors the web LeftRail profile chip.
+    /// Tap the row to open a small menu (Account settings + Sign out);
+    /// taps elsewhere collapse it. Hidden when signed-out (matches the
+    /// web drawer's auth-footer split).
     @ViewBuilder
-    private var footer: some View {
+    private var accountChipFooter: some View {
         if signedIn {
             VStack(spacing: 0) {
+                if accountMenuOpen {
+                    accountMenu
+                }
                 Divider()
-                Button(role: .destructive) {
-                    onSignOut()
+                Button {
+                    withAnimation(LumoAnimation.quick) {
+                        accountMenuOpen.toggle()
+                    }
                 } label: {
                     HStack(spacing: LumoSpacing.sm) {
-                        Image(systemName: "rectangle.portrait.and.arrow.right")
-                            .font(.system(size: 16))
-                            .frame(width: 28)
-                        Text("Sign out")
-                            .font(LumoFonts.body)
+                        avatarCircle
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(accountEmail ?? "Signed in")
+                                .font(LumoFonts.footnote)
+                                .foregroundStyle(LumoColors.label)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
                         Spacer()
+                        Image(systemName: accountMenuOpen ? "chevron.down" : "chevron.up")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(LumoColors.labelTertiary)
                     }
                     .padding(.horizontal, LumoSpacing.md)
                     .padding(.vertical, LumoSpacing.md)
                     .contentShape(Rectangle())
                 }
-                .accessibilityIdentifier("drawer.signOut")
+                .accessibilityIdentifier("drawer.accountChip")
             }
         }
+    }
+
+    private var avatarCircle: some View {
+        Circle()
+            .fill(LumoColors.cyan.opacity(0.18))
+            .overlay(
+                Text(accountInitial)
+                    .font(LumoFonts.footnote.weight(.semibold))
+                    .foregroundStyle(LumoColors.cyanDeep)
+            )
+            .frame(width: 28, height: 28)
+    }
+
+    private var accountInitial: String {
+        guard let email = accountEmail, let first = email.first else { return "·" }
+        return String(first).uppercased()
+    }
+
+    @ViewBuilder
+    private var accountMenu: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(LumoAnimation.quick) { accountMenuOpen = false }
+                onAccountSettings()
+                close()
+            } label: {
+                accountMenuRow(label: "Account settings", icon: "person.crop.circle", destructive: false)
+            }
+            .accessibilityIdentifier("drawer.account.settings")
+
+            Button(role: .destructive) {
+                withAnimation(LumoAnimation.quick) { accountMenuOpen = false }
+                onSignOut()
+            } label: {
+                accountMenuRow(label: "Sign out", icon: "rectangle.portrait.and.arrow.right", destructive: true)
+            }
+            .accessibilityIdentifier("drawer.signOut")
+        }
+        .padding(.horizontal, LumoSpacing.md)
+        .padding(.vertical, LumoSpacing.sm)
+        .background(LumoColors.surfaceElevated)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    private func accountMenuRow(label: String, icon: String, destructive: Bool) -> some View {
+        HStack(spacing: LumoSpacing.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .frame(width: 24)
+            Text(label)
+                .font(LumoFonts.body)
+            Spacer()
+        }
+        .foregroundStyle(destructive ? Color.red : LumoColors.label)
+        .padding(.vertical, LumoSpacing.sm)
+        .contentShape(Rectangle())
     }
 
     // MARK: - Helpers

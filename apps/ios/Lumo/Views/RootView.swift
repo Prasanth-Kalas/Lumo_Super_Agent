@@ -42,6 +42,11 @@ struct RootView: View {
     @State private var drawerOpen: Bool = false
     @State private var showSignOutConfirm: Bool = false
 
+    /// Injected by AppRootView when the user is signed in (see
+    /// AppRootView.body). Drives the drawer's account-chip footer
+    /// email + initial.
+    @Environment(\.signedInUser) private var signedInUser
+
     init(
         chatService: ChatService,
         tts: TextToSpeechServicing,
@@ -94,9 +99,11 @@ struct RootView: View {
                 isOpen: $drawerOpen,
                 recents: recentChats.items,
                 signedIn: true,
+                accountEmail: signedInUser?.email,
                 onNewChat: handleNewChat,
                 onSelectRecent: handleSelectRecent,
                 onSelectDestination: handleSelectDestination,
+                onAccountSettings: handleAccountSettings,
                 onSignOut: { showSignOutConfirm = true }
             )
         }
@@ -139,14 +146,18 @@ struct RootView: View {
     @ViewBuilder
     private func destinationView(for destination: DrawerDestination) -> some View {
         switch destination {
+        case .workspace:
+            WorkspaceView()
         case .trips:
             TripsView()
         case .receipts:
             ReceiptHistoryView(store: receiptStore)
         case .receiptDetail(let receiptID):
             ReceiptDetailLookupView(receiptID: receiptID, store: receiptStore)
-        case .profile:
-            ProfileView()
+        case .history:
+            HistoryView()
+        case .memory:
+            MemoryView()
         case .settings:
             SettingsView(
                 paymentService: paymentService,
@@ -154,11 +165,23 @@ struct RootView: View {
                 appConfig: appConfig,
                 onSignOut: onSignOut
             )
+        case .marketplace:
+            MarketplaceView()
+        case .profile:
+            // Not in EXPLORE today; reachable programmatically (e.g.
+            // future Settings → Profile link, deep link from web).
+            ProfileView()
         }
     }
 
     private func handleSelectDestination(_ destination: DrawerDestination) {
         path.append(destination)
+    }
+
+    /// Drawer's account-chip → "Account settings" tap. Pushes the
+    /// SettingsView (the iOS analogue of /settings/account on web).
+    private func handleAccountSettings() {
+        path.append(DrawerDestination.settings)
     }
 
     private func handleSelectRecent(_ item: RecentChatItem) {
