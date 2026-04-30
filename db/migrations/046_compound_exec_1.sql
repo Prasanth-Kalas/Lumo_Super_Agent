@@ -5,6 +5,12 @@
 --   - explicit dependency DAG edges between existing transaction_legs
 --   - append-only SSE v2 leg status events for deterministic replay
 --
+-- Cycle prevention doctrine:
+--   This migration rejects self-loops at the database boundary. Transitive
+--   cycle detection is intentionally the saga planner's responsibility before
+--   dependency INSERT; a recursive CTE trigger would be too expensive on the
+--   hot path and would make deterministic graph validation harder to test.
+--
 -- Rollback:
 --   drop trigger if exists leg_status_events_append_only_guard on public.leg_status_events;
 --   drop function if exists public.leg_status_events_append_only();
@@ -330,24 +336,24 @@ create table if not exists public.leg_status_events (
                              or char_length(provider_reference) <= 240
                            ),
   evidence                 jsonb not null default '{}'::jsonb,
-  "timestamp"              timestamptz not null default now(),
+  occurred_at              timestamptz not null default now(),
   created_at               timestamptz not null default now(),
   check (jsonb_typeof(evidence) = 'object')
 );
 
 comment on table public.leg_status_events is
-  'COMPOUND-EXEC-1 append-only SSE v2 event log. Replayed by created_at/id to reconstruct leg_status frames.';
+  'COMPOUND-EXEC-1 append-only SSE v2 event log. Replayed by occurred_at/id to reconstruct leg_status frames.';
 comment on column public.leg_status_events.evidence is
   'Bounded status evidence only. Do not store raw provider payloads, payment data, prompts, or secrets.';
 
 create index if not exists leg_status_events_by_compound_replay
-  on public.leg_status_events (compound_transaction_id, "timestamp" asc, id asc);
+  on public.leg_status_events (compound_transaction_id, occurred_at asc, id asc);
 
 create index if not exists leg_status_events_by_leg_time
-  on public.leg_status_events (leg_id, "timestamp" asc, id asc);
+  on public.leg_status_events (leg_id, occurred_at asc, id asc);
 
 create index if not exists leg_status_events_by_status_time
-  on public.leg_status_events (status, "timestamp" desc);
+  on public.leg_status_events (status, occurred_at desc);
 
 create or replace function public.leg_status_events_validate_leg()
 returns trigger
