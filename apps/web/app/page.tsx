@@ -726,25 +726,12 @@ export default function Home() {
                 health back, expose it in the right-rail HUD where
                 power users look. */}
 
-            {/* Desktop nav buttons — hidden on mobile (drawer owns these). */}
-            <button
-              type="button"
-              onClick={newThread}
-              aria-label="New thread"
-              title="New thread"
-              className="hidden sm:inline-flex h-8 px-2.5 rounded-md items-center gap-1.5 text-[12.5px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-                <path d="M6 2.5v7M2.5 6h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-              </svg>
-              <span>New</span>
-            </button>
-
-            {/* Workspace CTA — primary nav target. Sends users to the
-                unified dashboard (Today / Content / Inbox / Co-pilot /
-                Operations). Accented styling so it stands out from
-                History / Sign-in. Hidden on mobile; the drawer surfaces
-                Workspace as the first quick-link there. */}
+            {/* Top-right chrome trimmed in WEB-REDESIGN-1 to match the
+                Claude-Desktop posture: no global nav buttons. New chat
+                lives in the LeftRail; History is reachable via the
+                recents list + the profile menu; Sign-in is moot since
+                middleware now redirects unauthed visitors to /login.
+                Workspace + the avatar chip + ThemeToggle stay. */}
             <a
               href="/workspace"
               aria-label="Workspace"
@@ -755,59 +742,22 @@ export default function Home() {
               <span>Workspace</span>
             </a>
 
-            <a
-              href="/history"
-              aria-label="History"
-              title="Past trips and conversations"
-              className="hidden sm:inline-flex h-8 px-2.5 rounded-md items-center gap-1.5 text-[12.5px] text-lumo-fg-low hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
-            >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 12 12"
-                fill="none"
-                aria-hidden
+            {/* Avatar chip — only renders for signed-in users. Signed-out
+                visitors never reach this surface (middleware redirects /
+                to /login when there's no session). */}
+            {process.env.NEXT_PUBLIC_SUPABASE_URL && me ? (
+              <a
+                href="/settings/account"
+                aria-label={
+                  me.full_name
+                    ? `Signed in as ${me.full_name}`
+                    : `Signed in as ${me.email ?? "you"}`
+                }
+                title={me.email ?? me.full_name ?? "Account"}
+                className="hidden sm:inline-flex h-8 w-8 rounded-full items-center justify-center bg-lumo-elevated border border-lumo-hair text-[12px] font-semibold text-lumo-fg hover:bg-lumo-surface transition-colors"
               >
-                <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.4" />
-                <path
-                  d="M6 3.5V6l1.6 1.2"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                />
-              </svg>
-              <span>History</span>
-            </a>
-
-            {/* Auth chip — three states:
-                  • env not wired → render nothing (dev / stub deploy)
-                  • env wired, signed out → "Sign in" link
-                  • env wired, signed in → circular initial chip
-                    linking to /settings/account (identity surface +
-                    sign-out). Hides on mobile; drawer owns that surface. */}
-            {process.env.NEXT_PUBLIC_SUPABASE_URL ? (
-              me ? (
-                <a
-                  href="/settings/account"
-                  aria-label={
-                    me.full_name
-                      ? `Signed in as ${me.full_name}`
-                      : `Signed in as ${me.email ?? "you"}`
-                  }
-                  title={me.email ?? me.full_name ?? "Account"}
-                  className="hidden sm:inline-flex h-8 w-8 rounded-full items-center justify-center bg-lumo-elevated border border-lumo-hair text-[12px] font-semibold text-lumo-fg hover:bg-lumo-surface transition-colors"
-                >
-                  {initialFor(me.first_name, me.full_name, me.email)}
-                </a>
-              ) : (
-                <a
-                  href="/login"
-                  aria-label="Sign in"
-                  className="hidden sm:inline-flex h-8 px-3 rounded-md items-center text-[12.5px] font-medium text-lumo-fg hover:bg-lumo-elevated transition-colors"
-                >
-                  Sign in
-                </a>
-              )
+                {initialFor(me.first_name, me.full_name, me.email)}
+              </a>
             ) : null}
 
             <ThemeToggle />
