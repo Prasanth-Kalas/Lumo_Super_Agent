@@ -1,0 +1,100 @@
+{
+  "agent_id": "stub-3-leg-trip",
+  "version": "1.0.0",
+  "agent_class": "merchant_of_record",
+  "domain": "travel",
+  "display_name": "Stub 3-Leg Trip",
+  "one_liner": "Synthetic compound trip agent that commits two legs and fails the third to exercise rollback.",
+  "intents": [
+    "book_flight_stub",
+    "cancel_flight_stub",
+    "book_hotel_stub",
+    "cancel_hotel_stub",
+    "book_ground_stub",
+    "cancel_ground_stub"
+  ],
+  "example_utterances": [
+    "Run the compound trip rollback demo",
+    "Book a synthetic flight hotel and cab then fail the cab"
+  ],
+  "openapi_url": "https://samples.lumo.rentals/stub-3-leg-trip/openapi.json",
+  "ui": { "components": ["TripConfirmationCard", "ReceiptDetail"] },
+  "health_url": "https://samples.lumo.rentals/stub-3-leg-trip/health",
+  "sla": {
+    "p50_latency_ms": 500,
+    "p95_latency_ms": 1200,
+    "availability_target": 0.995
+  },
+  "pii_scope": ["payment_method_id", "email"],
+  "requires_payment": true,
+  "supported_regions": ["US"],
+  "capabilities": {
+    "sdk_version": "0.4.5",
+    "supports_compound_bookings": true,
+    "implements_cancellation": true
+  },
+  "connect": { "model": "lumo_id", "audience": "stub-3-leg-trip" },
+  "listing": {
+    "category": "Developer tools",
+    "pricing_note": "Test mode only",
+    "about_paragraphs": [
+      "Reference compound merchant-of-record agent for COMPOUND-EXEC-1.",
+      "Commits two synthetic legs, fails a third, then validates reverse-topological compensation."
+    ]
+  },
+  "owner_team": "Lumo Samples",
+  "merchant_provider": "mock_merchant",
+  "commerce": {
+    "provider": "mock_merchant",
+    "settlement_currency": "USD",
+    "test_mode": true,
+    "requires_confirmation": true
+  },
+  "transaction_capabilities": [
+    {
+      "id": "book_flight_stub",
+      "kind": "book_flight",
+      "idempotency_key_field": "idempotency_key",
+      "max_single_transaction_amount": { "amount": 1, "currency": "USD" },
+      "refund_eligibility_window": "PT30M",
+      "compensationAction": "cancel_flight_stub",
+      "compensation_action_capability_id": "cancel_flight_stub",
+      "requires_confirmation": true
+    },
+    {
+      "id": "book_hotel_stub",
+      "kind": "book_hotel",
+      "idempotency_key_field": "idempotency_key",
+      "max_single_transaction_amount": { "amount": 1, "currency": "USD" },
+      "refund_eligibility_window": "PT30M",
+      "compensationAction": "cancel_hotel_stub",
+      "compensation_action_capability_id": "cancel_hotel_stub",
+      "requires_confirmation": true
+    },
+    {
+      "id": "book_ground_stub",
+      "kind": "book_ground",
+      "idempotency_key_field": "idempotency_key",
+      "max_single_transaction_amount": { "amount": 1, "currency": "USD" },
+      "refund_eligibility_window": "PT30M",
+      "compensationAction": "cancel_ground_stub",
+      "compensation_action_capability_id": "cancel_ground_stub",
+      "requires_confirmation": true
+    }
+  ],
+  "x_lumo_sample": {
+    "trust_tier_target": "verified",
+    "runtime": "e2b",
+    "requires": {
+      "brain_tools": [],
+      "connectors": ["mock-merchant"],
+      "scopes": [
+        "write.financial.transfer.up_to_per_invocation:1_usd:per_day:5_usd",
+        "write.merchant.reservation"
+      ]
+    },
+    "cost_model": {
+      "max_cost_usd_per_invocation": 0.08
+    }
+  }
+}
