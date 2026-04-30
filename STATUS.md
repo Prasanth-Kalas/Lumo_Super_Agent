@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Claude Code | Lumo_Super_Agent_claude_code | claude-code/web-redesign-1 | 2026-04-30 | WEB-REDESIGN-1 web /chat shell to Claude Desktop look-and-feel (gate / for unauthed, drop AGENTS section, drop top-right chrome buttons, drop RightRail) |
 
 ## Closed lanes
 
@@ -29,6 +28,7 @@
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/mobile-chatgpt-ui-1 | 2026-04-30 | 2026-04-30 | MOBILE-CHATGPT-UI-1 iOS nav refactor (drop TabView → NavigationStack + side drawer ChatGPT-style); 2 follow-ups filed (MOBILE-SETTINGS-DEDUP-1, MOBILE-SCREENSHOT-MIGRATE-1) |
 | Codex | Lumo_Super_Agent_codex | codex/compound-exec-1 | 2026-04-30 | 2026-04-30 | COMPOUND-EXEC-1 saga hardening + deterministic replay + SSE v2; COMPOUND-EXEC-2 follow-ups filed |
 | Codex | Lumo_Super_Agent_codex | codex/compound-exec-2 | 2026-04-30 | 2026-04-30 | COMPOUND-EXEC-2 compound transaction API + persistence layer; 3 follow-ups filed (COMPOUND-IDEMPOTENCY-CONFLICT-1, COMPOUND-SSE-INTEGRATION-TEST-1, COMPOUND-RPC-CYCLE-GUARD-1) |
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/web-redesign-1 | 2026-04-30 | 2026-04-30 | WEB-REDESIGN-1 Claude-Desktop-style web /chat (gate `/` for unauthed, drop AGENTS from MobileNav, drop Sign-in/History/New thread chrome, drop RightRail); 3 follow-ups filed (AUTH-GATE-CI-GUARD-1, WEB-RIGHTRAIL-PRUNE-1, WEB-VISUAL-REGRESSION-CI-1) |
 
 ## Last push
 
@@ -98,3 +98,4 @@
 - 2026-04-30 — codex/compound-exec-2 → main (FF), COMPOUND-EXEC-2 closed. Saga substrate now has callable HTTP API + atomic persistence RPC + SSE v2 replay stream + runnable 3-leg demo; follow-ups filed for idempotency hash conflict 409, DB-backed SSE integration determinism, and RPC-side cycle guard.
 - 2026-04-30 — claude-code/web-redesign-1 opened from origin/main; web /chat shell to Claude Desktop look-and-feel (gate / for unauthed, drop AGENTS section, drop top-right chrome buttons, drop RightRail) in flight.
 - 2026-04-30 — claude-code/web-redesign-1 ready for review: all 4 brief deltas shipped (middleware gate `/` for unauthed → /login?next=/; AGENTS section + BASELINE_AGENTS + AgentRow removed from MobileNav — LeftRail had none today, regression-guarded; top-right chrome trimmed to Workspace + avatar chip + ThemeToggle; RightRail import + mount + activeTrip useMemo + memoryRefreshKey state removed). 18 new tests across 3 source-level contract suites (web-redesign-mobile-nav 8, web-redesign-left-rail 5, web-redesign-middleware 5); npm test green. 16 screenshots: 8 light+dark "after" + 8 light+dark "before" captured via new playwright-driven scripts/web-capture-screenshots.mjs. Server-side LUMO_WEB_DISABLE_AUTH_GATE escape hatch added for capture (no NEXT_PUBLIC_ prefix). Misconfigured-Supabase 503 on protected pages changed to /login redirect for cleaner UX. WEB-RIGHTRAIL-PRUNE-1 follow-up filed (RightRail.tsx file kept in tree but unused; deletion safe).
+- 2026-04-30 — claude-code/web-redesign-1 → main (FF), WEB-REDESIGN-1 closed. Rebased onto current origin/main (COMPOUND-EXEC-2 + auth hydration fix had landed); STATUS.md + apps/web/package.json conflicts resolved cleanly. 3 follow-ups filed and deferred: AUTH-GATE-CI-GUARD-1 (CI assertion that production env never sets LUMO_WEB_DISABLE_AUTH_GATE), WEB-RIGHTRAIL-PRUNE-1 (delete RightRail.tsx once COMPOUND-EXEC-2 inline UI lands), WEB-VISUAL-REGRESSION-CI-1 (wire scripts/web-capture-screenshots.mjs as a CI step against baseline shots). Both lanes idle; Claude Code awaits IOS-MIRROR-WEB-1 brief.
