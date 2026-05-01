@@ -122,6 +122,32 @@ case "$variant" in
         capture confirmation-card dark \
             -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
         ;;
+    ios-compound-leg-detail-1)
+        # IOS-COMPOUND-LEG-DETAIL-1: tap-to-expand leg detail
+        # panel in five status states. -LumoSeedCompoundLegDetail
+        # <state> seeds the dispatch + per-leg metadata + auto-
+        # expands the targeted leg via
+        # RootView.seedCompoundLegDetailFixture. Brief calls for
+        # one shot per status (light) plus a dark counterpart
+        # for committed (the most common end state).
+        echo "[shots] leg detail · pending"
+        capture leg-detail-pending light \
+            -LumoAutoSignIn YES -LumoSeedCompoundLegDetail pending
+        echo "[shots] leg detail · in_flight"
+        capture leg-detail-in-flight light \
+            -LumoAutoSignIn YES -LumoSeedCompoundLegDetail in_flight
+        echo "[shots] leg detail · committed (light + dark)"
+        capture leg-detail-committed light \
+            -LumoAutoSignIn YES -LumoSeedCompoundLegDetail committed
+        capture leg-detail-committed dark \
+            -LumoAutoSignIn YES -LumoSeedCompoundLegDetail committed
+        echo "[shots] leg detail · failed"
+        capture leg-detail-failed light \
+            -LumoAutoSignIn YES -LumoSeedCompoundLegDetail failed
+        echo "[shots] leg detail · manual_review"
+        capture leg-detail-manual-review light \
+            -LumoAutoSignIn YES -LumoSeedCompoundLegDetail manual_review
+        ;;
     ios-compound-view-1)
         # IOS-COMPOUND-VIEW-1: per-leg compound-dispatch strip
         # in two states. -LumoSeedCompoundDispatch <state> seeds

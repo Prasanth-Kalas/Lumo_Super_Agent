@@ -282,6 +282,16 @@ struct RootView: View {
            !raw.isEmpty {
             seedCompoundDispatchFixture(state: raw)
         }
+        // Seed compound-leg-detail fixture
+        // (IOS-COMPOUND-LEG-DETAIL-1). The flag value picks which
+        // detail-panel state renders by status:
+        //   pending / in_flight / committed / failed / manual_review
+        // The targeted leg is pre-expanded so the capture lands
+        // the panel without scripting a tap.
+        if let raw = defaults.string(forKey: "LumoSeedCompoundLegDetail"),
+           !raw.isEmpty {
+            seedCompoundLegDetailFixture(detailState: raw)
+        }
         #endif
     }
 
@@ -347,6 +357,123 @@ struct RootView: View {
                     "leg_restaurant": legStatuses.2,
                 ]
             ]
+        )
+    }
+
+    private func seedCompoundLegDetailFixture(detailState: String) {
+        let user = ChatMessage(
+            role: .user,
+            text: "Plan a Vegas weekend — flight, hotel, dinner.",
+            status: .sent
+        )
+        let assistant = ChatMessage(
+            role: .assistant,
+            text: "On it — three agents working in parallel.",
+            status: .delivered
+        )
+
+        // Compose the 3-leg plan, then mutate per detailState so
+        // the targeted leg sits in the requested status with the
+        // matching metadata (provider_reference, evidence,
+        // firstSeenInFlightAt). Other legs hold deterministic
+        // background statuses.
+        let compoundID = "ct_vegas_detail_fixture"
+        var legStatuses: [String: CompoundLegStatus] = [
+            "leg_flight":     .committed,
+            "leg_hotel":      .pending,
+            "leg_restaurant": .pending,
+        ]
+        var metadata: [String: CompoundLegMetadata] = [:]
+        var expand: Set<String> = []
+
+        switch detailState {
+        case "pending":
+            // Hotel is pending, waiting on flight. Expand hotel.
+            expand = ["leg_hotel"]
+        case "in_flight":
+            // Hotel is in_flight with a 17 s elapsed stamp so the
+            // ticker reads "Elapsed: 17s" at capture time.
+            legStatuses["leg_hotel"] = .in_flight
+            metadata["leg_hotel"] = CompoundLegMetadata(
+                firstSeenInFlightAt: Date().addingTimeInterval(-17),
+                lastUpdatedAt: Date(),
+                provider_reference: nil,
+                evidence: nil
+            )
+            expand = ["leg_hotel"]
+        case "committed":
+            // Flight is committed with a Duffel order ref + a
+            // light evidence dict. Expand flight.
+            metadata["leg_flight"] = CompoundLegMetadata(
+                firstSeenInFlightAt: Date().addingTimeInterval(-90),
+                lastUpdatedAt: Date(),
+                provider_reference: "DUFFEL_ord_8c4f12a3",
+                evidence: [
+                    "route": "ORD → LAS",
+                    "carrier": "United UA1234",
+                    "depart": "Sat, May 9 · 7:15 AM",
+                    "seats": "12C, 12D",
+                ]
+            )
+            expand = ["leg_flight"]
+        case "failed":
+            // Hotel failed with a recognized reason that
+            // humanizes into a clean copy.
+            legStatuses["leg_hotel"] = .failed
+            metadata["leg_hotel"] = CompoundLegMetadata(
+                firstSeenInFlightAt: Date().addingTimeInterval(-25),
+                lastUpdatedAt: Date(),
+                provider_reference: nil,
+                evidence: ["reason": "rate_unavailable"]
+            )
+            expand = ["leg_hotel"]
+        case "manual_review":
+            legStatuses["leg_hotel"] = .manual_review
+            metadata["leg_hotel"] = CompoundLegMetadata(
+                firstSeenInFlightAt: nil,
+                lastUpdatedAt: Date(),
+                provider_reference: nil,
+                evidence: ["reason": "Provider returned an unexpected 5xx; saga escalated."]
+            )
+            expand = ["leg_hotel"]
+        default:
+            break
+        }
+
+        let dispatch = CompoundDispatchPayload(
+            kind: "assistant_compound_dispatch",
+            compound_transaction_id: compoundID,
+            legs: [
+                CompoundLeg(
+                    leg_id: "leg_flight",
+                    agent_id: "lumo-flights",
+                    agent_display_name: "Lumo Flights",
+                    description: "Booking flight ORD → LAS",
+                    status: legStatuses["leg_flight"]!
+                ),
+                CompoundLeg(
+                    leg_id: "leg_hotel",
+                    agent_id: "lumo-hotels",
+                    agent_display_name: "Lumo Hotels",
+                    description: "Booking hotel near the Strip",
+                    status: legStatuses["leg_hotel"]!
+                ),
+                CompoundLeg(
+                    leg_id: "leg_restaurant",
+                    agent_id: "lumo-restaurants",
+                    agent_display_name: "Lumo Restaurants",
+                    description: "Booking dinner reservation",
+                    status: legStatuses["leg_restaurant"]!
+                ),
+            ]
+        )
+
+        chatViewModel._seedForTest(
+            messages: [user, assistant],
+            compoundDispatches: [assistant.id: dispatch],
+            compoundOverrides: [compoundID: legStatuses],
+            compoundMetadata: [compoundID: metadata],
+            compoundExpanded: expand
         )
     }
 
