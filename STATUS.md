@@ -2,8 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-dev-bypass-gate-1 | 2026-05-02 | IOS-DEV-BYPASS-GATE-1 App Store submission readiness — recon found the dev-bypass button already wrapped in `#if DEBUG` since 2026-04-29; this lane adds defense-in-depth (visual-gate PNGs Debug-vs-Release + build-config sanity test pinning that Release omits the DEBUG compilation condition) |
-
 ## Closed lanes
 
 | Lane | Worktree | Branch | Started | Closed | Sprint |
@@ -56,6 +54,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/web-rightrail-prune-1 | 2026-05-02 | 2026-05-02 | WEB-RIGHTRAIL-PRUNE-1 pruned unused RightRail component and stale references |
 | Codex | Lumo_Super_Agent_codex | codex/web-recents-timestamp-port-1 | 2026-05-02 | 2026-05-02 | WEB-RECENTS-TIMESTAMP-PORT-1 ported iOS-style recents time-since labels to web |
 | Codex | Lumo_Super_Agent_codex | codex/auth-gate-ci-guard-1 | 2026-05-02 | 2026-05-02 | AUTH-GATE-CI-GUARD-1 production build guard for auth-gate bypass flag |
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-dev-bypass-gate-1 | 2026-05-02 | 2026-05-02 | IOS-DEV-BYPASS-GATE-1 App Store submission readiness — defense-in-depth on the existing `#if DEBUG` gate (visual-gate PNGs Debug-vs-Release + verifier shell script + 3 Swift tests pinning the source-grep + project.yml Release-config invariants); Lane 1 of 6 in the small-lanes queue |
 
 ## Last push
 
@@ -176,3 +175,4 @@
 - 2026-05-02 — codex/auth-gate-ci-guard-1 → main (FF), AUTH-GATE-CI-GUARD-1 closed. Added pure guard + pre-build script + middleware runtime check so `LUMO_WEB_DISABLE_AUTH_GATE=1` cannot ship under `NODE_ENV=production`; gates green (typecheck/lint/lint:registry/lint:commits/build/test). TYPECHECK-BUILD-ORDER-1 filed deferred for deterministic first-run ordering.
 - 2026-05-02 — claude-code/ios-dev-bypass-gate-1 opened from origin/main; App Store submission readiness — gate the dev-bypass button on the welcome screen so it's stripped from TestFlight + App Store binaries. Recon flagged the `#if DEBUG` wrap was already shipped on 2026-04-29 in `bca3a862` with the auth foundation lane; brief preauthorised defense-in-depth (visual-gate PNGs Debug-vs-Release + build-config sanity test) so this lane scoped to that.
 - 2026-05-02 — claude-code/ios-dev-bypass-gate-1 ready for review: AuthView grows `static let isDevBypassButtonCompiledIn` defined via the same `#if DEBUG` block as the button (test-introspectable, documents the gate symbol). New `scripts/verify-release-bypass-stripped.sh` asserts (a) the bypass label string only appears inside `#if DEBUG / #endif` across `apps/ios/Lumo/**/*.swift`, and (b) the Release config in `apps/ios/project.yml` does not set `SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG`; verified positive (passes on current source) + negative (fails on injected leak) + bash-3-portable (no mapfile). New `LumoTests/DevBypassGateTests.swift` mirrors the shell script invariants in Swift via `#filePath` so they run as part of `xcodebuild test` (gate-symbol-true, source-grep-no-leaks, project-yml-Release-not-DEBUG). 2 PNGs under `docs/notes/ios-dev-bypass-gate-1-screenshots/` showing Debug build (3 buttons including bypass) vs Release build (2 buttons, bypass stripped); same simulator + appearance + frame. Capture script gains `ios-dev-bypass-gate-1` variant that swaps Debug↔Release installs and restores Debug on exit; release `.app` path overridable via `LUMO_RELEASE_APP`. LumoTests bundle 285 → 288. xcodebuild test green; xcodebuild Release build green; verifier script green.
+- 2026-05-02 — claude-code/ios-dev-bypass-gate-1 → main (FF), IOS-DEV-BYPASS-GATE-1 closed. Rebased onto current origin/main (4 lanes had landed since branch creation: WEB-COMPOUND-LEG-DETAIL-1, WEB-RIGHTRAIL-PRUNE-1, WEB-RECENTS-TIMESTAMP-PORT-1, AUTH-GATE-CI-GUARD-1); STATUS.md conflicts on both the open-lane and ready-for-review commits resolved additively. Force-with-lease push, FF-merge from feature branch via `git push origin claude-code/ios-dev-bypass-gate-1:main` (a6bd650..73b125f). Lane 1 of 6 in the small-lanes queue closed; moving to Lane 2 (CHIP-OVERFLOW-SCROLL-1).
