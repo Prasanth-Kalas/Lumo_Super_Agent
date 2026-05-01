@@ -7,6 +7,7 @@ enum ChatEvent: Equatable {
     case suggestions(turnID: String, items: [AssistantSuggestion])
     case selection(InteractiveSelection)
     case summary(ConfirmationSummary)
+    case compoundDispatch(CompoundDispatchPayload)
     case other(type: String)
 }
 
@@ -160,6 +161,20 @@ final class ChatService {
                 return .summary(.itinerary(payload, envelope: envelope))
             }
             return .summary(.unsupported(kind: kind, envelope: envelope))
+        case "assistant_compound_dispatch":
+            // Frame value shape (canonical contract — see
+            // apps/web/lib/compound/dispatch-frame.ts):
+            //   { kind: "assistant_compound_dispatch",
+            //     compound_transaction_id: string,
+            //     legs: [{ leg_id, agent_id, agent_display_name,
+            //              description, status }] }
+            // Drop frames with empty legs (web's CompoundLegStrip
+            // would render an empty strip; better to suppress at
+            // the parser).
+            guard let payload = decodeCompoundDispatchPayload(json["value"]) else {
+                return .other(type: type)
+            }
+            return .compoundDispatch(payload)
         case "assistant_suggestions":
             // Frame value shape (canonical contract — see
             // apps/web/lib/chat-suggestions.ts):
@@ -274,6 +289,49 @@ final class ChatService {
             payment_summary: paymentSummary,
             prefilled: prefilled,
             missing_fields: dedupePreservingOrder(missing)
+        )
+    }
+
+    /// Pure decoder for an `assistant_compound_dispatch` frame value.
+    /// Mirrors web's `AssistantCompoundDispatchFrameValue` shape
+    /// (apps/web/lib/compound/dispatch-frame.ts) — same field
+    /// names, same status enum spelling. Tolerant of shape drift:
+    /// drops malformed legs, treats unknown statuses as
+    /// `manual_review` (matching web's `normalizeDispatchStatus`
+    /// fallback). Returns nil when the dispatch carries no usable
+    /// legs, so the view never renders an empty strip.
+    static func decodeCompoundDispatchPayload(_ raw: Any?) -> CompoundDispatchPayload? {
+        guard
+            let dict = raw as? [String: Any],
+            let kind = dict["kind"] as? String, kind == "assistant_compound_dispatch",
+            let compound_transaction_id = dict["compound_transaction_id"] as? String,
+            let rawLegs = dict["legs"] as? [[String: Any]]
+        else { return nil }
+        let legs: [CompoundLeg] = rawLegs.compactMap { leg in
+            guard
+                let leg_id = leg["leg_id"] as? String,
+                let agent_id = leg["agent_id"] as? String,
+                let agent_display_name = leg["agent_display_name"] as? String,
+                let description = leg["description"] as? String,
+                let status = leg["status"] as? String
+            else { return nil }
+            // Unknown statuses fall through to `manual_review` so
+            // they decode rather than dropping the leg — matches
+            // web's normalizeDispatchStatus fallback.
+            let resolved = CompoundLegStatus(rawValue: status) ?? .manual_review
+            return CompoundLeg(
+                leg_id: leg_id,
+                agent_id: agent_id,
+                agent_display_name: agent_display_name,
+                description: description,
+                status: resolved
+            )
+        }
+        guard !legs.isEmpty else { return nil }
+        return CompoundDispatchPayload(
+            kind: kind,
+            compound_transaction_id: compound_transaction_id,
+            legs: legs
         )
     }
 
