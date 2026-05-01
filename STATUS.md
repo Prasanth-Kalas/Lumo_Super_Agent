@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-dev-bypass-gate-1 | 2026-05-02 | IOS-DEV-BYPASS-GATE-1 App Store submission readiness — recon found the dev-bypass button already wrapped in `#if DEBUG` since 2026-04-29; this lane adds defense-in-depth (visual-gate PNGs Debug-vs-Release + build-config sanity test pinning that Release omits the DEBUG compilation condition) |
 
 ## Closed lanes
 
