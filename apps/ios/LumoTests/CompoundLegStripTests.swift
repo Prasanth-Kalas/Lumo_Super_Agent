@@ -74,10 +74,17 @@ final class CompoundLegStripTests: XCTestCase {
 
     func test_parseLegStatusFrame_decodesLegIDAndStatus() {
         // serializeLegStatusSse format from
-        // apps/web/lib/sse/leg-status.ts. iOS only needs leg_id + status.
+        // apps/web/lib/sse/leg-status.ts. The required surface is
+        // leg_id + status; trailing metadata (timestamp,
+        // provider_reference, evidence) flows through to the
+        // detail panel — IOS-COMPOUND-LEG-DETAIL-1 covers the
+        // full pass-through there.
         let payload = #"{"leg_id":"leg_2","transaction_id":"ct_x","agent_id":"lumo-hotels","capability_id":"hotel_book","status":"committed","timestamp":"2026-05-01T17:00:00Z"}"#
-        let result = CompoundStreamService.parseLegStatusFrame(payload)
-        XCTAssertEqual(result, CompoundLegStatusUpdate(leg_id: "leg_2", status: .committed))
+        guard let result = CompoundStreamService.parseLegStatusFrame(payload) else {
+            return XCTFail("expected typed update")
+        }
+        XCTAssertEqual(result.leg_id, "leg_2")
+        XCTAssertEqual(result.status, .committed)
     }
 
     func test_parseLegStatusFrame_returnsNil_onEmptyLegID() {
