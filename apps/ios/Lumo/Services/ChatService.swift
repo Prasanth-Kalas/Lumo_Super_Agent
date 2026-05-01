@@ -4,6 +4,7 @@ enum ChatEvent: Equatable {
     case text(String)
     case error(String)
     case done
+    case suggestions(turnID: String, items: [AssistantSuggestion])
     case other(type: String)
 }
 
@@ -103,6 +104,33 @@ final class ChatService {
             let valueDict = json["value"] as? [String: Any]
             let message = valueDict?["message"] as? String ?? "unknown server error"
             return .error(message)
+        case "assistant_suggestions":
+            // Frame value shape (canonical contract — see
+            // apps/web/lib/chat-suggestions.ts):
+            //   { kind: "assistant_suggestions",
+            //     turn_id: string,
+            //     suggestions: [{ id, label, value }] }
+            // Drop frames with a missing turn_id or empty list — the
+            // server already enforces the ≥2 minimum, but defending
+            // here keeps the view layer free of conditional checks.
+            guard
+                let value = json["value"] as? [String: Any],
+                let turnID = value["turn_id"] as? String,
+                let raw = value["suggestions"] as? [[String: Any]]
+            else {
+                return .other(type: type)
+            }
+            let items: [AssistantSuggestion] = raw.compactMap { entry in
+                guard
+                    let id = entry["id"] as? String,
+                    let label = entry["label"] as? String,
+                    let val = entry["value"] as? String,
+                    !label.isEmpty, !val.isEmpty
+                else { return nil }
+                return AssistantSuggestion(id: id, label: label, value: val)
+            }
+            guard !items.isEmpty else { return .other(type: type) }
+            return .suggestions(turnID: turnID, items: items)
         default:
             return .other(type: type)
         }

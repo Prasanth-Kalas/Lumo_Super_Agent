@@ -37,20 +37,41 @@ struct ChatMessage: Identifiable, Hashable {
     var text: String
     let createdAt: Date
     var status: MessageStatus
+    /// Set when the orchestrator emits an `assistant_suggestions` SSE
+    /// frame for this assistant turn. The view model keeps the actual
+    /// chip list in `suggestionsByTurn[turn_id]` so replay paths can
+    /// reattach without bloating each message struct. Mirrors the web
+    /// shell's `UIMessage.suggestionsTurnId` (apps/web/app/page.tsx).
+    var suggestionsTurnId: String?
 
     init(
         id: UUID = UUID(),
         role: Message.Role,
         text: String,
         createdAt: Date = .now,
-        status: MessageStatus
+        status: MessageStatus,
+        suggestionsTurnId: String? = nil
     ) {
         self.id = id
         self.role = role
         self.text = text
         self.createdAt = createdAt
         self.status = status
+        self.suggestionsTurnId = suggestionsTurnId
     }
+}
+
+/// One assistant-suggested reply chip. Shape matches the canonical
+/// server contract in `apps/web/lib/chat-suggestions.ts`:
+///
+///   { id: string, label: string, value: string }
+///
+/// `label` is the human-readable chip face; `value` is the message
+/// text that gets submitted on tap.
+struct AssistantSuggestion: Identifiable, Hashable {
+    let id: String
+    let label: String
+    let value: String
 }
 
 struct ChatRequestMessage: Encodable {
