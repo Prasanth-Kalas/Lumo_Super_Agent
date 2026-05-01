@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/compound-mission-routing-1 | 2026-05-01 | COMPOUND-MISSION-ROUTING-1 LLM-driven compound trip detection + graph construction |
 
 ## Closed lanes
 
