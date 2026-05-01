@@ -122,6 +122,30 @@ case "$variant" in
         capture confirmation-card dark \
             -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
         ;;
+    ios-compound-rollback-view-1)
+        # IOS-COMPOUND-ROLLBACK-VIEW-1: rollback cascade visual on
+        # failed legs + ROLLBACK PLAN branch on the failed leg's
+        # detail panel. -LumoSeedCompoundRollback <state> seeds
+        # the dispatch + overrides + metadata + auto-expands the
+        # failed flight leg via RootView.seedCompoundRollbackFixture.
+        # Brief calls for 4 PNGs covering the saga's terminal arc:
+        #   failed_cascade   → flight failed, hotel + dinner mid-rollback
+        #   rollback_pending → mid-state, dinner still pending
+        #   rolled_back      → fully rolled back (strike-through visible)
+        #   manual_review    → escalated dependent leg
+        echo "[shots] rollback · failed-with-cascade"
+        capture rollback-failed-cascade light \
+            -LumoAutoSignIn YES -LumoSeedCompoundRollback failed_cascade
+        echo "[shots] rollback · rollback_pending mid"
+        capture rollback-pending-mid light \
+            -LumoAutoSignIn YES -LumoSeedCompoundRollback rollback_pending
+        echo "[shots] rollback · fully rolled back"
+        capture rollback-rolled-back light \
+            -LumoAutoSignIn YES -LumoSeedCompoundRollback rolled_back
+        echo "[shots] rollback · manual_review escalation"
+        capture rollback-manual-review light \
+            -LumoAutoSignIn YES -LumoSeedCompoundRollback manual_review
+        ;;
     ios-compound-leg-detail-1)
         # IOS-COMPOUND-LEG-DETAIL-1: tap-to-expand leg detail
         # panel in five status states. -LumoSeedCompoundLegDetail

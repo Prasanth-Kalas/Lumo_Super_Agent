@@ -292,6 +292,22 @@ struct RootView: View {
            !raw.isEmpty {
             seedCompoundLegDetailFixture(detailState: raw)
         }
+        // Seed compound-rollback fixture
+        // (IOS-COMPOUND-ROLLBACK-VIEW-1). The flag value picks
+        // which rollback-cascade snapshot renders:
+        //   failed_cascade   → flight failed; hotel + dinner mid-rollback
+        //   rollback_pending → flight failed; hotel rollback_pending,
+        //                      dinner still pending
+        //   rolled_back      → flight failed; hotel + dinner fully rolled_back
+        //                      (cascaded strike-through visible on rows)
+        //   manual_review    → flight failed; hotel rolled_back, dinner
+        //                      escalated to manual_review
+        // Auto-expands the failed (flight) leg so the detail
+        // panel's ROLLBACK PLAN copy is captured.
+        if let raw = defaults.string(forKey: "LumoSeedCompoundRollback"),
+           !raw.isEmpty {
+            seedCompoundRollbackFixture(state: raw)
+        }
         #endif
     }
 
@@ -357,6 +373,103 @@ struct RootView: View {
                     "leg_restaurant": legStatuses.2,
                 ]
             ]
+        )
+    }
+
+    private func seedCompoundRollbackFixture(state: String) {
+        let user = ChatMessage(
+            role: .user,
+            text: "Plan a Vegas weekend — flight, hotel, dinner.",
+            status: .sent
+        )
+        let assistant = ChatMessage(
+            role: .assistant,
+            text: "On it — three agents working in parallel.",
+            status: .delivered
+        )
+
+        let compoundID = "ct_vegas_rollback_fixture"
+        // Per-state status mapping. Flight is always the failed
+        // root. Hotel + dinner ride the cascade in different
+        // postures so the four screenshots cover the demo arc:
+        // failure-just-detected → mid-rollback → fully-settled →
+        // escalation.
+        var legStatuses: [String: CompoundLegStatus] = [:]
+        switch state {
+        case "rollback_pending":
+            legStatuses = [
+                "leg_flight":     .failed,
+                "leg_hotel":      .rollback_pending,
+                "leg_restaurant": .pending,
+            ]
+        case "rolled_back":
+            legStatuses = [
+                "leg_flight":     .failed,
+                "leg_hotel":      .rolled_back,
+                "leg_restaurant": .rolled_back,
+            ]
+        case "manual_review":
+            legStatuses = [
+                "leg_flight":     .failed,
+                "leg_hotel":      .rolled_back,
+                "leg_restaurant": .manual_review,
+            ]
+        default:
+            // "failed_cascade" / unknown → flight failed,
+            // dependents both rolling back.
+            legStatuses = [
+                "leg_flight":     .failed,
+                "leg_hotel":      .rollback_pending,
+                "leg_restaurant": .rollback_pending,
+            ]
+        }
+
+        let metadata: [String: CompoundLegMetadata] = [
+            "leg_flight": CompoundLegMetadata(
+                firstSeenInFlightAt: Date().addingTimeInterval(-25),
+                lastUpdatedAt: Date(),
+                provider_reference: nil,
+                evidence: ["reason": "rate_unavailable"]
+            ),
+        ]
+
+        let dispatch = CompoundDispatchPayload(
+            kind: "assistant_compound_dispatch",
+            compound_transaction_id: compoundID,
+            legs: [
+                CompoundLeg(
+                    leg_id: "leg_flight",
+                    agent_id: "lumo-flights",
+                    agent_display_name: "Lumo Flights",
+                    description: "Booking flight ORD → LAS",
+                    status: legStatuses["leg_flight"]!,
+                    depends_on: []
+                ),
+                CompoundLeg(
+                    leg_id: "leg_hotel",
+                    agent_id: "lumo-hotels",
+                    agent_display_name: "Lumo Hotels",
+                    description: "Booking hotel near the Strip",
+                    status: legStatuses["leg_hotel"]!,
+                    depends_on: ["leg_flight"]
+                ),
+                CompoundLeg(
+                    leg_id: "leg_restaurant",
+                    agent_id: "lumo-restaurants",
+                    agent_display_name: "Lumo Restaurants",
+                    description: "Booking dinner reservation",
+                    status: legStatuses["leg_restaurant"]!,
+                    depends_on: ["leg_hotel"]
+                ),
+            ]
+        )
+
+        chatViewModel._seedForTest(
+            messages: [user, assistant],
+            compoundDispatches: [assistant.id: dispatch],
+            compoundOverrides: [compoundID: legStatuses],
+            compoundMetadata: [compoundID: metadata],
+            compoundExpanded: ["leg_flight"]
         )
     }
 
