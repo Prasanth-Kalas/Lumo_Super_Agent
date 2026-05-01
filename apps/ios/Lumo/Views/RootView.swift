@@ -304,7 +304,14 @@ struct RootView: View {
                         )
                     ]
                 )
-            ]
+            ],
+            // IOS-CONFIRMATION-RICH-PAYLOAD-1: pre-filled autofill
+            // metadata so the screenshot captures land the rich
+            // (traveler row + payment row + Different-traveler) view.
+            traveler_summary: "Prasanth Kalas · prasanth.kalas@lumo.rentals",
+            payment_summary: "Visa ending in 4242",
+            prefilled: true,
+            missing_fields: []
         )
         let envelope = ConfirmationEnvelope(
             hash: "fixture-hash",

@@ -122,6 +122,20 @@ case "$variant" in
         capture confirmation-card dark \
             -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
         ;;
+    ios-confirmation-rich-payload-1)
+        # IOS-CONFIRMATION-RICH-PAYLOAD-1: confirmation card with the
+        # rich autofill block visible (traveler row + payment row +
+        # "PREFILLED FROM APPROVED PROFILE" subheader + Different-traveler
+        # footer button). Reuses the same -LumoSeedBookingConfirmation
+        # YES seam as IOS-BOOKING-CONFIRM-AUTOFILL-1; the fixture
+        # payload in RootView.seedBookingConfirmationFixture now
+        # populates traveler_summary / payment_summary / prefilled=true.
+        echo "[shots] booking confirmation card · prefilled (rich payload)"
+        capture confirmation-card-prefilled light \
+            -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
+        capture confirmation-card-prefilled dark \
+            -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
+        ;;
     chat-flight-select-clickable-1)
         # CHAT-FLIGHT-SELECT-CLICKABLE-1: post-tap selected state on the
         # FlightOffersSelectCard. -LumoSeedFlightOffers YES seeds a
