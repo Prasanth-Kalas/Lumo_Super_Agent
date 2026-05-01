@@ -95,6 +95,32 @@ t("dispatch frame helper produces ordered, display-ready legs", () => {
     ["Lumo Flights", "Lumo Hotels", "Lumo Restaurants"],
   );
   assert.equal(frame.legs[2]?.status, "rollback_pending");
+  // IOS-COMPOUND-ROLLBACK-VIEW-1 carries depends_on through to the
+  // dispatch frame so client cards can compute rollback cascades
+  // against the saga DAG. Verify each leg's deps survive the
+  // ordering + display-name + status normalization.
+  assert.deepEqual(frame.legs[0]?.depends_on, []);
+  assert.deepEqual(frame.legs[1]?.depends_on, ["leg_flight"]);
+  assert.deepEqual(frame.legs[2]?.depends_on, ["leg_hotel"]);
+});
+
+t("dispatch frame helper defaults depends_on to [] when omitted on the snapshot", () => {
+  const frame = buildAssistantCompoundDispatchFrame({
+    compound_transaction_id: "ct_2",
+    status: "executing",
+    legs: [
+      {
+        leg_id: "leg_only",
+        transaction_id: "tx_1",
+        order: 1,
+        agent_id: "lumo-flights",
+        capability_id: "book_flight",
+        // depends_on omitted to simulate older snapshots
+        status: "pending",
+      },
+    ],
+  });
+  assert.deepEqual(frame.legs[0]?.depends_on, []);
 });
 
 t("status normalization stays within SSE v2 status vocabulary", () => {

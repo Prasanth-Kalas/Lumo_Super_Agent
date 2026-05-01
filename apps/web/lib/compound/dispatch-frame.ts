@@ -13,6 +13,15 @@ export interface CompoundDispatchLeg {
   agent_display_name: string;
   description: string;
   status: LegStatusV2Status;
+  /**
+   * IDs of legs this leg waits on. The orchestrator's saga DAG
+   * (see `apps/web/lib/saga.ts::CompoundLegSnapshot.depends_on`)
+   * already carries this; the dispatch frame surfaces it so
+   * inline dispatch UIs can resolve dep names + compute rollback
+   * cascades client-side rather than redoing graph work
+   * server-side. Empty array on root legs.
+   */
+  depends_on: string[];
 }
 
 export interface AssistantCompoundDispatchFrameValue {
@@ -39,6 +48,7 @@ export function buildAssistantCompoundDispatchFrame(
         agent_display_name: displayNameForAgent(leg.agent_id),
         description: descriptionForLeg(leg),
         status: normalizeDispatchStatus(leg.status),
+        depends_on: Array.isArray(leg.depends_on) ? leg.depends_on.slice() : [],
       })),
   };
 }
