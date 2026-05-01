@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/web-recents-timestamp-port-1 | 2026-05-02 | WEB-RECENTS-TIMESTAMP-PORT-1 port iOS-style recents time-since labels to web |
 
 ## Closed lanes
 
@@ -54,6 +53,7 @@
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-compound-rollback-view-1 | 2026-05-02 | 2026-05-02 | IOS-COMPOUND-ROLLBACK-VIEW-1 cascade visual on failed legs (strike-through + dependent-roll-back explainer) + ROLLBACK PLAN branch on failed leg detail; cross-platform `depends_on` frame extension (web buildAssistantCompoundDispatchFrame + iOS CompoundLeg decoder) |
 | Codex | Lumo_Super_Agent_codex | codex/web-compound-leg-detail-1 | 2026-05-02 | 2026-05-02 | WEB-COMPOUND-LEG-DETAIL-1 web mirror of iOS compound leg detail expansion; merged with `depends_on` frame extension and metadata detail fields |
 | Codex | Lumo_Super_Agent_codex | codex/web-rightrail-prune-1 | 2026-05-02 | 2026-05-02 | WEB-RIGHTRAIL-PRUNE-1 pruned unused RightRail component and stale references |
+| Codex | Lumo_Super_Agent_codex | codex/web-recents-timestamp-port-1 | 2026-05-02 | 2026-05-02 | WEB-RECENTS-TIMESTAMP-PORT-1 ported iOS-style recents time-since labels to web |
 
 ## Last push
 
@@ -170,3 +170,4 @@
 - 2026-05-02 — claude-code/ios-compound-rollback-view-1 → main (FF), IOS-COMPOUND-ROLLBACK-VIEW-1 closed. Rebased onto current origin/main (PYTHON-MONOREPO-CONSOLIDATE-1 had landed at 7f3c780 since branch creation); STATUS.md conflicts on both the open-lane and ready-for-review commits resolved additively (kept Codex's APPROVAL-NATURAL-LANGUAGE-COMMIT-1 row + Python's CONSOLIDATE-1 push-log lines + my new entries). Force-with-lease push, FF-merge from feature branch via `git push origin claude-code/ios-compound-rollback-view-1:main` (7f3c780..f71091d). Cross-platform `depends_on` frame extension landed in this lane — Codex's WEB-COMPOUND-LEG-DETAIL-1 (in flight on dispatch-frame.ts with different additive fields: timestamp / provider_reference / evidence) will have a small additive merge to thread through. Both Claude Code lanes idle — awaiting next brief.
 - 2026-05-02 — codex/web-compound-leg-detail-1 → main (FF), WEB-COMPOUND-LEG-DETAIL-1 closed. Rebased onto current origin/main (IOS-COMPOUND-ROLLBACK-VIEW-1 had landed at 66fb534); dispatch-frame conflict resolved additively by keeping `depends_on` plus timestamp/provider_reference/evidence metadata. Pending-copy polish now resolves queued dependency names from `depends_on` when present. Included a one-line package-lock sync for the newly-landed `@lumo/shared-types` workspace so npm install/CI stay consistent. Gates green (typecheck/lint/lint:registry/lint:commits/build/test) and 6 web leg-detail screenshots captured.
 - 2026-05-02 — codex/web-rightrail-prune-1 → main (FF), WEB-RIGHTRAIL-PRUNE-1 closed. Deleted the unused RightRail component and removed stale page-level comments/references; no remaining RightRail/ActiveTripView/LegStatusLite references; gates green (typecheck/lint/lint:registry/lint:commits/build/test).
+- 2026-05-02 — codex/web-recents-timestamp-port-1 → main (FF), WEB-RECENTS-TIMESTAMP-PORT-1 closed. Desktop LeftRail and mobile drawer recent rows now show compact iOS-style time-since labels (`now`, `12 min, 3 sec`, `1 day, 2 hr`) via a pure formatter; visual gate captured; gates green (typecheck/lint/lint:registry/lint:commits/build/test).
