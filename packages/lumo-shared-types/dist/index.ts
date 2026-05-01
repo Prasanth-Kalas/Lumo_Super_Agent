@@ -54,6 +54,10 @@ export interface AnomalyFinding {
   z_score: number;
   confidence: number;
 }
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
 export interface ClassifiedItem {
   label: string;
   score: number;
@@ -73,6 +77,127 @@ export interface ClassifyResponse {
   _lumo_summary: string;
   classifier: string;
   items: ClassifiedItem[];
+}
+/**
+ * Planning-time leg of a compound mission.
+ */
+export interface CompoundMissionLeg {
+  leg_id: string;
+  agent_id: string;
+  agent_display_name: string;
+  description: string;
+  /**
+   * @maxItems 12
+   */
+  depends_on?:
+    | []
+    | [string]
+    | [string, string]
+    | [string, string, string]
+    | [string, string, string, string]
+    | [string, string, string, string, string]
+    | [string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string, string, string, string];
+}
+/**
+ * Topologically-orderable plan emitted when the planner detects a
+ * multi-agent compound trip. The orchestrator uses this to seed the
+ * runtime ``AssistantCompoundDispatchFrameValue`` once dispatch starts.
+ */
+export interface CompoundMissionPlan {
+  compound_transaction_id: string;
+  /**
+   * @minItems 1
+   * @maxItems 12
+   */
+  legs:
+    | [CompoundMissionLeg]
+    | [CompoundMissionLeg, CompoundMissionLeg]
+    | [CompoundMissionLeg, CompoundMissionLeg, CompoundMissionLeg]
+    | [CompoundMissionLeg, CompoundMissionLeg, CompoundMissionLeg, CompoundMissionLeg]
+    | [CompoundMissionLeg, CompoundMissionLeg, CompoundMissionLeg, CompoundMissionLeg, CompoundMissionLeg]
+    | [
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg
+      ]
+    | [
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg
+      ]
+    | [
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg
+      ]
+    | [
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg
+      ]
+    | [
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg
+      ]
+    | [
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg
+      ]
+    | [
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg,
+        CompoundMissionLeg
+      ];
 }
 export interface DetectAnomalyRequest {
   metric_key: string;
@@ -332,6 +457,76 @@ export interface OptimizedTripStop {
   arrival_minute: number;
   departure_minute: number;
   wait_minutes?: number;
+}
+export interface PlanRequest {
+  user_message: string;
+  session_id: string;
+  user_id: string;
+  /**
+   * @maxItems 50
+   */
+  history?: ChatTurn[];
+  /**
+   * @maxItems 64
+   */
+  approvals?: SessionAppApproval[];
+  planning_step_hint?: ("clarification" | "selection" | "confirmation" | "post_booking") | null;
+}
+/**
+ * Pre-bootstrapped per-session approval record. Mirrors
+ * ``apps/web/lib/session-app-approvals.ts``.
+ */
+export interface SessionAppApproval {
+  user_id: string;
+  session_id: string;
+  agent_id: string;
+  /**
+   * @maxItems 64
+   */
+  granted_scopes?: string[];
+  approved_at: string;
+  connected_at?: string | null;
+  connection_provider?: string | null;
+}
+export interface PlanResponse {
+  intent_bucket: "fast_path" | "tool_path" | "reasoning_path";
+  planning_step: "clarification" | "selection" | "confirmation" | "post_booking";
+  /**
+   * @maxItems 4
+   */
+  suggestions?:
+    | []
+    | [Suggestion]
+    | [Suggestion, Suggestion]
+    | [Suggestion, Suggestion, Suggestion]
+    | [Suggestion, Suggestion, Suggestion, Suggestion];
+  system_prompt_addendum?: string | null;
+  compound_graph?: CompoundMissionPlan | null;
+  profile_summary_hints?: ProfileSummaryHints | null;
+}
+/**
+ * Suggestion-chip shape attached to clarification turns.
+ */
+export interface Suggestion {
+  id: string;
+  label: string;
+  value: string;
+}
+/**
+ * Slim view of the user's booking-profile autofill state. Lets the
+ * planner shape clarification questions ("we have your passport but
+ * not DOB — ask for DOB?") without parsing the full snapshot.
+ */
+export interface ProfileSummaryHints {
+  /**
+   * @maxItems 32
+   */
+  available_fields?: string[];
+  /**
+   * @maxItems 32
+   */
+  required_missing_fields?: string[];
+  prefill_summary?: string | null;
 }
 export interface PlanTaskRequest {
   user_intent: string;
