@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/auth-gate-ci-guard-1 | 2026-05-02 | AUTH-GATE-CI-GUARD-1 fail production builds when auth gate bypass is enabled |
 
 ## Closed lanes
 
@@ -55,6 +54,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/web-compound-leg-detail-1 | 2026-05-02 | 2026-05-02 | WEB-COMPOUND-LEG-DETAIL-1 web mirror of iOS compound leg detail expansion; merged with `depends_on` frame extension and metadata detail fields |
 | Codex | Lumo_Super_Agent_codex | codex/web-rightrail-prune-1 | 2026-05-02 | 2026-05-02 | WEB-RIGHTRAIL-PRUNE-1 pruned unused RightRail component and stale references |
 | Codex | Lumo_Super_Agent_codex | codex/web-recents-timestamp-port-1 | 2026-05-02 | 2026-05-02 | WEB-RECENTS-TIMESTAMP-PORT-1 ported iOS-style recents time-since labels to web |
+| Codex | Lumo_Super_Agent_codex | codex/auth-gate-ci-guard-1 | 2026-05-02 | 2026-05-02 | AUTH-GATE-CI-GUARD-1 production build guard for auth-gate bypass flag |
 
 ## Last push
 
@@ -172,3 +172,4 @@
 - 2026-05-02 — codex/web-compound-leg-detail-1 → main (FF), WEB-COMPOUND-LEG-DETAIL-1 closed. Rebased onto current origin/main (IOS-COMPOUND-ROLLBACK-VIEW-1 had landed at 66fb534); dispatch-frame conflict resolved additively by keeping `depends_on` plus timestamp/provider_reference/evidence metadata. Pending-copy polish now resolves queued dependency names from `depends_on` when present. Included a one-line package-lock sync for the newly-landed `@lumo/shared-types` workspace so npm install/CI stay consistent. Gates green (typecheck/lint/lint:registry/lint:commits/build/test) and 6 web leg-detail screenshots captured.
 - 2026-05-02 — codex/web-rightrail-prune-1 → main (FF), WEB-RIGHTRAIL-PRUNE-1 closed. Deleted the unused RightRail component and removed stale page-level comments/references; no remaining RightRail/ActiveTripView/LegStatusLite references; gates green (typecheck/lint/lint:registry/lint:commits/build/test).
 - 2026-05-02 — codex/web-recents-timestamp-port-1 → main (FF), WEB-RECENTS-TIMESTAMP-PORT-1 closed. Desktop LeftRail and mobile drawer recent rows now show compact iOS-style time-since labels (`now`, `12 min, 3 sec`, `1 day, 2 hr`) via a pure formatter; visual gate captured; gates green (typecheck/lint/lint:registry/lint:commits/build/test).
+- 2026-05-02 — codex/auth-gate-ci-guard-1 → main (FF), AUTH-GATE-CI-GUARD-1 closed. Added pure guard + pre-build script + middleware runtime check so `LUMO_WEB_DISABLE_AUTH_GATE=1` cannot ship under `NODE_ENV=production`; gates green (typecheck/lint/lint:registry/lint:commits/build/test). TYPECHECK-BUILD-ORDER-1 filed deferred for deterministic first-run ordering.
