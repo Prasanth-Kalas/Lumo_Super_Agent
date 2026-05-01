@@ -15,7 +15,11 @@ import {
   upsertAgentInstall,
 } from "@/lib/app-installs";
 import { resolvePermissionGate } from "@/lib/mission-gate-resolution";
-import { upsertSessionAppApproval } from "@/lib/session-app-approvals";
+import {
+  connectFirstPartySessionAppApproval,
+  isFirstPartyLumoApp,
+  upsertSessionAppApproval,
+} from "@/lib/session-app-approvals";
 import { sessionApprovalIdempotencyKey } from "@/lib/session-app-approvals-core";
 
 export const runtime = "nodejs";
@@ -70,7 +74,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (!entry) return json({ error: "unknown_agent" }, 404);
 
     const manifest = entry.manifest;
-    if (manifest.connect.model === "oauth2") {
+    const firstPartyLumoApp = isFirstPartyLumoApp(manifest);
+    if (manifest.connect.model === "oauth2" && !firstPartyLumoApp) {
       return json(
         {
           error: "oauth_required",
@@ -106,13 +111,21 @@ export async function POST(req: NextRequest): Promise<Response> {
       permissions,
       install_source: "lumo",
     });
+    const grantedScopes = grantedScopesForApproval(manifest, approvedFields);
     const sessionApproval = session_id
-      ? await upsertSessionAppApproval({
-          user_id: user.id,
-          session_id,
-          agent_id,
-          granted_scopes: grantedScopesForApproval(manifest, approvedFields),
-        })
+      ? firstPartyLumoApp
+        ? await connectFirstPartySessionAppApproval({
+            user_id: user.id,
+            session_id,
+            agent_id,
+            granted_scopes: grantedScopes,
+          })
+        : await upsertSessionAppApproval({
+            user_id: user.id,
+            session_id,
+            agent_id,
+            granted_scopes: grantedScopes,
+          })
       : null;
     await resolvePermissionGate(user.id, agent_id).catch((gateErr) => {
       console.warn("[lumo/mission/install] mission permission gate resolution failed", {
@@ -128,6 +141,8 @@ export async function POST(req: NextRequest): Promise<Response> {
             session_id: sessionApproval.session_id,
             agent_id: sessionApproval.agent_id,
             approved_at: sessionApproval.approved_at,
+            connected_at: sessionApproval.connected_at,
+            connection_provider: sessionApproval.connection_provider,
           }
         : null,
       agent: {

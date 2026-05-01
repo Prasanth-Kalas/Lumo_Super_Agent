@@ -13,7 +13,10 @@ import { listConnectionsForUser } from "@/lib/connections";
 import { listInstalledAgentsForUser } from "@/lib/app-installs";
 import { buildLumoMissionPlan } from "@/lib/lumo-mission";
 import { selectMissionPlanningRequest } from "@/lib/mission-context";
-import { listSessionAppApprovals } from "@/lib/session-app-approvals";
+import {
+  connectedAgentIdsFromSessionApprovals,
+  listSessionAppApprovals,
+} from "@/lib/session-app-approvals";
 import {
   describeRegistryAgents,
   evaluateRiskBadgesForAgents,
@@ -58,17 +61,17 @@ export async function POST(req: NextRequest): Promise<Response> {
   const installedAgentIds = new Set(
     installs.filter((i) => i.status === "installed").map((i) => i.agent_id),
   );
-  const sessionApprovedAgentIds = new Set(
-    sessionApprovals.map((approval) => approval.agent_id),
-  );
-  for (const agentId of sessionApprovedAgentIds) installedAgentIds.add(agentId);
-  const agentDescriptors = describeRegistryAgents(registry, installedAgentIds);
+  const sessionConnectedAgentIds =
+    connectedAgentIdsFromSessionApprovals(sessionApprovals);
+  const dispatchReadyAgentIds = new Set(installedAgentIds);
+  for (const agentId of sessionConnectedAgentIds) dispatchReadyAgentIds.add(agentId);
+  const agentDescriptors = describeRegistryAgents(registry, dispatchReadyAgentIds);
   const [rankResult, riskBadges] = await Promise.all([
     rankAgentsForIntent({
       user_id,
       user_intent: request,
       agents: agentDescriptors,
-      installed_agent_ids: Array.from(installedAgentIds),
+      installed_agent_ids: Array.from(dispatchReadyAgentIds),
       limit: 10,
     }),
     evaluateRiskBadgesForAgents({
@@ -84,7 +87,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     installs,
     user_id,
     session_id,
-    session_approved_agent_ids: Array.from(sessionApprovedAgentIds),
+    session_connected_agent_ids: Array.from(sessionConnectedAgentIds),
     ranked_agents: rankResult.ranked_agents,
     risk_badges: riskBadges,
   });

@@ -9,7 +9,15 @@
  */
 
 import { getSupabase } from "./db.js";
-export { sessionApprovalIdempotencyKey } from "./session-app-approvals-core.ts";
+export {
+  isFirstPartyLumoApp,
+  sessionApprovalIdempotencyKey,
+} from "./session-app-approvals-core.ts";
+
+export type SessionConnectionProvider =
+  | "lumo_first_party"
+  | "oauth"
+  | "marketplace";
 
 export interface SessionAppApproval {
   user_id: string;
@@ -17,6 +25,8 @@ export interface SessionAppApproval {
   agent_id: string;
   granted_scopes: string[];
   approved_at: string;
+  connected_at: string | null;
+  connection_provider: SessionConnectionProvider | null;
 }
 
 interface SessionAppApprovalRow {
@@ -25,6 +35,8 @@ interface SessionAppApprovalRow {
   agent_id: string;
   granted_scopes: unknown;
   approved_at: string;
+  connected_at: string | null;
+  connection_provider: string | null;
 }
 
 export async function listSessionAppApprovals(
@@ -38,7 +50,7 @@ export async function listSessionAppApprovals(
 
   const { data, error } = await db
     .from("session_app_approvals")
-    .select("user_id, session_id, agent_id, granted_scopes, approved_at")
+    .select("user_id, session_id, agent_id, granted_scopes, approved_at, connected_at, connection_provider")
     .eq("user_id", user_id)
     .eq("session_id", session)
     .order("approved_at", { ascending: false });
@@ -48,6 +60,33 @@ export async function listSessionAppApprovals(
     return [];
   }
   return (data ?? []).map(toApproval);
+}
+
+export async function getConnectedSessionAppApproval(
+  user_id: string,
+  session_id: string,
+  agent_id: string,
+): Promise<SessionAppApproval | null> {
+  const db = getSupabase();
+  if (!db) return null;
+  const session = session_id.trim();
+  const agent = agent_id.trim();
+  if (!session || !agent) return null;
+
+  const { data, error } = await db
+    .from("session_app_approvals")
+    .select("user_id, session_id, agent_id, granted_scopes, approved_at, connected_at, connection_provider")
+    .eq("user_id", user_id)
+    .eq("session_id", session)
+    .eq("agent_id", agent)
+    .not("connected_at", "is", null)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[session-app-approvals] connected lookup failed:", error.message);
+    return null;
+  }
+  return data ? toApproval(data as SessionAppApprovalRow) : null;
 }
 
 export async function upsertSessionAppApproval(args: {
@@ -76,7 +115,7 @@ export async function upsertSessionAppApproval(args: {
       },
       { onConflict: "session_id,agent_id" },
     )
-    .select("user_id, session_id, agent_id, granted_scopes, approved_at")
+    .select("user_id, session_id, agent_id, granted_scopes, approved_at, connected_at, connection_provider")
     .single();
 
   if (error) {
@@ -84,6 +123,46 @@ export async function upsertSessionAppApproval(args: {
     return null;
   }
   return toApproval(data as SessionAppApprovalRow);
+}
+
+export async function connectFirstPartySessionAppApproval(args: {
+  user_id: string;
+  session_id: string;
+  agent_id: string;
+  granted_scopes: string[];
+}): Promise<SessionAppApproval | null> {
+  const db = getSupabase();
+  if (!db) return null;
+  const session = args.session_id.trim();
+  const agent = args.agent_id.trim();
+  if (!session || !agent) return null;
+
+  const { data, error } = await db.rpc(
+    "connect_first_party_session_app_approval",
+    {
+      p_user_id: args.user_id,
+      p_session_id: session,
+      p_agent_id: agent,
+      p_granted_scopes: Array.from(new Set(args.granted_scopes.filter(Boolean))).sort(),
+      p_connection_provider: "lumo_first_party",
+    },
+  );
+  if (error) {
+    console.warn("[session-app-approvals] first-party connect failed:", error.message);
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return row ? toApproval(row as SessionAppApprovalRow) : null;
+}
+
+export function connectedAgentIdsFromSessionApprovals(
+  approvals: SessionAppApproval[],
+): Set<string> {
+  return new Set(
+    approvals
+      .filter((approval) => approval.connected_at !== null)
+      .map((approval) => approval.agent_id),
+  );
 }
 
 function toApproval(row: SessionAppApprovalRow): SessionAppApproval {
@@ -95,5 +174,18 @@ function toApproval(row: SessionAppApprovalRow): SessionAppApproval {
       ? row.granted_scopes.filter((scope): scope is string => typeof scope === "string")
       : [],
     approved_at: row.approved_at,
+    connected_at: row.connected_at ?? null,
+    connection_provider: normalizeConnectionProvider(row.connection_provider),
   };
+}
+
+function normalizeConnectionProvider(value: string | null): SessionConnectionProvider | null {
+  if (
+    value === "lumo_first_party" ||
+    value === "oauth" ||
+    value === "marketplace"
+  ) {
+    return value;
+  }
+  return null;
 }

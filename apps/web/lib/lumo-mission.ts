@@ -104,7 +104,7 @@ export interface BuildMissionPlanInput {
   installs?: AppInstall[];
   user_id?: string | null;
   session_id?: string | null;
-  session_approved_agent_ids?: string[];
+  session_connected_agent_ids?: string[];
   continue_approved?: boolean;
   ranked_agents?: RankedAgentResult[];
   risk_badges?: Record<string, RiskBadge> | Map<string, RiskBadge>;
@@ -315,12 +315,12 @@ export function buildLumoMissionPlan(
   const connectedAgentIds = new Set(
     connections.filter((c) => c.status === "active").map((c) => c.agent_id),
   );
+  for (const agentId of input.session_connected_agent_ids ?? []) {
+    if (agentId.trim()) connectedAgentIds.add(agentId.trim());
+  }
   const installedAgentIds = new Set(
     installs.filter((i) => i.status === "installed").map((i) => i.agent_id),
   );
-  for (const agentId of input.session_approved_agent_ids ?? []) {
-    if (agentId.trim()) installedAgentIds.add(agentId.trim());
-  }
   const toolTextByAgent = buildToolTextByAgent(input.registry);
   const required_agents: MissionAgentCandidate[] = [];
   const unavailable_capabilities: MissionUnavailableCapability[] = [];

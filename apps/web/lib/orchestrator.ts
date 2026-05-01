@@ -30,7 +30,10 @@ import { ensureRegistry, userScopedBridge } from "./agent-registry.js";
 import { listConnectionsForUser } from "./connections.js";
 import { getSetting, isFeatureEnabled } from "./admin-settings.js";
 import { listInstalledAgentsForUser } from "./app-installs.js";
-import { listSessionAppApprovals } from "./session-app-approvals.js";
+import {
+  connectedAgentIdsFromSessionApprovals,
+  listSessionAppApprovals,
+} from "./session-app-approvals.js";
 import {
   buildLumoMissionPlan,
   type LumoMissionPlan,
@@ -368,10 +371,11 @@ async function runTurnInner(
   const installedAgentIds = new Set(
     installs.filter((i) => i.status === "installed").map((i) => i.agent_id),
   );
-  const sessionApprovedAgentIds = new Set(
-    sessionApprovals.map((approval) => approval.agent_id),
-  );
-  for (const agentId of sessionApprovedAgentIds) installedAgentIds.add(agentId);
+  const sessionConnectedAgentIds =
+    connectedAgentIdsFromSessionApprovals(sessionApprovals);
+  for (const agentId of sessionConnectedAgentIds) connectedAgentIds.add(agentId);
+  const dispatchReadyAgentIds = new Set(installedAgentIds);
+  for (const agentId of sessionConnectedAgentIds) dispatchReadyAgentIds.add(agentId);
 
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
@@ -475,7 +479,7 @@ async function runTurnInner(
   const useMarketplaceIntelligence =
     input.user_id !== "anon" && shouldRunMarketplaceIntelligence(missionRequest);
   const agentDescriptors = useMarketplaceIntelligence
-    ? describeRegistryAgents(registry, installedAgentIds)
+    ? describeRegistryAgents(registry, dispatchReadyAgentIds)
     : [];
   const intelligenceSpan = timing.start("intelligence_pass", {
     pass: "marketplace_rank_and_trip_optimize",
@@ -494,7 +498,7 @@ async function runTurnInner(
             user_id: input.user_id,
             user_intent: missionRequest,
             agents: agentDescriptors,
-            installed_agent_ids: Array.from(installedAgentIds),
+            installed_agent_ids: Array.from(dispatchReadyAgentIds),
             limit: 10,
           }),
           evaluateRiskBadgesForAgents({
@@ -510,7 +514,7 @@ async function runTurnInner(
       installs,
       user_id: input.user_id,
       session_id: input.session_id,
-      session_approved_agent_ids: Array.from(sessionApprovedAgentIds),
+      session_connected_agent_ids: Array.from(sessionConnectedAgentIds),
       continue_approved: missionContinueApproved,
       ranked_agents: rankResult?.ranked_agents,
       risk_badges: riskBadges,
@@ -607,7 +611,7 @@ async function runTurnInner(
   const bridge = userScopedBridge(
     registry,
     connectedAgentIds,
-    installedAgentIds,
+    dispatchReadyAgentIds,
     0.6,
     input.user_id === "anon",
   );
@@ -717,7 +721,7 @@ async function runTurnInner(
           content: message.content,
         })),
         toolCount: toolsForClaude.length,
-        installedAgentCount: installedAgentIds.size,
+        installedAgentCount: dispatchReadyAgentIds.size,
         connectedAgentCount: connectedAgentIds.size,
         hasPriorSummary: priorSummary !== null,
         mode: input.mode === "voice" ? "voice" : "text",
@@ -734,7 +738,7 @@ async function runTurnInner(
   intentClassification = attachDispatchPlan(intentClassification, {
     userId: input.user_id,
     lastUserMessage: lastUser,
-    installedAgentCount: installedAgentIds.size,
+    installedAgentCount: dispatchReadyAgentIds.size,
     connectedAgentCount: connectedAgentIds.size,
     hasRegistryAgents: Object.keys(registry.agents).length > 0,
   });
@@ -766,7 +770,7 @@ async function runTurnInner(
       sessionId: input.session_id,
       query: lastUser,
       registry,
-      installedAgentIds: Array.from(installedAgentIds),
+      installedAgentIds: Array.from(dispatchReadyAgentIds),
       connectedAgentIds: Array.from(connectedAgentIds),
       dispatchPlan: intentClassification.subagentDispatchPlan,
       timing,

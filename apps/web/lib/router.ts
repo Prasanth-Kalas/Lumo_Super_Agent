@@ -31,6 +31,10 @@ import {
   touchLastUsed,
   ConnectionError,
 } from "./connections.js";
+import {
+  getConnectedSessionAppApproval,
+  isFirstPartyLumoApp,
+} from "./session-app-approvals.js";
 import { dispatchInternalTool, isInternalAgent } from "./integrations/registry.js";
 import {
   evaluateRuntimePolicy,
@@ -133,6 +137,16 @@ export async function dispatchToolCall(
   // used for public-only tools; those only dispatch to "none" agents.
   let authHeader: string | null = null;
   let connectionId: string | null = null;
+  let hasSessionConnection = false;
+  const sessionConnection =
+    ctx.user_id && ctx.user_id !== "anon"
+      ? await getConnectedSessionAppApproval(
+          ctx.user_id,
+          ctx.session_id,
+          agent.manifest.agent_id,
+        )
+      : null;
+  hasSessionConnection = sessionConnection !== null;
   if (agent.manifest.connect.model === "oauth2") {
     if (!ctx.user_id || ctx.user_id === "anon") {
       return failure(
@@ -141,34 +155,43 @@ export async function dispatchToolCall(
         started,
       );
     }
-    try {
-      const conn = await getDispatchableConnection({
+    if (hasSessionConnection && isFirstPartyLumoApp(agent.manifest)) {
+      authHeader = maybeSignFirstPartyServiceJwt({
+        audience: agent.manifest.agent_id,
         user_id: ctx.user_id,
-        agent_id: agent.manifest.agent_id,
-        oauth2_config: agent.manifest.connect,
+        scope: toolName,
+        request_id: ctx.idempotency_key,
       });
-      if (!conn) {
-        return failure(
-          "connection_required",
-          `You haven't connected ${agent.manifest.display_name} yet. Open the Marketplace and hit Connect.`,
-          started,
-          { agent_id: agent.manifest.agent_id, display_name: agent.manifest.display_name },
-        );
-      }
-      authHeader = `Bearer ${conn.access_token}`;
-      connectionId = conn.id;
-    } catch (err) {
-      if (err instanceof ConnectionError) {
-        const code: AgentError["code"] =
-          err.code === "refresh_failed" || err.code === "not_refreshable"
-            ? "connection_refresh_failed"
-            : "connection_required";
-        return failure(code, err.message, started, {
+    } else {
+      try {
+        const conn = await getDispatchableConnection({
+          user_id: ctx.user_id,
           agent_id: agent.manifest.agent_id,
-          display_name: agent.manifest.display_name,
+          oauth2_config: agent.manifest.connect,
         });
+        if (!conn) {
+          return failure(
+            "connection_required",
+            `You haven't connected ${agent.manifest.display_name} yet. Open the Marketplace and hit Connect.`,
+            started,
+            { agent_id: agent.manifest.agent_id, display_name: agent.manifest.display_name },
+          );
+        }
+        authHeader = `Bearer ${conn.access_token}`;
+        connectionId = conn.id;
+      } catch (err) {
+        if (err instanceof ConnectionError) {
+          const code: AgentError["code"] =
+            err.code === "refresh_failed" || err.code === "not_refreshable"
+              ? "connection_refresh_failed"
+              : "connection_required";
+          return failure(code, err.message, started, {
+            agent_id: agent.manifest.agent_id,
+            display_name: agent.manifest.display_name,
+          });
+        }
+        throw err;
       }
-      throw err;
     }
   } else if (agent.system === true) {
     if (!ctx.user_id || ctx.user_id === "anon") {
@@ -201,7 +224,7 @@ export async function dispatchToolCall(
     connect_model: agent.manifest.connect.model,
     tool_name: toolName,
     cost_tier: routing.cost_tier,
-    has_active_connection: connectionId !== null,
+    has_active_connection: connectionId !== null || hasSessionConnection,
     system_agent: agent.system === true,
   });
   if (!runtimePolicy.ok) {
@@ -435,6 +458,22 @@ function failure(
     },
     latency_ms: Date.now() - started,
   };
+}
+
+function maybeSignFirstPartyServiceJwt(input: {
+  audience: string;
+  user_id: string;
+  scope: string;
+  request_id: string;
+}): string | null {
+  try {
+    return `Bearer ${signLumoServiceJwt(input)}`;
+  } catch {
+    // First-party session approvals are the dispatch gate. The service JWT
+    // is an optional bearer for first-party agents that verify it; local and
+    // mock agents still run with the existing x-lumo-* headers.
+    return null;
+  }
 }
 
 function mapHttpToCode(status: number): LumoAgentError["code"] {
