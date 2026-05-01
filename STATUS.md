@@ -3,6 +3,7 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Claude Code Python | Lumo_Super_Agent_python | claude-code-python/mlservice-plan-contract-1 | 2026-05-02 | MLSERVICE-PLAN-CONTRACT-1 define cross-language /plan endpoint contract — Pydantic schemas + stub FastAPI route + codegen TS types so codex can build the parallel-write client without waiting |
+| Codex | Lumo_Super_Agent_codex | codex/compound-rpc-cycle-guard-1 | 2026-05-02 | COMPOUND-RPC-CYCLE-GUARD-1 DB-side cycle guard inside `create_compound_transaction_from_graph` RPC |
 
 ## Closed lanes
 

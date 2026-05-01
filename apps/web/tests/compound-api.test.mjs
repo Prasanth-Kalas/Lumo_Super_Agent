@@ -32,6 +32,7 @@ console.log("\ncompound-exec-2 api");
 const migration046 = readFileSync("../../db/migrations/046_compound_exec_1.sql", "utf8");
 const migration047 = readFileSync("../../db/migrations/047_compound_exec_2_persistence_rpc.sql", "utf8");
 const migration048 = readFileSync("../../db/migrations/048_compound_idempotency_conflict.sql", "utf8");
+const migration055 = readFileSync("../../db/migrations/055_compound_rpc_cycle_guard.sql", "utf8");
 const postRoute = readFileSync("app/api/compound/transactions/route.ts", "utf8");
 const streamRoute = readFileSync("app/api/compound/transactions/[id]/stream/route.ts", "utf8");
 const persistence = readFileSync("lib/compound/persistence.ts", "utf8");
@@ -133,6 +134,43 @@ await t("cycle rejection returns cyclic_dependency_graph before dependency inser
   );
   assert.match(persistence, /replayCompoundTransaction/);
   assert.match(persistence, /throw new CompoundPersistenceError\(replayPlan\.graph_error/);
+});
+
+await t("RPC cycle guard rejects callers that bypass JS validation", async () => {
+  const guardIndex = migration055.indexOf("INVALID_COMPOUND_DEPENDENCY_GRAPH_CYCLE");
+  const insertIndex = migration055.indexOf("insert into public.compound_transactions");
+  assert.ok(guardIndex > -1, "migration 055 should raise the DB-side cycle code");
+  assert.ok(insertIndex > -1, "migration 055 should still insert compound rows");
+  assert.ok(guardIndex < insertIndex, "cycle guard must run before compound row INSERT");
+  assert.match(migration055, /with recursive dependency_edges as/);
+  assert.match(migration055, /offending_edge=/);
+  assert.match(migration055, /JS-side validation via replayCompoundTransaction/);
+
+  await assert.rejects(
+    () =>
+      createCompoundTransaction({
+        userId: "22222222-2222-4222-8222-222222222222",
+        payload: makeVegasGraph("compound-api-rpc-cycle-guard"),
+        db: {
+          rpc: async () => ({
+            data: null,
+            error: {
+              message: "INVALID_COMPOUND_DEPENDENCY_GRAPH_CYCLE",
+              hint: "offending_edge=hotel->flight; cycle=flight->hotel->flight",
+            },
+          }),
+        },
+      }),
+    (error) =>
+      error instanceof CompoundPersistenceError &&
+      error.code === "cyclic_dependency_graph" &&
+      error.status === 400 &&
+      error.details?.offending_edge === "hotel->flight" &&
+      error.details?.cycle === "flight->hotel->flight",
+  );
+  assert.match(postRoute, /error\.code === "cyclic_dependency_graph"/);
+  assert.match(postRoute, /offending_edge/);
+  assert.match(postRoute, /cycle/);
 });
 
 await t("unauthorized compound stream access returns 404 to avoid id enumeration", () => {

@@ -309,6 +309,15 @@ export async function createCompoundTransaction(input: {
         { existing_compound_id: conflict.existing_compound_id },
       );
     }
+    const cycle = parseDependencyGraphCycle(error);
+    if (cycle) {
+      throw new CompoundPersistenceError(
+        "cyclic_dependency_graph",
+        400,
+        "compound dependency graph contains a cycle",
+        cycle,
+      );
+    }
     throw new CompoundPersistenceError("compound_persist_failed", 500, error.message);
   }
   return parseCreateResult(data);
@@ -322,6 +331,17 @@ function parseIdempotencyConflict(error: {
   const match = /(?:^|\b)existing_compound_id=([0-9a-f-]{36})(?:\b|$)/i.exec(error.hint ?? "");
   const existingCompoundId = match?.[1] ?? "";
   return { existing_compound_id: existingCompoundId };
+}
+
+function parseDependencyGraphCycle(error: {
+  message?: string | null;
+  hint?: string | null;
+}): { offending_edge: string | null; cycle: string | null } | null {
+  if (error.message !== "INVALID_COMPOUND_DEPENDENCY_GRAPH_CYCLE") return null;
+  const hint = error.hint ?? "";
+  const offendingEdge = /(?:^|[;\s])offending_edge=([^;]+)/i.exec(hint)?.[1]?.trim() ?? null;
+  const cycle = /(?:^|[;\s])cycle=([^;]+)/i.exec(hint)?.[1]?.trim() ?? null;
+  return { offending_edge: offendingEdge, cycle };
 }
 
 export async function loadCompoundSnapshot(

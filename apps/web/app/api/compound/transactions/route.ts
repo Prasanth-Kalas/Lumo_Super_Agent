@@ -54,6 +54,16 @@ function errorResponse(error: unknown): Response {
         error.status,
       );
     }
+    if (error.code === "cyclic_dependency_graph") {
+      return json(
+        {
+          error: error.code,
+          offending_edge: error.details?.offending_edge ?? null,
+          cycle: error.details?.cycle ?? null,
+        },
+        error.status,
+      );
+    }
     return json({ error: error.code, message: error.message }, error.status);
   }
   console.error("[compound] create failed", error);
