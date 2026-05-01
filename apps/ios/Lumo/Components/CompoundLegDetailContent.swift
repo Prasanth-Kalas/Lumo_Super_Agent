@@ -43,9 +43,14 @@ struct CompoundLegDetailContent: View {
     /// Drives ticker suppression for terminal-but-still-displayed
     /// states (a leg that committed shouldn't keep ticking).
     let settled: Bool
-    /// Used for resolving the pending-dep label. The full leg
-    /// list lets the panel name the upstream leg by description.
+    /// Used for resolving the pending-dep label and the rollback
+    /// cascade enumeration on the failed-leg detail panel.
     let allLegs: [CompoundLeg]
+    /// Per-leg override layer — used by the failure branch to
+    /// resolve cascade target descriptions against the live status
+    /// rather than the dispatch payload's stale initial.
+    /// IOS-COMPOUND-ROLLBACK-VIEW-1.
+    var overrides: [String: CompoundLegStatus] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -136,6 +141,20 @@ struct CompoundLegDetailContent: View {
             text: sagaActionDescription(for: status),
             tone: .secondary
         )
+        // Rollback-plan enumeration on the failed-leg detail panel:
+        // when this leg is the saga root failure (status == .failed
+        // or .rollback_failed), list the dependents the saga is
+        // rolling back. IOS-COMPOUND-ROLLBACK-VIEW-1.
+        if status == .failed || status == .rollback_failed {
+            let plan = rollbackPlanText()
+            if !plan.isEmpty {
+                labeledLine(
+                    label: "ROLLBACK PLAN",
+                    text: plan,
+                    tone: .warning
+                )
+            }
+        }
     }
 
     @ViewBuilder
@@ -236,6 +255,87 @@ struct CompoundLegDetailContent: View {
         }
     }
 
+    /// Build the "hotel and dinner are being rolled back" copy
+    /// for the failed leg's detail panel. Uses the cascade
+    /// helper against the override layer so descriptions reflect
+    /// the live status (a dependent that's already
+    /// `rollback_failed` reads as such, distinct from the
+    /// majority that are still `rollback_pending` /
+    /// `rolled_back`). Returns "" when there are no dependents,
+    /// so the labeledLine is suppressed.
+    func rollbackPlanText() -> String {
+        let cascadeIDs = CompoundDispatchHelpers.cascade(
+            failedLegID: leg.leg_id,
+            legs: allLegs
+        )
+        if cascadeIDs.isEmpty { return "" }
+
+        // Group dependents by their live status so the copy can
+        // distinguish "rolled back" from "rolling back" from
+        // "escalated".
+        var rolled: [String] = []
+        var rolling: [String] = []
+        var escalated: [String] = []
+        for legID in cascadeIDs {
+            guard let dep = allLegs.first(where: { $0.leg_id == legID }) else { continue }
+            let s = overrides[dep.leg_id] ?? dep.status
+            switch s {
+            case .rolled_back:
+                rolled.append(humanizedLegName(dep))
+            case .rollback_pending:
+                rolling.append(humanizedLegName(dep))
+            case .rollback_failed, .manual_review:
+                escalated.append(humanizedLegName(dep))
+            default:
+                // Pre-rollback statuses — saga hasn't started
+                // compensation yet. Treat as "rolling back" for
+                // the user-facing copy since that's the saga's
+                // intent.
+                rolling.append(humanizedLegName(dep))
+            }
+        }
+
+        var sentences: [String] = []
+        if !rolling.isEmpty {
+            sentences.append("\(joinNames(rolling)) \(verb(for: rolling)) being rolled back.")
+        }
+        if !rolled.isEmpty {
+            sentences.append("\(joinNames(rolled)) \(verb(for: rolled)) already rolled back.")
+        }
+        if !escalated.isEmpty {
+            sentences.append("\(joinNames(escalated)) escalated to manual review.")
+        }
+        return sentences.joined(separator: " ")
+    }
+
+    /// "Booking flight ORD → LAS" → "the flight". Falls back to
+    /// the agent display name for unknown shapes. Keeps the
+    /// rollback copy readable rather than echoing full
+    /// descriptions verbatim.
+    private func humanizedLegName(_ dep: CompoundLeg) -> String {
+        let id = dep.agent_id
+        if id.contains("flight") { return "the flight" }
+        if id.contains("hotel") { return "the hotel" }
+        if id.contains("restaurant") || id.contains("dining") { return "the dinner reservation" }
+        if id.contains("food") { return "the food order" }
+        return dep.agent_display_name
+    }
+
+    private func joinNames(_ names: [String]) -> String {
+        switch names.count {
+        case 0:  return ""
+        case 1:  return names[0].capitalizedFirst
+        case 2:  return "\(names[0].capitalizedFirst) and \(names[1])"
+        default:
+            let head = names.dropLast().joined(separator: ", ")
+            return "\(head.capitalizedFirst), and \(names.last!)"
+        }
+    }
+
+    private func verb(for names: [String]) -> String {
+        names.count == 1 ? "is" : "are"
+    }
+
     private func sagaActionDescription(for status: CompoundLegStatus) -> String {
         switch status {
         case .failed:
@@ -255,5 +355,15 @@ struct CompoundLegDetailContent: View {
         let m = secs / 60
         let s = secs % 60
         return "Elapsed: \(m)m \(s)s"
+    }
+}
+
+private extension String {
+    /// Uppercase the first character only — for sentence-case
+    /// joining of leg-name fragments ("the flight" → "The flight").
+    /// Keeps the rest of the string verbatim.
+    var capitalizedFirst: String {
+        guard let first = first else { return self }
+        return String(first).uppercased() + dropFirst()
     }
 }

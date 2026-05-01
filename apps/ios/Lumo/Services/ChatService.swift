@@ -319,12 +319,24 @@ final class ChatService {
             // they decode rather than dropping the leg — matches
             // web's normalizeDispatchStatus fallback.
             let resolved = CompoundLegStatus(rawValue: status) ?? .manual_review
+            // depends_on is optional on the wire (older frames
+            // emitted by the dispatch helper before
+            // IOS-COMPOUND-ROLLBACK-VIEW-1 omitted it). Default
+            // to [] so the cascade compute treats the leg as a
+            // root with no dependents.
+            let depends_on: [String]
+            if let raw = leg["depends_on"] as? [String] {
+                depends_on = raw.filter { !$0.isEmpty }
+            } else {
+                depends_on = []
+            }
             return CompoundLeg(
                 leg_id: leg_id,
                 agent_id: agent_id,
                 agent_display_name: agent_display_name,
                 description: description,
-                status: resolved
+                status: resolved,
+                depends_on: depends_on
             )
         }
         guard !legs.isEmpty else { return nil }

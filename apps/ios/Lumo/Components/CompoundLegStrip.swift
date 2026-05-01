@@ -110,12 +110,42 @@ struct CompoundLegStrip: View {
 
     // MARK: - Leg cell (row + optional expanded detail)
 
+    /// Aggregate rollback cascade across the dispatch — every
+    /// leg that's rolling back because an upstream failed.
+    /// Computed once per body render and read by each row.
+    private var cascadeSet: Set<String> {
+        CompoundDispatchHelpers.rollbackCascade(
+            legs: payload.legs,
+            statuses: overrides
+        )
+    }
+
+    /// Description of the upstream failure that caused `legID` to
+    /// roll back, if any. Used by the row's explainer line and by
+    /// the detail panel's rollback-plan branch (which lives in
+    /// CompoundLegDetailContent and reads the same logic).
+    private func upstreamFailureDescription(for legID: String) -> String? {
+        for failed in payload.legs {
+            let s = overrides[failed.leg_id] ?? failed.status
+            guard s == .failed || s == .rollback_failed else { continue }
+            let cascade = CompoundDispatchHelpers.cascade(
+                failedLegID: failed.leg_id,
+                legs: payload.legs
+            )
+            if cascade.contains(legID) {
+                return failed.description
+            }
+        }
+        return nil
+    }
+
     @ViewBuilder
     private func legCell(_ leg: CompoundLeg) -> some View {
         let status = overrides[leg.leg_id] ?? leg.status
         let expanded = isExpanded(leg.leg_id)
+        let upstream = upstreamFailureDescription(for: leg.leg_id)
         VStack(alignment: .leading, spacing: 0) {
-            legRow(leg, status: status, expanded: expanded)
+            legRow(leg, status: status, expanded: expanded, upstream: upstream)
             if expanded {
                 Divider()
                     .background(LumoColors.separator)
@@ -124,14 +154,16 @@ struct CompoundLegStrip: View {
                     status: status,
                     metadata: metadataFor(leg.leg_id),
                     settled: settled,
-                    allLegs: payload.legs
+                    allLegs: payload.legs,
+                    overrides: overrides
                 )
             }
         }
     }
 
-    private func legRow(_ leg: CompoundLeg, status: CompoundLegStatus, expanded: Bool) -> some View {
-        HStack(alignment: .center, spacing: LumoSpacing.sm + 2) {
+    private func legRow(_ leg: CompoundLeg, status: CompoundLegStatus, expanded: Bool, upstream: String?) -> some View {
+        let isCascaded = upstream != nil
+        return HStack(alignment: .center, spacing: LumoSpacing.sm + 2) {
             // Agent glyph chip — mirrors web's
             // `h-9 w-9 rounded-lg border bg-lumo-inset` look.
             Text(CompoundDispatchHelpers.glyph(for: leg.agent_id))
@@ -149,8 +181,18 @@ struct CompoundLegStrip: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
+                // Strike-through the description when this leg's
+                // booking was effectively undone by an upstream
+                // failure (status reached a terminal rolled-back
+                // state). Mirrors the brief's "committed pills
+                // strike-through to rolled_back" language —
+                // applied to the description text rather than the
+                // pill itself, which already shows the new status
+                // in warning color.
                 Text(leg.description)
                     .font(.system(size: 13.5, weight: .medium))
+                    .strikethrough(isCascaded && (status == .rolled_back || status == .rollback_failed),
+                                   color: LumoColors.labelTertiary)
                     .foregroundStyle(LumoColors.label)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -159,6 +201,14 @@ struct CompoundLegStrip: View {
                     .foregroundStyle(LumoColors.labelTertiary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if let upstream {
+                    Text("Rolled back — \(upstream) failed")
+                        .font(.system(size: 11))
+                        .foregroundStyle(LumoColors.warning)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .accessibilityIdentifier("compound-leg-strip-row-\(leg.leg_id)-cascade-explainer")
+                }
             }
 
             Spacer(minLength: 4)
