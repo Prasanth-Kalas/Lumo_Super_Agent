@@ -8,6 +8,7 @@
  *   - { type: "tool",       value: ToolCallTrace }           (debug only)
  *   - { type: "selection",  value: { kind, payload } }       (rich UI)
  *   - { type: "assistant_suggestions", value: { kind, turn_id, suggestions } }
+ *   - { type: "assistant_compound_dispatch", value: { kind, compound_transaction_id, legs } }
  *   - { type: "summary",    value: ConfirmationSummary }     (money gate)
  *   - { type: "leg_status", value: { order, status } }       (compound trip)
  *   - { type: "error",      value: { message } }

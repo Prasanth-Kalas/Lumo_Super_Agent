@@ -46,6 +46,9 @@ import {
 import SuggestionChips, {
   type SuggestionChipItem,
 } from "@/components/SuggestionChips";
+import CompoundLegStrip, {
+  type CompoundLegStripPayload,
+} from "@/components/CompoundLegStrip";
 import {
   ReservationConfirmationCard,
   type ReservationPayload,
@@ -105,6 +108,10 @@ interface UIAssistantSuggestions {
   suggestions: SuggestionChipItem[];
 }
 
+interface UICompoundDispatch extends CompoundLegStripPayload {
+  kind: "assistant_compound_dispatch";
+}
+
 interface UIMessage {
   id: string;
   role: "user" | "assistant";
@@ -112,6 +119,7 @@ interface UIMessage {
   summary?: UISummary | null;
   selections?: UISelection[];
   suggestionsTurnId?: string;
+  compoundDispatch?: UICompoundDispatch | null;
   mission?: LumoMissionPlan | null;
 }
 
@@ -330,9 +338,18 @@ export default function Home() {
                 const message = replayMessageToUI(raw);
                 if (!message || !isRecord(raw)) return message;
                 const suggestions = assistantSuggestionsToUI(raw["suggestions"]);
-                if (!suggestions) return message;
+                const compoundDispatch = assistantCompoundDispatchToUI(
+                  raw["compoundDispatch"],
+                );
+                const nextMessage = compoundDispatch
+                  ? { ...message, compoundDispatch }
+                  : message;
+                if (!suggestions) return nextMessage;
                 replaySuggestions[suggestions.turn_id] = suggestions;
-                return { ...message, suggestionsTurnId: suggestions.turn_id };
+                return {
+                  ...nextMessage,
+                  suggestionsTurnId: suggestions.turn_id,
+                };
               })
               .filter((m): m is UIMessage => !!m)
           : [];
@@ -480,6 +497,7 @@ export default function Home() {
       let assistantSelections: UISelection[] = [];
       let assistantMission: LumoMissionPlan | null = null;
       let assistantSuggestionsTurnId: string | null = null;
+      let assistantCompoundDispatch: UICompoundDispatch | null = null;
       let buf = "";
       const assistantId = `a-${next.id}`;
 
@@ -539,6 +557,8 @@ export default function Home() {
                 [suggestions.turn_id]: suggestions,
               }));
             }
+          } else if (frame.type === "assistant_compound_dispatch") {
+            assistantCompoundDispatch = assistantCompoundDispatchToUI(frame.value);
           } else if (frame.type === "leg_status") {
             const v = frame.value as {
               order?: number;
@@ -591,6 +611,7 @@ export default function Home() {
                   ? assistantSelections
                   : undefined,
                 suggestionsTurnId: assistantSuggestionsTurnId ?? undefined,
+                compoundDispatch: assistantCompoundDispatch,
               },
             ];
           });
@@ -869,6 +890,12 @@ export default function Home() {
                       onChipSelect={(value) => void sendText(value)}
                       disabled={busy || isReplayLoading}
                     />
+                  </div>
+                ) : null}
+
+                {m.role === "assistant" && m.compoundDispatch ? (
+                  <div className="pl-[18px]">
+                    <CompoundLegStrip payload={m.compoundDispatch} />
                   </div>
                 ) : null}
 
@@ -1179,6 +1206,62 @@ function assistantSuggestionsToUI(value: unknown): UIAssistantSuggestions | null
     turn_id: turnId,
     suggestions,
   };
+}
+
+function assistantCompoundDispatchToUI(value: unknown): UICompoundDispatch | null {
+  if (!isRecord(value)) return null;
+  if (value["kind"] !== "assistant_compound_dispatch") return null;
+  const compoundId =
+    typeof value["compound_transaction_id"] === "string"
+      ? value["compound_transaction_id"].trim()
+      : "";
+  const rawLegs = Array.isArray(value["legs"]) ? value["legs"] : [];
+  const legs = rawLegs
+    .map((item): UICompoundDispatch["legs"][number] | null => {
+      if (!isRecord(item)) return null;
+      const legId = typeof item["leg_id"] === "string" ? item["leg_id"].trim() : "";
+      const agentId =
+        typeof item["agent_id"] === "string" ? item["agent_id"].trim() : "";
+      const agentDisplayName =
+        typeof item["agent_display_name"] === "string" &&
+        item["agent_display_name"].trim()
+          ? item["agent_display_name"].trim()
+          : agentId;
+      const description =
+        typeof item["description"] === "string" ? item["description"].trim() : "";
+      const status =
+        typeof item["status"] === "string" && isCompoundDispatchStatus(item["status"])
+          ? item["status"]
+          : "pending";
+      if (!legId || !agentId || !description) return null;
+      return {
+        leg_id: legId,
+        agent_id: agentId,
+        agent_display_name: agentDisplayName,
+        description,
+        status,
+      };
+    })
+    .filter((item): item is UICompoundDispatch["legs"][number] => item !== null);
+  if (!compoundId || legs.length === 0) return null;
+  return {
+    kind: "assistant_compound_dispatch",
+    compound_transaction_id: compoundId,
+    legs,
+  };
+}
+
+function isCompoundDispatchStatus(value: string): value is UICompoundDispatch["legs"][number]["status"] {
+  return (
+    value === "pending" ||
+    value === "in_flight" ||
+    value === "committed" ||
+    value === "failed" ||
+    value === "rollback_pending" ||
+    value === "rolled_back" ||
+    value === "rollback_failed" ||
+    value === "manual_review"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

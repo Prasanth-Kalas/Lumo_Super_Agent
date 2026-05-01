@@ -114,6 +114,12 @@ import {
 } from "./standing-intents.js";
 import { assembleTripSummary, TripAssemblyError, type PricedLeg } from "./trip-planner.js";
 import {
+  maybeCreateVegasWeekendCompoundDispatch,
+} from "./compound/demo-dispatch.ts";
+import type {
+  AssistantCompoundDispatchFrameValue,
+} from "./compound/dispatch-frame.ts";
+import {
   beginDispatch,
   confirmTrip,
   createDraftTrip,
@@ -241,6 +247,7 @@ export type OrchestratorFrame =
     }
   | { type: "selection"; value: InteractiveSelection }
   | { type: "assistant_suggestions"; value: AssistantSuggestionsFrameValue }
+  | { type: "assistant_compound_dispatch"; value: AssistantCompoundDispatchFrameValue }
   | { type: "summary"; value: ConfirmationSummary }
   | {
       type: "leg_status";
@@ -394,6 +401,25 @@ async function runTurnInner(
     ...input.user_pii,
     ...bookingProfileSnapshotToPii(bookingProfile),
   };
+
+  const demoCompoundDispatch = await maybeCreateVegasWeekendCompoundDispatch({
+    userId: input.user_id,
+    sessionId: input.session_id,
+    messages: input.messages,
+  });
+  if (demoCompoundDispatch) {
+    const assistantText =
+      "I kicked off the Vegas weekend plan. I’ll track each leg here as the flight, hotel, and dinner agents move.";
+    emit({ type: "text", value: assistantText });
+    emit({ type: "assistant_compound_dispatch", value: demoCompoundDispatch });
+    return {
+      assistant_text: assistantText,
+      tool_calls: [],
+      summary: null,
+      selections: [],
+      suggestions: null,
+    };
+  }
 
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
