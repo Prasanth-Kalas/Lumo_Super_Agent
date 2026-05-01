@@ -2,6 +2,8 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/approval-natural-language-commit-1 | 2026-05-01 | APPROVAL-NATURAL-LANGUAGE-COMMIT-1 typed install-card approval/cancel commits the real install transaction |
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-compound-rollback-view-1 | 2026-05-02 | IOS-COMPOUND-ROLLBACK-VIEW-1 cascade visual on failed legs (strike-through + dependent-roll-back tooltip) + rollback-plan branch on the failed leg's detail panel; small cross-platform frame extension to land `depends_on` on the wire |
 
 ## Closed lanes
 
