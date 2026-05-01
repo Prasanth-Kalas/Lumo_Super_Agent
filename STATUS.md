@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/chat-confirmation-payload-extend-1 | 2026-05-01 | CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 rich autofilled booking confirmation payload |
 
 ## Closed lanes
 
@@ -41,6 +40,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/app-install-connection-idempotent-1 | 2026-05-01 | 2026-05-01 | APP-INSTALL-CONNECTION-IDEMPOTENT-1 first-party approval auto-connects session app approvals for booking dispatch |
 | Codex | Lumo_Super_Agent_codex | codex/chat-profile-autofill-1 | 2026-05-01 | 2026-05-01 | CHAT-PROFILE-AUTOFILL-1 booking profile autofill from approved scopes |
 | Codex | Lumo_Super_Agent_codex | codex/chip-context-awareness-1 | 2026-05-01 | 2026-05-01 | CHIP-CONTEXT-AWARENESS-1 planning-step-aware suggested chips; confirmation turns no longer emit stale trip-config chips |
+| Codex | Lumo_Super_Agent_codex | codex/chat-confirmation-payload-extend-1 | 2026-05-01 | 2026-05-01 | CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 visible traveler/payment summary in booking confirmation cards |
 
 ## Last push
 
@@ -132,3 +132,4 @@
 - 2026-05-01 — claude-code/chat-flight-select-clickable-1 → main (FF), CHAT-FLIGHT-SELECT-CLICKABLE-1 closed. Rebased onto current origin/main (codex/app-install-connection-idempotent-1 had landed at af441ac); apps/web/package.json test-list + STATUS.md push-log conflicts resolved additively, force-with-lease push, FF-merge from feature branch via `git push origin claude-code/chat-flight-select-clickable-1:main` since the canonical worktree was on Codex's codex/chat-profile-autofill-1 in-flight lane. 3 follow-ups filed and deferred: WEB-IOS-SELECT-CLICKABLE-{HOTEL,FOOD,RESTAURANT}-1 (port the same tap-to-submit pattern to the other 3 selection card kinds — likely one sprint per platform reusing buildOfferSubmitText / FlightOffersSelectCard shape), CHAT-SELECTION-280MS-DOCTRINE-1 (document the 280ms confirmation window + 40% sibling dim as a chat-card design doctrine in docs/notes/ so food/hotel cards inherit the rule rather than re-deciding), IOS-FOOD-MENU-TIME-SLOTS-PARSE-1 (the .unsupported(kind:) stub for food_menu and time_slots is correct stop-gap but represents typing debt — file so we don't lose track of typing those when their cards land). Both lanes idle on Claude Code side; awaiting IOS-BOOKING-CONFIRM-AUTOFILL-1 brief once Codex's CHAT-PROFILE-AUTOFILL-1 lands.
 - 2026-05-01 — codex/chat-profile-autofill-1 → main (FF), CHAT-PROFILE-AUTOFILL-1 closed. Booking flows now build approved-scope profile snapshots (`present` / `missing` / `not_in_scope`), thread prefilled profile/payment/traveler data into prompt + dispatch, and ask only for missing booking details. 2 follow-ups filed and deferred: BOOKING-PROFILE-EDIT-INLINE-1 (inline override affordance after web/iOS confirmation-card autofill lands) and PASSPORT-SCOPE-INTL-FLIGHTS-1 (exercise passport/passport_optional on international-flight bookings).
 - 2026-05-01 — codex/chip-context-awareness-1 → main (FF), CHIP-CONTEXT-AWARENESS-1 closed. Suggested-reply chips now receive planning-step context (`clarification`, `selection`, `confirmation`, `post_booking`); confirmation turns emit booking-action chips instead of stale trip-shape/traveler chips. Codex queued for CHAT-CONFIRMATION-PAYLOAD-EXTEND-1, then WEB-COMPOUND-VIEW-1.
+- 2026-05-01 — codex/chat-confirmation-payload-extend-1 → main (FF), CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 closed. Booking confirmation cards now visibly disclose autofilled traveler and payment details (`Prefilled from approved profile`) while keeping the authoritative itinerary summary hash unchanged. Codex queued for WEB-COMPOUND-VIEW-1.
