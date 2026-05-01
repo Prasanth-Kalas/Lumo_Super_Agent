@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-booking-confirm-autofill-1 | 2026-05-01 | IOS-BOOKING-CONFIRM-AUTOFILL-1 (Path A re-scope) iOS counterpart of web's existing ItineraryConfirmationCard — decode the `summary` SSE frame, render offer_id + slices + total + Confirm/Cancel; the autofill effect from CHAT-PROFILE-AUTOFILL-1 is upstream and invisible to the card |
 
 ## Closed lanes
 
