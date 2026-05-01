@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/chip-context-awareness-1 | 2026-05-01 | CHIP-CONTEXT-AWARENESS-1 step-aware suggested chips |
 
 ## Closed lanes
 
