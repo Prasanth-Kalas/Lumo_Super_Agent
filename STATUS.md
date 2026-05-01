@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/web-compound-view-1 | 2026-05-01 | WEB-COMPOUND-VIEW-1 inline per-leg compound dispatch UI |
 
 ## Closed lanes
 
