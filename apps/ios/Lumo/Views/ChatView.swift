@@ -77,13 +77,31 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: LumoSpacing.lg) {
                     ForEach(viewModel.messages) { message in
-                        MessageBubble(
-                            message: message,
-                            onCopy: { copyToPasteboard(message.text) },
-                            onShare: nil,
-                            onRegenerate: regenerateAction(for: message),
-                            onRetry: retryAction(for: message)
-                        )
+                        VStack(alignment: .leading, spacing: LumoSpacing.sm) {
+                            MessageBubble(
+                                message: message,
+                                onCopy: { copyToPasteboard(message.text) },
+                                onShare: nil,
+                                onRegenerate: regenerateAction(for: message),
+                                onRetry: retryAction(for: message)
+                            )
+
+                            // Suggestion chips render only on the
+                            // latest assistant message before any
+                            // user message — `suggestions(for:)`
+                            // applies that rule, so an empty list
+                            // means "stale, suppress".
+                            let chips = viewModel.suggestions(for: message)
+                            if !chips.isEmpty {
+                                SuggestionChips(
+                                    suggestions: chips,
+                                    isDisabled: viewModel.isStreaming,
+                                    onSelect: { suggestion in
+                                        viewModel.sendSuggestion(suggestion.value)
+                                    }
+                                )
+                            }
+                        }
                         .id(message.id)
                     }
                     if showTypingIndicator {
