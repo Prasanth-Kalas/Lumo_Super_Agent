@@ -8,6 +8,21 @@ import SwiftUI
 /// Release builds.
 
 struct AuthView: View {
+    /// Build-time signal for whether the dev-bypass button is present
+    /// in the compiled binary. Defined via the same `#if DEBUG` gate as
+    /// the button itself so a test target running under the Debug
+    /// config sees `true`, and a Release archive sees `false`. Used by
+    /// `DevBypassGateTests` to pin the gate symbol; `scripts/verify-
+    /// release-bypass-stripped.sh` is the source-level invariant that
+    /// catches accidental leaks in code review.
+    static let isDevBypassButtonCompiledIn: Bool = {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }()
+
     @ObservedObject var viewModel: AuthViewModel
     @Environment(\.colorScheme) private var colorScheme
 

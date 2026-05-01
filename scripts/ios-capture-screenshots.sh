@@ -122,6 +122,38 @@ case "$variant" in
         capture confirmation-card dark \
             -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
         ;;
+    ios-dev-bypass-gate-1)
+        # IOS-DEV-BYPASS-GATE-1: visual gate that the dev-bypass button
+        # only appears in Debug-config builds. Capture pair:
+        #   1. Debug build  → "Continue without signing in (dev)" visible
+        #   2. Release build → button absent (compiler strips #if DEBUG)
+        # The Release build needs to be produced first via:
+        #   xcodebuild build -scheme Lumo -configuration Release \
+        #     -sdk iphonesimulator -destination "id=$sim_id" \
+        #     CODE_SIGNING_ALLOWED=NO -derivedDataPath /tmp/lumo-release-dd
+        echo "[shots] auth · Debug build (bypass visible)"
+        capture auth-debug-build-bypass-visible light
+        echo "[shots] auth · Release build (bypass stripped)"
+        release_app="${LUMO_RELEASE_APP:-/tmp/lumo-release-dd/Build/Products/Release-iphonesimulator/Lumo.app}"
+        if [[ ! -d "$release_app" ]]; then
+            echo "  ! Release build not found at $release_app — run xcodebuild Release first" >&2
+            exit 1
+        fi
+        # Swap install: Release ships com.lumo.rentals.ios (no .dev),
+        # so we uninstall both bundle IDs and install the Release .app.
+        xcrun simctl terminate "$sim_id" "$bundle_id" >/dev/null 2>&1 || true
+        xcrun simctl uninstall "$sim_id" "$bundle_id" >/dev/null 2>&1 || true
+        xcrun simctl uninstall "$sim_id" com.lumo.rentals.ios >/dev/null 2>&1 || true
+        xcrun simctl install "$sim_id" "$release_app"
+        bundle_id="com.lumo.rentals.ios"
+        capture auth-release-build-bypass-stripped light
+        # Swap back to Debug install so the sim is left in its usual
+        # state (otherwise subsequent default-variant runs break).
+        xcrun simctl terminate "$sim_id" "$bundle_id" >/dev/null 2>&1 || true
+        xcrun simctl uninstall "$sim_id" "$bundle_id" >/dev/null 2>&1 || true
+        debug_app=$(find ~/Library/Developer/Xcode/DerivedData -name 'Lumo.app' -path '*Lumo-*Debug-iphonesimulator*' 2>/dev/null | head -1)
+        xcrun simctl install "$sim_id" "$debug_app"
+        ;;
     ios-compound-rollback-view-1)
         # IOS-COMPOUND-ROLLBACK-VIEW-1: rollback cascade visual on
         # failed legs + ROLLBACK PLAN branch on the failed leg's
