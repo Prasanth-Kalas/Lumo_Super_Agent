@@ -1,22 +1,28 @@
 import { createHash } from "node:crypto";
 import type { AgentManifest } from "@lumo/agent-sdk";
 
-const FIRST_PARTY_LUMO_AGENT_IDS = new Set([
-  "flight",
-  "hotel",
-  "restaurant",
-  "food",
-  "lumo-flights",
-  "lumo-hotels",
-  "lumo-restaurants",
-  "lumo-food",
+export type FirstPartyConnectionProvider =
+  | "duffel"
+  | "booking"
+  | "opentable"
+  | "doordash";
+
+const FIRST_PARTY_PROVIDER_BY_AGENT_ID = new Map<string, FirstPartyConnectionProvider>([
+  ["flight", "duffel"],
+  ["lumo-flights", "duffel"],
+  ["hotel", "booking"],
+  ["lumo-hotels", "booking"],
+  ["restaurant", "opentable"],
+  ["lumo-restaurants", "opentable"],
+  ["food", "doordash"],
+  ["lumo-food", "doordash"],
 ]);
 
-const FIRST_PARTY_LUMO_NAMES = new Set([
-  "lumo flights",
-  "lumo hotels",
-  "lumo restaurants",
-  "lumo food",
+const FIRST_PARTY_PROVIDER_BY_NAME = new Map<string, FirstPartyConnectionProvider>([
+  ["lumo flights", "duffel"],
+  ["lumo hotels", "booking"],
+  ["lumo restaurants", "opentable"],
+  ["lumo food", "doordash"],
 ]);
 
 export function sessionApprovalIdempotencyKey(
@@ -34,8 +40,15 @@ export function sessionApprovalIdempotencyKey(
 export function isFirstPartyLumoApp(
   manifest: Pick<AgentManifest, "agent_id" | "display_name">,
 ): boolean {
+  return firstPartyConnectionProviderForApp(manifest) !== null;
+}
+
+export function firstPartyConnectionProviderForApp(
+  manifest: Pick<AgentManifest, "agent_id" | "display_name">,
+): FirstPartyConnectionProvider | null {
   return (
-    FIRST_PARTY_LUMO_AGENT_IDS.has(manifest.agent_id) ||
-    FIRST_PARTY_LUMO_NAMES.has(manifest.display_name.trim().toLowerCase())
+    FIRST_PARTY_PROVIDER_BY_AGENT_ID.get(manifest.agent_id) ??
+    FIRST_PARTY_PROVIDER_BY_NAME.get(manifest.display_name.trim().toLowerCase()) ??
+    null
   );
 }

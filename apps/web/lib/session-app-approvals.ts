@@ -9,15 +9,14 @@
  */
 
 import { getSupabase } from "./db.js";
+import type { FirstPartyConnectionProvider } from "./session-app-approvals-core.ts";
 export {
+  firstPartyConnectionProviderForApp,
   isFirstPartyLumoApp,
   sessionApprovalIdempotencyKey,
 } from "./session-app-approvals-core.ts";
 
-export type SessionConnectionProvider =
-  | "lumo_first_party"
-  | "oauth"
-  | "marketplace";
+export type SessionConnectionProvider = FirstPartyConnectionProvider;
 
 export interface SessionAppApproval {
   user_id: string;
@@ -130,6 +129,7 @@ export async function connectFirstPartySessionAppApproval(args: {
   session_id: string;
   agent_id: string;
   granted_scopes: string[];
+  connection_provider: SessionConnectionProvider;
 }): Promise<SessionAppApproval | null> {
   const db = getSupabase();
   if (!db) return null;
@@ -144,7 +144,7 @@ export async function connectFirstPartySessionAppApproval(args: {
       p_session_id: session,
       p_agent_id: agent,
       p_granted_scopes: Array.from(new Set(args.granted_scopes.filter(Boolean))).sort(),
-      p_connection_provider: "lumo_first_party",
+      p_connection_provider: args.connection_provider,
     },
   );
   if (error) {
@@ -181,9 +181,10 @@ function toApproval(row: SessionAppApprovalRow): SessionAppApproval {
 
 function normalizeConnectionProvider(value: string | null): SessionConnectionProvider | null {
   if (
-    value === "lumo_first_party" ||
-    value === "oauth" ||
-    value === "marketplace"
+    value === "duffel" ||
+    value === "booking" ||
+    value === "opentable" ||
+    value === "doordash"
   ) {
     return value;
   }

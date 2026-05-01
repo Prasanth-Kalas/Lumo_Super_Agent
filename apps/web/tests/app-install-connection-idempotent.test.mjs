@@ -7,7 +7,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildLumoMissionPlan } from "../lib/lumo-mission.ts";
-import { isFirstPartyLumoApp } from "../lib/session-app-approvals-core.ts";
+import {
+  firstPartyConnectionProviderForApp,
+  isFirstPartyLumoApp,
+} from "../lib/session-app-approvals-core.ts";
 
 let pass = 0;
 let fail = 0;
@@ -39,6 +42,12 @@ console.log("\napp install connection idempotency");
 t("migration 051 adds session connection columns and atomic first-party RPC", () => {
   assert.match(migration051, /add column if not exists connected_at timestamptz/);
   assert.match(migration051, /add column if not exists connection_provider text/);
+  assert.match(migration051, /'duffel'/);
+  assert.match(migration051, /'booking'/);
+  assert.match(migration051, /'opentable'/);
+  assert.match(migration051, /'doordash'/);
+  assert.match(migration051, /update public\.session_app_approvals/);
+  assert.match(migration051, /connected_at = coalesce\(connected_at, approved_at\)/);
   assert.match(migration051, /create or replace function public\.connect_first_party_session_app_approval/);
   assert.match(migration051, /insert into public\.agent_connections/);
   assert.match(migration051, /on conflict \(session_id, agent_id\) do update/);
@@ -57,6 +66,32 @@ t("first-party detector is explicit and does not bless generic partners", () => 
   assert.equal(
     isFirstPartyLumoApp({ agent_id: "partner-flight", display_name: "Partner Flights" }),
     false,
+  );
+  assert.equal(
+    firstPartyConnectionProviderForApp({ agent_id: "lumo-flights", display_name: "Lumo Flights" }),
+    "duffel",
+  );
+  assert.equal(
+    firstPartyConnectionProviderForApp({ agent_id: "lumo-hotels", display_name: "Lumo Hotels" }),
+    "booking",
+  );
+  assert.equal(
+    firstPartyConnectionProviderForApp({
+      agent_id: "lumo-restaurants",
+      display_name: "Lumo Restaurants",
+    }),
+    "opentable",
+  );
+  assert.equal(
+    firstPartyConnectionProviderForApp({ agent_id: "lumo-food", display_name: "Lumo Food" }),
+    "doordash",
+  );
+  assert.equal(
+    firstPartyConnectionProviderForApp({
+      agent_id: "partner-flight",
+      display_name: "Partner Flights",
+    }),
+    null,
   );
 });
 
@@ -117,11 +152,13 @@ t("connected first-party OAuth app is ready without marketplace redirect", () =>
 t("runtime code reads connected_at rather than raw approval rows", () => {
   assert.match(sessionApprovals, /connectedAgentIdsFromSessionApprovals/);
   assert.match(sessionApprovals, /approval\.connected_at !== null/);
+  assert.match(sessionApprovals, /p_connection_provider: args\.connection_provider/);
   assert.match(orchestrator, /sessionConnectedAgentIds/);
   assert.match(orchestrator, /session_connected_agent_ids: Array\.from\(sessionConnectedAgentIds\)/);
   assert.match(missionRoute, /sessionConnectedAgentIds/);
   assert.match(installRoute, /connectFirstPartySessionAppApproval/);
-  assert.match(installRoute, /isFirstPartyLumoApp/);
+  assert.match(installRoute, /firstPartyConnectionProviderForApp/);
+  assert.match(installRoute, /connection_provider: firstPartyConnectionProvider/);
   assert.match(router, /getConnectedSessionAppApproval/);
   assert.match(router, /has_active_connection: connectionId !== null \|\| hasSessionConnection/);
 });

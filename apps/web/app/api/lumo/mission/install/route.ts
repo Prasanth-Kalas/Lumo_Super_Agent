@@ -17,7 +17,7 @@ import {
 import { resolvePermissionGate } from "@/lib/mission-gate-resolution";
 import {
   connectFirstPartySessionAppApproval,
-  isFirstPartyLumoApp,
+  firstPartyConnectionProviderForApp,
   upsertSessionAppApproval,
 } from "@/lib/session-app-approvals";
 import { sessionApprovalIdempotencyKey } from "@/lib/session-app-approvals-core";
@@ -74,7 +74,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (!entry) return json({ error: "unknown_agent" }, 404);
 
     const manifest = entry.manifest;
-    const firstPartyLumoApp = isFirstPartyLumoApp(manifest);
+    const firstPartyConnectionProvider = firstPartyConnectionProviderForApp(manifest);
+    const firstPartyLumoApp = firstPartyConnectionProvider !== null;
     if (manifest.connect.model === "oauth2" && !firstPartyLumoApp) {
       return json(
         {
@@ -115,11 +116,12 @@ export async function POST(req: NextRequest): Promise<Response> {
     const sessionApproval = session_id
       ? firstPartyLumoApp
         ? await connectFirstPartySessionAppApproval({
-            user_id: user.id,
-            session_id,
-            agent_id,
-            granted_scopes: grantedScopes,
-          })
+          user_id: user.id,
+          session_id,
+          agent_id,
+          granted_scopes: grantedScopes,
+          connection_provider: firstPartyConnectionProvider,
+        })
         : await upsertSessionAppApproval({
             user_id: user.id,
             session_id,
