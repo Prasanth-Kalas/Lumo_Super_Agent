@@ -35,6 +35,10 @@ import {
   listSessionAppApprovals,
 } from "./session-app-approvals.js";
 import {
+  bootstrapUserAppApprovalsForSession,
+  mergeSessionAppApprovals,
+} from "./user-app-approvals.js";
+import {
   buildLumoMissionPlan,
   type LumoMissionPlan,
 } from "./lumo-mission.js";
@@ -346,7 +350,7 @@ async function runTurnInner(
   timing: AgentTimingRecorder,
 ): Promise<OrchestratorTurn> {
   const authenticated = Boolean(input.user_id && input.user_id !== "anon");
-  const [registry, connections, installs, sessionApprovals] = await withAgentTimingSpan(
+  const [registry, connections, installs, loadedSessionApprovals] = await withAgentTimingSpan(
     timing,
     "pre_llm_data_load",
     {
@@ -377,6 +381,13 @@ async function runTurnInner(
       install_count: loadedInstalls.length,
       session_approval_count: loadedSessionApprovals.length,
     }),
+  );
+  const bootstrappedSessionApprovals = authenticated
+    ? await bootstrapUserAppApprovalsForSession(input.user_id, input.session_id)
+    : [];
+  const sessionApprovals = mergeSessionAppApprovals(
+    loadedSessionApprovals,
+    bootstrappedSessionApprovals,
   );
   // Appstore (v0.4): filter the Claude tool bridge to agents the current
   // user has actually connected, plus public "connect.model === none"

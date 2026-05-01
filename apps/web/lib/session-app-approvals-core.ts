@@ -25,6 +25,8 @@ const FIRST_PARTY_PROVIDER_BY_NAME = new Map<string, FirstPartyConnectionProvide
   ["lumo food", "doordash"],
 ]);
 
+export const FIRST_PARTY_AGENT_IDS = Array.from(FIRST_PARTY_PROVIDER_BY_AGENT_ID.keys());
+
 export function sessionApprovalIdempotencyKey(
   session_id: string,
   agent_id: string,
@@ -51,4 +53,14 @@ export function firstPartyConnectionProviderForApp(
     FIRST_PARTY_PROVIDER_BY_NAME.get(manifest.display_name.trim().toLowerCase()) ??
     null
   );
+}
+
+export function firstPartyConnectionProviderForAgentId(
+  agent_id: string,
+): FirstPartyConnectionProvider | null {
+  return FIRST_PARTY_PROVIDER_BY_AGENT_ID.get(agent_id.trim()) ?? null;
+}
+
+export function isFirstPartyAgentId(agent_id: string): boolean {
+  return firstPartyConnectionProviderForAgentId(agent_id) !== null;
 }

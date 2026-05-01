@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/approval-user-level-propagation-1 | 2026-05-01 | APPROVAL-USER-LEVEL-PROPAGATION-1 first-party app approvals persist per user across chat sessions |
 
 ## Closed lanes
 

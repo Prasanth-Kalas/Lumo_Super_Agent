@@ -11,7 +11,9 @@
 import { getSupabase } from "./db.js";
 import type { FirstPartyConnectionProvider } from "./session-app-approvals-core.ts";
 export {
+  firstPartyConnectionProviderForAgentId,
   firstPartyConnectionProviderForApp,
+  isFirstPartyAgentId,
   isFirstPartyLumoApp,
   sessionApprovalIdempotencyKey,
 } from "./session-app-approvals-core.ts";

@@ -18,6 +18,10 @@ import {
   listSessionAppApprovals,
 } from "@/lib/session-app-approvals";
 import {
+  bootstrapUserAppApprovalsForSession,
+  mergeSessionAppApprovals,
+} from "@/lib/user-app-approvals";
+import {
   describeRegistryAgents,
   evaluateRiskBadgesForAgents,
   rankAgentsForIntent,
@@ -50,7 +54,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const user_id = user?.id ?? req.headers.get("x-lumo-user-id") ?? "anon";
   const session_id = readSessionId(body);
   const registry = await ensureRegistry();
-  const [connections, installs, sessionApprovals] =
+  const [connections, installs, loadedSessionApprovals] =
     user_id && user_id !== "anon"
       ? await Promise.all([
           listConnectionsForUser(user_id),
@@ -58,6 +62,14 @@ export async function POST(req: NextRequest): Promise<Response> {
           session_id ? listSessionAppApprovals(user_id, session_id) : Promise.resolve([]),
         ])
       : [[], [], []];
+  const bootstrappedSessionApprovals =
+    user_id && user_id !== "anon" && session_id
+      ? await bootstrapUserAppApprovalsForSession(user_id, session_id)
+      : [];
+  const sessionApprovals = mergeSessionAppApprovals(
+    loadedSessionApprovals,
+    bootstrappedSessionApprovals,
+  );
   const installedAgentIds = new Set(
     installs.filter((i) => i.status === "installed").map((i) => i.agent_id),
   );
