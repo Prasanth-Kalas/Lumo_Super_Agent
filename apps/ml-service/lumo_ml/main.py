@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, Request
 from . import tools
 from .auth import AuthContext, require_lumo_jwt
 from .config import get_settings
+from .plan.router import router as plan_router
 from .sandbox import sandbox_upstream_health
 from .schemas import (
     AnalyzeFileRequest,
@@ -63,6 +64,7 @@ def agent_manifest(request: Request) -> dict:
         "display_name": settings.display_name,
         "one_liner": "Planning, recall, marketplace ranking, risk scoring, and safe computation for Lumo.",
         "intents": [
+            "plan",
             "plan_task",
             "rank_agents",
             "evaluate_agent_risk",
@@ -349,6 +351,11 @@ def route_generate_chart(req: GenerateChartRequest, _auth: Auth) -> GenerateChar
 )
 def route_run_python_sandbox(req: PythonSandboxRequest, _auth: Auth) -> PythonSandboxResponse:
     return tools.run_python_sandbox(req, _auth)
+
+
+# Pre-LLM planning surface — stubbed in Phase 0; real classifier ships
+# in Phase 1 (INTENT-CLASSIFIER-MIGRATE-PYTHON-1).
+app.include_router(plan_router)
 
 
 def _base_url(request: Request) -> str:

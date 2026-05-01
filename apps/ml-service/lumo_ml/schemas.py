@@ -392,3 +392,21 @@ class PythonSandboxResponse(LumoToolResponse):
     stderr: str = ""
     duration_ms: int = Field(default=0, ge=0)
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# Re-export plan-endpoint schemas so the cross-language codegen at
+# packages/lumo-shared-types/codegen.py (which crawls this module)
+# emits TypeScript interfaces for them. The canonical home is
+# lumo_ml.plan.schemas; consumers should import from there. The
+# re-export is purely for codegen discovery — kept at the bottom so
+# Pydantic Literal/Field machinery in this file finishes loading first.
+from .plan.schemas import (  # noqa: E402, F401
+    ChatTurn,
+    CompoundMissionLeg,
+    CompoundMissionPlan,
+    PlanRequest,
+    PlanResponse,
+    ProfileSummaryHints,
+    SessionAppApproval,
+    Suggestion,
+)
