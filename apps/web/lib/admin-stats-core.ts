@@ -17,6 +17,14 @@
  * monitor links; this is the third leg.
  */
 
+import type { AnomalyFinding as MlAnomalyFinding } from "@lumo/shared-types";
+
+// AnomalyFinding["finding_type"] is the Pydantic literal union from
+// apps/ml-service/lumo_ml/schemas.py. Reusing it here narrows the dashboard
+// row's `finding_type` from a generic `string` to the canonical set so
+// drift in the Pydantic source surfaces as a TS error here.
+export type AnomalyFindingType = MlAnomalyFinding["finding_type"];
+
 // ──────────────────────────────────────────────────────────────────────────
 // Types — stable shape returned by /api/admin/intelligence/stats
 // ──────────────────────────────────────────────────────────────────────────
@@ -54,7 +62,7 @@ export interface AnomalyFindingRow {
   id: string;
   user_id: string;
   metric_key: string;
-  finding_type: string;
+  finding_type: AnomalyFindingType | "unknown";
   actual_value: number;
   expected_value: number | null;
   z_score: number | null;
@@ -288,7 +296,7 @@ export function formatAnomalyFinding(
     id,
     user_id,
     metric_key: typeof r.metric_key === "string" ? r.metric_key : "unknown",
-    finding_type: typeof r.finding_type === "string" ? r.finding_type : "unknown",
+    finding_type: normalizeFindingType(r.finding_type),
     actual_value: Number.isFinite(Number(r.actual_value))
       ? Number(r.actual_value)
       : 0,
@@ -495,6 +503,20 @@ function readUpstreamStatus(value: unknown): "ok" | "degraded" | "unconfigured" 
 // ──────────────────────────────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────
+
+const ANOMALY_FINDING_TYPES: readonly AnomalyFindingType[] = [
+  "spike",
+  "drop",
+  "level_shift",
+  "pattern_change",
+];
+
+function normalizeFindingType(value: unknown): AnomalyFindingType | "unknown" {
+  if (typeof value !== "string") return "unknown";
+  return (ANOMALY_FINDING_TYPES as readonly string[]).includes(value)
+    ? (value as AnomalyFindingType)
+    : "unknown";
+}
 
 /**
  * Linear-interpolated percentile. Returns null on empty input. Sorts

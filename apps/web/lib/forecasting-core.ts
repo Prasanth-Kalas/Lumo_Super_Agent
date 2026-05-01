@@ -1,7 +1,17 @@
+import type {
+  ForecastMetricResponse as MlForecastMetricResponse,
+  ForecastPoint,
+} from "@lumo/shared-types";
 import type { MetricPointInput } from "./anomaly-detection-core.js";
 
+// ForecastPoint and ForecastModel mirror the Pydantic source of truth in
+// apps/ml-service/lumo_ml/schemas.py. Importing them from @lumo/shared-types
+// is what guarantees the orchestrator and the ML service agree on the wire
+// shape — CI runs a drift check on the codegen so a Pydantic change without a
+// regenerated dist/ blocks the build.
+export type { ForecastPoint };
 export type ForecastSource = "ml" | "fallback";
-export type ForecastModel = "prophet" | "naive_seasonal" | "not_configured";
+export type ForecastModel = MlForecastMetricResponse["model"];
 
 export interface ForecastMetricInput {
   metric_key: string;
@@ -10,13 +20,6 @@ export interface ForecastMetricInput {
   context?: {
     expected_frequency?: "daily" | "hourly" | "weekly";
   };
-}
-
-export interface ForecastPoint {
-  ts: string;
-  predicted_value: number;
-  lower_bound: number;
-  upper_bound: number;
 }
 
 export interface ForecastMetricResult {

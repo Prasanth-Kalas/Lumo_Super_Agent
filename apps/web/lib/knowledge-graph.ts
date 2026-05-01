@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { EmbedResponse as MlEmbedResponse } from "@lumo/shared-types";
 import { getSupabase } from "./db.ts";
 import { createBrainSdk } from "./brain-sdk/index.ts";
 import { signLumoServiceJwt } from "./service-jwt.ts";
@@ -78,11 +79,17 @@ interface KgSeedRow {
   asserted_at: string | null;
 }
 
-interface EmbedResponse {
-  dimensions?: number;
-  embeddings?: number[][];
-}
+// Defensive partial of the Pydantic-canonical EmbedResponse from
+// @lumo/shared-types — the wire response is JSON-parsed at runtime, so all
+// fields are optional from the consumer's perspective.
+type EmbedResponse = Partial<MlEmbedResponse>;
 
+// KgSynthesizeResponse uses TS-side KnowledgeGraphCitation (from
+// knowledge-graph-core.ts) rather than the Pydantic KgSynthesizeCitation —
+// the two shapes are structurally compatible (same field names + types
+// modulo `?:` vs. `null`), but normalizeCitations() expects the local row
+// type, so we keep this shape inline. The Pydantic source of truth is
+// validated cross-language via the codegen drift check.
 interface KgSynthesizeResponse {
   answer?: string;
   citations?: KnowledgeGraphCitation[];
