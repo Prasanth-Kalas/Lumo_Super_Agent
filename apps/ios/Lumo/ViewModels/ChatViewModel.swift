@@ -85,6 +85,20 @@ final class ChatViewModel: ObservableObject {
     /// initial status.
     @Published private(set) var compoundLegStatusOverrides: [String: [String: CompoundLegStatus]] = [:]
 
+    /// Per-leg metadata captured from leg-status SSE updates —
+    /// status-change timestamps + provider_reference + evidence
+    /// dict. Keyed `compound_transaction_id → leg_id → CompoundLegMetadata`.
+    /// The detail panel reads this to render booking refs,
+    /// elapsed-time tickers, and failure reasons.
+    @Published private(set) var compoundLegMetadata: [String: [String: CompoundLegMetadata]] = [:]
+
+    /// Set of leg_ids currently expanded in the dispatch strip's
+    /// detail panel. Multiple legs can be expanded simultaneously
+    /// across re-renders (the user may want to compare two in-flight
+    /// legs side by side). Toggled via
+    /// `toggleCompoundLegDetail(legID:)`.
+    @Published private(set) var compoundLegDetailExpandedFor: Set<String> = []
+
     /// Optional subscription handle for live per-leg updates.
     /// Injected by RootView so test paths can pass a no-op or fake.
     private let compoundStreamService: CompoundStreamService?
@@ -187,6 +201,8 @@ final class ChatViewModel: ObservableObject {
         summariesByMessage = [:]
         compoundDispatchByMessage = [:]
         compoundLegStatusOverrides = [:]
+        compoundLegMetadata = [:]
+        compoundLegDetailExpandedFor = []
     }
 
     private func cancelAllCompoundStreams() {
@@ -376,8 +392,41 @@ final class ChatViewModel: ObservableObject {
 
     private func applyCompoundLegStatusUpdate(_ update: CompoundLegStatusUpdate, compoundID: String) {
         var overrides = compoundLegStatusOverrides[compoundID] ?? [:]
+        let previous = overrides[update.leg_id]
         overrides[update.leg_id] = update.status
         compoundLegStatusOverrides[compoundID] = overrides
+
+        // Metadata: stamp the first time we see in_flight, refresh
+        // last-updated on every frame, and absorb provider_reference
+        // / evidence when present. Older statuses without metadata
+        // (the seed-from-dispatch path) leave the empty record alone.
+        var metaForCompound = compoundLegMetadata[compoundID] ?? [:]
+        var meta = metaForCompound[update.leg_id] ?? .empty
+        if update.status == .in_flight && meta.firstSeenInFlightAt == nil {
+            meta.firstSeenInFlightAt = Date()
+        }
+        if let ts = update.timestamp {
+            meta.lastUpdatedAt = parseISO8601(ts) ?? meta.lastUpdatedAt
+        }
+        if let ref = update.provider_reference {
+            meta.provider_reference = ref
+        }
+        if let evidence = update.evidence {
+            meta.evidence = evidence
+        }
+        // Avoid clobbering an in_flight stamp on a benign re-emit
+        // of the same status from a flaky stream.
+        _ = previous
+        metaForCompound[update.leg_id] = meta
+        compoundLegMetadata[compoundID] = metaForCompound
+    }
+
+    private func parseISO8601(_ raw: String) -> Date? {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = parser.date(from: raw) { return d }
+        parser.formatOptions = [.withInternetDateTime]
+        return parser.date(from: raw)
     }
 
     /// Public helper for ChatView's render rule. True when this
@@ -461,6 +510,32 @@ final class ChatViewModel: ObservableObject {
         return CompoundDispatchHelpers.isSettled(legs: dispatch.legs, statuses: overrides)
     }
 
+    /// Per-leg metadata for the detail panel (timestamps +
+    /// provider_reference + evidence). Returns `.empty` when
+    /// nothing has been captured for this leg, so the view layer
+    /// always reads a value rather than branching on nil.
+    func compoundLegMeta(compoundID: String, legID: String) -> CompoundLegMetadata {
+        compoundLegMetadata[compoundID]?[legID] ?? .empty
+    }
+
+    /// True when the detail panel for `legID` should currently
+    /// render (the user has tapped the row to expand).
+    func isCompoundLegDetailExpanded(legID: String) -> Bool {
+        compoundLegDetailExpandedFor.contains(legID)
+    }
+
+    /// Tap-to-expand handler. The CompoundLegStrip wires this
+    /// into each row's onTap. Multiple legs may be expanded
+    /// concurrently — toggling one doesn't collapse the others,
+    /// matching the comparison-friendly UX the brief calls out.
+    func toggleCompoundLegDetail(legID: String) {
+        if compoundLegDetailExpandedFor.contains(legID) {
+            compoundLegDetailExpandedFor.remove(legID)
+        } else {
+            compoundLegDetailExpandedFor.insert(legID)
+        }
+    }
+
     /// Test-only seam: prime the chat with a known message list and
     /// chip cache so tests can verify `suggestions(for:)`'s
     /// stale-suppression rule, the chip-tap → user-bubble path, and
@@ -473,7 +548,9 @@ final class ChatViewModel: ObservableObject {
         selections: [UUID: [InteractiveSelection]] = [:],
         summaries: [UUID: ConfirmationSummary] = [:],
         compoundDispatches: [UUID: CompoundDispatchPayload] = [:],
-        compoundOverrides: [String: [String: CompoundLegStatus]] = [:]
+        compoundOverrides: [String: [String: CompoundLegStatus]] = [:],
+        compoundMetadata: [String: [String: CompoundLegMetadata]] = [:],
+        compoundExpanded: Set<String> = []
     ) {
         self.messages = messages
         self.suggestionsByTurn = suggestions
@@ -481,6 +558,8 @@ final class ChatViewModel: ObservableObject {
         self.summariesByMessage = summaries
         self.compoundDispatchByMessage = compoundDispatches
         self.compoundLegStatusOverrides = compoundOverrides
+        self.compoundLegMetadata = compoundMetadata
+        self.compoundLegDetailExpandedFor = compoundExpanded
     }
 
     /// Test-only seam for driving a single leg-status update

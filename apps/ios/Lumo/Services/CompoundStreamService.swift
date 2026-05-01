@@ -24,6 +24,36 @@ import Foundation
 struct CompoundLegStatusUpdate: Equatable {
     let leg_id: String
     let status: CompoundLegStatus
+    /// Server-side wall-clock timestamp the saga emitted the
+    /// frame, in ISO 8601. nil for older frames or
+    /// `_applyCompoundLegStatusForTest` calls that don't supply
+    /// one. The detail view's elapsed-time ticker pivots off this.
+    let timestamp: String?
+    /// Provider booking reference once the leg lands committed
+    /// (e.g. Duffel order id, Booking.com confirmation id). nil
+    /// for pre-terminal statuses.
+    let provider_reference: String?
+    /// Saga-supplied evidence dict — kind + value pairs the leg
+    /// detail view surfaces verbatim (e.g. `{"reason":
+    /// "rate_unavailable"}` on a failure). Stored as
+    /// `[String: String]` rather than `[String: Any]` to keep
+    /// the type Equatable; non-string values render as their
+    /// JSON debug description.
+    let evidence: [String: String]?
+
+    init(
+        leg_id: String,
+        status: CompoundLegStatus,
+        timestamp: String? = nil,
+        provider_reference: String? = nil,
+        evidence: [String: String]? = nil
+    ) {
+        self.leg_id = leg_id
+        self.status = status
+        self.timestamp = timestamp
+        self.provider_reference = provider_reference
+        self.evidence = evidence
+    }
 }
 
 final class CompoundStreamService {
@@ -107,9 +137,10 @@ final class CompoundStreamService {
     /// Pure parser for a single `data: <payload>` line under an
     /// `event: leg_status` event. Tolerant of extra fields the
     /// server sends (transaction_id, agent_id, capability_id,
-    /// timestamp, evidence) — iOS only needs leg_id + status.
-    /// Returns nil for malformed frames; tests exercise the edge
-    /// cases.
+    /// timestamp, evidence). leg_id + status are the required
+    /// fields — provider_reference + timestamp + evidence flow
+    /// through to the detail view when present. Returns nil for
+    /// malformed frames; tests exercise the edge cases.
     static func parseLegStatusFrame(_ data: String) -> CompoundLegStatusUpdate? {
         guard let utf8 = data.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: utf8) as? [String: Any],
@@ -117,6 +148,28 @@ final class CompoundStreamService {
               let statusRaw = json["status"] as? String,
               let status = CompoundLegStatus(rawValue: statusRaw)
         else { return nil }
-        return CompoundLegStatusUpdate(leg_id: leg_id, status: status)
+        let timestamp = json["timestamp"] as? String
+        let provider_reference = json["provider_reference"] as? String
+        let evidence: [String: String]? = (json["evidence"] as? [String: Any]).map { dict in
+            // Coerce non-string values (numbers, bools, nested
+            // dicts) into their JSON-ish string form so the
+            // detail view can surface them without a typed
+            // decoder per kind. The saga's evidence shape varies
+            // per agent — typically `reason` / `provider_status` /
+            // small key-value pairs.
+            var out: [String: String] = [:]
+            for (key, value) in dict {
+                if let s = value as? String { out[key] = s }
+                else { out[key] = String(describing: value) }
+            }
+            return out
+        }
+        return CompoundLegStatusUpdate(
+            leg_id: leg_id,
+            status: status,
+            timestamp: timestamp,
+            provider_reference: provider_reference,
+            evidence: evidence
+        )
     }
 }

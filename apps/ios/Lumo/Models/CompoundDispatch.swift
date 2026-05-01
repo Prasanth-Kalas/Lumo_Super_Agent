@@ -70,6 +70,43 @@ enum CompoundLegStatus: String, Equatable, CaseIterable {
     }
 }
 
+/// Per-leg metadata captured client-side from leg-status SSE
+/// updates. Drives the detail panel's elapsed-time ticker
+/// (`firstSeenInFlightAt`), terminal-state booking refs
+/// (`provider_reference`), and failure reasons (`evidence`).
+/// Lives in the view model rather than the dispatch payload
+/// because most fields only show up after the leg transitions
+/// out of `pending`.
+struct CompoundLegMetadata: Equatable {
+    /// First time the override layer marked this leg as
+    /// `in_flight` — drives the elapsed-time ticker on the detail
+    /// panel. nil while the leg is still `pending`.
+    var firstSeenInFlightAt: Date?
+    /// Wall-clock timestamp from the most recent leg-status frame.
+    /// nil if the frame omitted it.
+    var lastUpdatedAt: Date?
+    /// Provider booking reference (Duffel order id, Booking.com
+    /// confirmation, etc.). nil for pre-terminal statuses.
+    var provider_reference: String?
+    /// Saga evidence dict (reason / provider_status / etc.).
+    /// String-coerced upstream so the dict stays Equatable.
+    var evidence: [String: String]?
+
+    static let empty = CompoundLegMetadata()
+
+    init(
+        firstSeenInFlightAt: Date? = nil,
+        lastUpdatedAt: Date? = nil,
+        provider_reference: String? = nil,
+        evidence: [String: String]? = nil
+    ) {
+        self.firstSeenInFlightAt = firstSeenInFlightAt
+        self.lastUpdatedAt = lastUpdatedAt
+        self.provider_reference = provider_reference
+        self.evidence = evidence
+    }
+}
+
 /// Pure helpers shared by the SwiftUI view, the live-stream
 /// service, and unit tests.
 enum CompoundDispatchHelpers {
