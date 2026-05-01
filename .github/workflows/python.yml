@@ -53,3 +53,40 @@ jobs:
       - name: Shared-types drift check
         working-directory: ${{ github.workspace }}
         run: bash packages/lumo-shared-types/scripts/check-drift.sh
+
+  modal-smoke:
+    # Hits the deployed brain at LUMO_ML_AGENT_URL and asserts
+    # /api/health returns 200. Always runs but no-ops when the env is
+    # absent (forks / unconfigured repos) so it never blocks a merge.
+    # Repository owners should set LUMO_ML_AGENT_URL as a GitHub Actions
+    # secret to enable the assertion.
+    runs-on: ubuntu-latest
+    needs: python
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect ml-service / shared-types changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ml:
+              - 'apps/ml-service/**'
+              - 'packages/lumo-shared-types/**'
+      - name: Smoke /api/health
+        if: ${{ github.event_name == 'push' || steps.filter.outputs.ml == 'true' }}
+        env:
+          LUMO_ML_AGENT_URL: ${{ secrets.LUMO_ML_AGENT_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${LUMO_ML_AGENT_URL:-}" ]; then
+            echo "LUMO_ML_AGENT_URL not set; skipping smoke."
+            exit 0
+          fi
+          URL="${LUMO_ML_AGENT_URL%/}"
+          echo "Probing $URL/api/health"
+          STATUS=$(curl -sS -o /tmp/health.json -w '%{http_code}' "$URL/api/health")
+          echo "HTTP $STATUS"
+          cat /tmp/health.json
+          test "$STATUS" = "200"
