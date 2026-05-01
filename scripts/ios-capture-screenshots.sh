@@ -122,6 +122,21 @@ case "$variant" in
         capture confirmation-card dark \
             -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
         ;;
+    chip-overflow-scroll-1)
+        # CHIP-OVERFLOW-SCROLL-1: trailing-edge fade overlay on the
+        # SuggestionChips horizontal scroll strip so the user sees
+        # the strip is scrollable when chips overflow the viewport.
+        # Reuses the existing `-LumoSeedChips YES` fixture seeded by
+        # RootView.seedChipsFixture — the third chip ("Memorial Day
+        # weekend") overflows iPhone 17, producing the exact case
+        # the brief calls out.
+        echo "[shots] suggestion chips overflow (light)"
+        capture chips-with-overflow light \
+            -LumoAutoSignIn YES -LumoSeedChips YES
+        echo "[shots] suggestion chips overflow (dark)"
+        capture chips-with-overflow dark \
+            -LumoAutoSignIn YES -LumoSeedChips YES
+        ;;
     ios-dev-bypass-gate-1)
         # IOS-DEV-BYPASS-GATE-1: visual gate that the dev-bypass button
         # only appears in Debug-config builds. Capture pair:

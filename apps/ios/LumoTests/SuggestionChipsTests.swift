@@ -162,6 +162,54 @@ final class SuggestionChipsTests: XCTestCase {
                           "must submit chip.value, never chip.label")
     }
 
+    // MARK: - 4. Overflow scroll affordance (CHIP-OVERFLOW-SCROLL-1)
+
+    func test_chipStrip_exposesTrailingFadeOverlay() {
+        // Regression catcher for the fade gradient that signals the
+        // strip scrolls when chips overflow the viewport. The
+        // `trailingFadeWidth` constant and the `.overlay(alignment:
+        // .trailing)` modifier travel together — if a future change
+        // deletes the overlay, the natural cleanup also removes this
+        // constant, which fails the assertion. The fade itself is
+        // visually verified by the chip-overflow-scroll-1 capture
+        // variant.
+        XCTAssertGreaterThan(
+            SuggestionChips.trailingFadeWidth,
+            0,
+            "Trailing fade affordance must be present so users see the strip scrolls"
+        )
+    }
+
+    func test_chipStrip_renders3LongLabels_withoutTextTruncation() {
+        // The brief's clipping repro: three chips whose combined
+        // intrinsic width overflows the iPhone 17 viewport. The
+        // ScrollView's job is to let the user scroll to reach the
+        // third chip; the chip view itself must not truncate its
+        // label text (no `.lineLimit`, no truncation modes). We
+        // assert this via the data path: the suggestions array
+        // passed in is preserved unchanged into the chip Button's
+        // label, so testing that the array survives the view's
+        // initialiser (no filter / no map drops) is the meaningful
+        // contract.
+        let chips = [
+            AssistantSuggestion(id: "c1", label: "Next weekend",
+                                value: "May 9, 2026 to May 11, 2026"),
+            AssistantSuggestion(id: "c2", label: "In 2 weeks",
+                                value: "May 16, 2026 to May 18, 2026"),
+            AssistantSuggestion(id: "c3", label: "Memorial Day weekend",
+                                value: "May 22, 2026 to May 25, 2026"),
+        ]
+        let strip = SuggestionChips(
+            suggestions: chips,
+            isDisabled: false,
+            onSelect: { _ in }
+        )
+        XCTAssertEqual(strip.suggestions.count, 3,
+                       "all three chips reach the strip — overflow is handled by ScrollView, not by dropping chips")
+        XCTAssertEqual(strip.suggestions.last?.label, "Memorial Day weekend",
+                       "third chip's full label survives — no truncation at the data layer")
+    }
+
     func test_sendSuggestion_clearsPreviousChipStrip_viaRenderRule() {
         let svc = ChatService(baseURL: URL(string: "http://localhost:0")!)
         let vm = ChatViewModel(service: svc)

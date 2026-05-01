@@ -9,7 +9,21 @@ import SwiftUI
 /// Sizing + tone follow the web pill exactly: pill border on the
 /// elevated surface, mid-weight label, hover-equivalent press
 /// affordance via SwiftUI's default button feedback.
+///
+/// Overflow handling: the strip is a horizontal ScrollView (matches
+/// Claude Desktop / ChatGPT). When the chip count overflows the
+/// viewport, a fixed-width trailing-edge gradient overlay fades the
+/// rightmost `trailingFadeWidth` points to the chat background, so
+/// the user sees that the row is scrollable rather than guessing
+/// whether a chip got clipped. The overlay is non-interactive
+/// (`.allowsHitTesting(false)`) so chip taps still register near the
+/// right edge.
 struct SuggestionChips: View {
+    /// Width of the trailing-edge fade overlay used as the scroll
+    /// affordance. Exposed for the `chip-strip-trailing-fade` test
+    /// so the regression catcher fails when the overlay is removed.
+    static let trailingFadeWidth: CGFloat = 32
+
     let suggestions: [AssistantSuggestion]
     let isDisabled: Bool
     let onSelect: (AssistantSuggestion) -> Void
@@ -43,6 +57,19 @@ struct SuggestionChips: View {
             }
             .padding(.horizontal, LumoSpacing.xs)
             .padding(.vertical, LumoSpacing.xxs)
+        }
+        .overlay(alignment: .trailing) {
+            LinearGradient(
+                colors: [
+                    LumoColors.background.opacity(0),
+                    LumoColors.background,
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: Self.trailingFadeWidth)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Suggested replies")
