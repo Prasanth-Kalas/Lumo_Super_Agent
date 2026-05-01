@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/chat-profile-autofill-1 | 2026-05-01 | CHAT-PROFILE-AUTOFILL-1 booking profile autofill from approved scopes |
 
 ## Closed lanes
 
