@@ -23,6 +23,7 @@ export interface AssistantCompoundDispatchFrameValue {
 
 export function buildAssistantCompoundDispatchFrame(
   snapshot: CompoundTransactionReplaySnapshot,
+  options: { descriptionsByOrder?: Map<number, string> } = {},
 ): AssistantCompoundDispatchFrameValue {
   return {
     kind: "assistant_compound_dispatch",
@@ -37,7 +38,7 @@ export function buildAssistantCompoundDispatchFrame(
         leg_id: leg.leg_id,
         agent_id: leg.agent_id,
         agent_display_name: displayNameForAgent(leg.agent_id),
-        description: descriptionForLeg(leg),
+        description: options.descriptionsByOrder?.get(leg.order) ?? descriptionForLeg(leg),
         status: normalizeDispatchStatus(leg.status),
       })),
   };

@@ -27,6 +27,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { ensureRegistry, userScopedBridge } from "./agent-registry.js";
+import { getSupabase } from "./db.js";
 import { listConnectionsForUser } from "./connections.js";
 import { getSetting, isFeatureEnabled } from "./admin-settings.js";
 import { listInstalledAgentsForUser } from "./app-installs.js";
@@ -114,8 +115,8 @@ import {
 } from "./standing-intents.js";
 import { assembleTripSummary, TripAssemblyError, type PricedLeg } from "./trip-planner.js";
 import {
-  maybeCreateVegasWeekendCompoundDispatch,
-} from "./compound/demo-dispatch.ts";
+  maybeCreateCompoundMissionDispatch,
+} from "./compound/mission-planner.ts";
 import type {
   AssistantCompoundDispatchFrameValue,
 } from "./compound/dispatch-frame.ts";
@@ -401,25 +402,6 @@ async function runTurnInner(
     ...input.user_pii,
     ...bookingProfileSnapshotToPii(bookingProfile),
   };
-
-  const demoCompoundDispatch = await maybeCreateVegasWeekendCompoundDispatch({
-    userId: input.user_id,
-    sessionId: input.session_id,
-    messages: input.messages,
-  });
-  if (demoCompoundDispatch) {
-    const assistantText =
-      "I kicked off the Vegas weekend plan. I’ll track each leg here as the flight, hotel, and dinner agents move.";
-    emit({ type: "text", value: assistantText });
-    emit({ type: "assistant_compound_dispatch", value: demoCompoundDispatch });
-    return {
-      assistant_text: assistantText,
-      tool_calls: [],
-      summary: null,
-      selections: [],
-      suggestions: null,
-    };
-  }
 
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
@@ -773,6 +755,7 @@ async function runTurnInner(
       }),
     (result) => ({
       bucket: result.bucket,
+      is_compound_trip: result.isCompoundTrip,
       confidence: result.confidence,
       provider: result.provider,
       model_used: result.model,
@@ -801,6 +784,7 @@ async function runTurnInner(
         model_used: modelRoute.model,
         classifier_provider: modelRoute.classifierProvider,
         confidence: modelRoute.confidence,
+        is_compound_trip: intentClassification.isCompoundTrip,
         tools_enabled: modelRoute.toolsEnabled,
         subagent_count: intentClassification.subagentDispatchPlan?.agents.length ?? 0,
       },
@@ -858,6 +842,63 @@ async function runTurnInner(
   }
 
   const anthropic = new Anthropic({ apiKey: anthropicApiKey });
+
+  if (intentClassification.isCompoundTrip) {
+    const compoundDispatch = await withAgentTimingSpan(
+      timing,
+      "intelligence_pass",
+      { pass: "compound_mission_planner" },
+      () =>
+        maybeCreateCompoundMissionDispatch({
+          db: getSupabase(),
+          userId: input.user_id,
+          sessionId: input.session_id,
+          userMessage: lastUser,
+          anthropic,
+          model: defaultModel,
+        }).catch((error) => {
+          emit({
+            type: "internal",
+            value: {
+              kind: "compound_mission_planner_fallback",
+              detail: {
+                reason: error instanceof Error ? error.message : String(error),
+              },
+            },
+          });
+          return null;
+        }),
+      (result) => ({
+        status: result ? "planned" : "fallback",
+        leg_count: result?.frame.legs.length ?? 0,
+        graph_hash: result?.graph_hash ?? null,
+        existing: result?.existing ?? false,
+      }),
+    );
+
+    if (compoundDispatch) {
+      emit({ type: "text", value: compoundDispatch.announcement });
+      emit({
+        type: "assistant_compound_dispatch",
+        value: compoundDispatch.frame,
+      });
+      return {
+        assistant_text: compoundDispatch.announcement,
+        tool_calls: [],
+        summary: null,
+        selections: [],
+        suggestions: null,
+      };
+    }
+
+    emit({
+      type: "internal",
+      value: {
+        kind: "compound_mission_planner_fallback",
+        detail: { reason: "no_valid_plan" },
+      },
+    });
+  }
 
   // Convert our ChatMessage[] → Anthropic messages. Summaries are inlined as
   // JSON blocks so Claude can reference them when computing summary_hash.

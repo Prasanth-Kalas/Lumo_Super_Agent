@@ -17,6 +17,7 @@ export interface ClassifyIntentInput {
 
 export interface IntentClassification {
   bucket: AgentTimingBucket;
+  isCompoundTrip: boolean;
   confidence: number;
   reasoning: string;
   provider: "groq" | "cerebras" | "fallback";
@@ -44,6 +45,7 @@ const DEFAULT_TIMEOUT_MS = 1_200;
 const MIN_CONFIDENCE = 0.7;
 const FALLBACK_CLASSIFICATION: IntentClassification = {
   bucket: "reasoning_path",
+  isCompoundTrip: false,
   confidence: 1,
   reasoning: "Fast-path classifier unavailable; defaulted to safest reasoning route.",
   provider: "fallback",
@@ -74,26 +76,30 @@ export async function classifyIntent(
         model: provider.model,
         latencyMs: Date.now() - started,
       });
-      return parsed.confidence < MIN_CONFIDENCE
+      const withCompoundHint = applyCompoundTripHeuristic(parsed, input);
+      return withCompoundHint.confidence < MIN_CONFIDENCE
         ? {
-            ...parsed,
+            ...withCompoundHint,
             bucket: "reasoning_path",
-            reasoning: `${parsed.reasoning} Low confidence defaulted to reasoning path.`,
+            reasoning: `${withCompoundHint.reasoning} Low confidence defaulted to reasoning path.`,
           }
-        : parsed;
+        : withCompoundHint;
     } catch (error) {
       const isLast = provider === providers[providers.length - 1];
       if (isLast) {
-        return {
+        return applyCompoundTripHeuristic({
           ...FALLBACK_CLASSIFICATION,
           latencyMs: Date.now() - started,
           errorCode: error instanceof Error ? error.name : "classifier_error",
-        };
+        }, input);
       }
     }
   }
 
-  return { ...FALLBACK_CLASSIFICATION, latencyMs: Date.now() - started };
+  return applyCompoundTripHeuristic(
+    { ...FALLBACK_CLASSIFICATION, latencyMs: Date.now() - started },
+    input,
+  );
 }
 
 export function normalizeClassifierPayload(
@@ -110,13 +116,18 @@ export function normalizeClassifierPayload(
   }
   const record = payload as Record<string, unknown>;
   const bucket = normalizeBucket(record.bucket);
+  const isCompoundTrip =
+    normalizeCompoundFlag(record.is_compound_trip) ||
+    normalizeCompoundFlag(record.compound_trip) ||
+    record.bucket === "compound_trip";
   const confidence = clampConfidence(record.confidence);
   const reasoning =
     typeof record.reasoning === "string"
       ? record.reasoning.slice(0, 240)
       : "Classifier did not provide reasoning.";
   return {
-    bucket,
+    bucket: isCompoundTrip ? "reasoning_path" : bucket,
+    isCompoundTrip,
     confidence,
     reasoning,
     provider: context.provider,
@@ -197,10 +208,11 @@ async function callClassifierProvider({
 function classifierSystemPrompt(): string {
   return [
     "Classify a single Lumo assistant turn into one route bucket.",
-    "Return JSON only: {\"bucket\":\"fast_path|tool_path|reasoning_path\",\"confidence\":0-1,\"reasoning\":\"short\"}.",
+    "Return JSON only: {\"bucket\":\"fast_path|tool_path|reasoning_path|compound_trip\",\"is_compound_trip\":true|false,\"confidence\":0-1,\"reasoning\":\"short\"}.",
     "fast_path: simple Q&A, status, rewrite, greeting, no private data, no purchases, no multi-step planning.",
     "tool_path: likely needs 1-3 tools or installed agent calls but light reasoning.",
-    "reasoning_path: money movement, travel booking, compound plans, ambiguous or high-stakes requests, permission/card confirmations, or low confidence.",
+    "compound_trip: the user wants a coordinated travel plan with 2+ legs such as flight + hotel, hotel + dinner, full weekend itinerary, or travel plus ground transport.",
+    "reasoning_path: money movement, single-agent travel booking, ambiguous or high-stakes requests, permission/card confirmations, or low confidence.",
   ].join(" ");
 }
 
@@ -240,7 +252,66 @@ function normalizeBucket(value: unknown): AgentTimingBucket {
   if (value === "fast_path" || value === "tool_path" || value === "reasoning_path") {
     return value;
   }
+  if (value === "simple") return "fast_path";
+  if (value === "tool_call") return "tool_path";
+  if (value === "reasoning" || value === "compound_trip") return "reasoning_path";
   return "reasoning_path";
+}
+
+function normalizeCompoundFlag(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "string") return /^(true|yes|compound_trip)$/i.test(value.trim());
+  return false;
+}
+
+function applyCompoundTripHeuristic(
+  classification: IntentClassification,
+  input: ClassifyIntentInput,
+): IntentClassification {
+  const lastUser =
+    input.messages
+      .slice()
+      .reverse()
+      .find((message) => message.role === "user")?.content ?? "";
+  if (!detectCompoundTripIntent(lastUser)) return classification;
+  return {
+    ...classification,
+    bucket: "reasoning_path",
+    isCompoundTrip: true,
+    reasoning: classification.reasoning.includes("compound")
+      ? classification.reasoning
+      : `${classification.reasoning} Compound trip intent detected from travel-leg context.`,
+  };
+}
+
+export function detectCompoundTripIntent(message: string): boolean {
+  const text = message.toLowerCase();
+  if (!text.trim()) return false;
+  const hasTravelAnchor =
+    /\b(trip|travel|itinerary|weekend|vacation|vegas|las vegas|hotel|flight|fly|airport|dinner|restaurant|ride|transport|ground)\b/.test(text);
+  if (!hasTravelAnchor) return false;
+
+  const categories = new Set<string>();
+  if (/\b(flight|flights|fly|airport|airline|ord|las|lax|jfk|sfo|nyc)\b/.test(text)) {
+    categories.add("flight");
+  }
+  if (/\b(hotel|hotels|stay|lodging|room|resort)\b/.test(text)) {
+    categories.add("hotel");
+  }
+  if (/\b(dinner|restaurant|restaurants|reservation|table|food|meal)\b/.test(text)) {
+    categories.add("restaurant");
+  }
+  if (/\b(ride|rideshare|uber|cab|taxi|transport|ground|car)\b/.test(text)) {
+    categories.add("ground");
+  }
+  if (categories.size >= 2) return true;
+
+  const broadPlanner =
+    /\b(plan|organize|handle|book|arrange|put together)\b/.test(text) &&
+    /\b(trip|weekend|itinerary|vacation)\b/.test(text);
+  const hasDestination =
+    /\b(vegas|las vegas|chicago|new york|nyc|miami|la|los angeles|san francisco|sfo)\b/.test(text);
+  return broadPlanner && hasDestination;
 }
 
 function clampConfidence(value: unknown): number {
@@ -259,6 +330,7 @@ function parseError(
 ): IntentClassification {
   return {
     bucket: "reasoning_path",
+    isCompoundTrip: false,
     confidence: 1,
     reasoning,
     provider: context.provider,
