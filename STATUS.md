@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/chat-flight-select-clickable-1 | 2026-05-01 | CHAT-FLIGHT-SELECT-CLICKABLE-1 tappable rows in flight-offers tables on web + iOS — single-tap selects + auto-submits the offer instead of routing through chat composer typing |
 
 ## Closed lanes
 
