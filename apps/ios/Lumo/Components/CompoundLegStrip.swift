@@ -28,6 +28,19 @@ struct CompoundLegStrip: View {
     /// initial status. The parent passes the merged override dict
     /// from `ChatViewModel.compoundLegStatusOverrides[compound_id]`.
     let overrides: [String: CompoundLegStatus]
+    /// Per-leg metadata lookup used by the expanded detail panel
+    /// — booking refs, evidence dict, in-flight start time. Pure
+    /// closure read so the strip stays cheap to recompute.
+    /// IOS-COMPOUND-LEG-DETAIL-1.
+    var metadataFor: (String) -> CompoundLegMetadata = { _ in .empty }
+    /// Returns true when the row's detail panel should currently
+    /// render. Read-only — the parent (ChatViewModel) owns the
+    /// `Set<String>` and toggles via `onTapLeg`.
+    var isExpanded: (String) -> Bool = { _ in false }
+    /// Tap handler — flip the expanded set for this leg_id. nil
+    /// disables tap-to-expand (older callers without an integrated
+    /// view-model).
+    var onTapLeg: ((String) -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -35,7 +48,7 @@ struct CompoundLegStrip: View {
             Divider().background(LumoColors.separator)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(payload.legs.enumerated()), id: \.element.leg_id) { idx, leg in
-                    legRow(leg)
+                    legCell(leg)
                     if idx < payload.legs.count - 1 {
                         Divider().background(LumoColors.separator)
                     }
@@ -95,11 +108,30 @@ struct CompoundLegStrip: View {
             .accessibilityIdentifier("compound-leg-strip-badge")
     }
 
-    // MARK: - Leg row
+    // MARK: - Leg cell (row + optional expanded detail)
 
-    private func legRow(_ leg: CompoundLeg) -> some View {
+    @ViewBuilder
+    private func legCell(_ leg: CompoundLeg) -> some View {
         let status = overrides[leg.leg_id] ?? leg.status
-        return HStack(alignment: .center, spacing: LumoSpacing.sm + 2) {
+        let expanded = isExpanded(leg.leg_id)
+        VStack(alignment: .leading, spacing: 0) {
+            legRow(leg, status: status, expanded: expanded)
+            if expanded {
+                Divider()
+                    .background(LumoColors.separator)
+                CompoundLegDetailContent(
+                    leg: leg,
+                    status: status,
+                    metadata: metadataFor(leg.leg_id),
+                    settled: settled,
+                    allLegs: payload.legs
+                )
+            }
+        }
+    }
+
+    private func legRow(_ leg: CompoundLeg, status: CompoundLegStatus, expanded: Bool) -> some View {
+        HStack(alignment: .center, spacing: LumoSpacing.sm + 2) {
             // Agent glyph chip — mirrors web's
             // `h-9 w-9 rounded-lg border bg-lumo-inset` look.
             Text(CompoundDispatchHelpers.glyph(for: leg.agent_id))
@@ -133,10 +165,30 @@ struct CompoundLegStrip: View {
 
             statusPill(status)
                 .accessibilityIdentifier("compound-leg-strip-row-\(leg.leg_id)-status")
+
+            // Chevron — rotates 90° on expand. Hidden when there's
+            // no tap handler so older non-interactive callers
+            // render the original look.
+            if onTapLeg != nil {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LumoColors.labelTertiary)
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .animation(.easeInOut(duration: 0.18), value: expanded)
+                    .accessibilityHidden(true)
+            }
         }
         .padding(.horizontal, LumoSpacing.md)
         .padding(.vertical, LumoSpacing.sm + 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let handler = onTapLeg {
+                handler(leg.leg_id)
+            }
+        }
         .accessibilityIdentifier("compound-leg-strip-row-\(leg.leg_id)")
+        .accessibilityAddTraits(onTapLeg != nil ? .isButton : [])
+        .accessibilityHint(Text(expanded ? "Collapse leg detail" : "Expand leg detail"))
     }
 
     // MARK: - Status pill

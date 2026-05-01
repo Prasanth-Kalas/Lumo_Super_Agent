@@ -142,7 +142,21 @@ struct ChatView: View {
                             if let dispatch = viewModel.compoundDispatch(for: message) {
                                 CompoundLegStrip(
                                     payload: dispatch,
-                                    overrides: viewModel.compoundLegStatusOverrides[dispatch.compound_transaction_id] ?? [:]
+                                    overrides: viewModel.compoundLegStatusOverrides[dispatch.compound_transaction_id] ?? [:],
+                                    metadataFor: { legID in
+                                        viewModel.compoundLegMeta(
+                                            compoundID: dispatch.compound_transaction_id,
+                                            legID: legID
+                                        )
+                                    },
+                                    isExpanded: { legID in
+                                        viewModel.isCompoundLegDetailExpanded(legID: legID)
+                                    },
+                                    onTapLeg: { legID in
+                                        withAnimation(.easeInOut(duration: 0.18)) {
+                                            viewModel.toggleCompoundLegDetail(legID: legID)
+                                        }
+                                    }
                                 )
                             }
 
