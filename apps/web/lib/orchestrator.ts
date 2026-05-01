@@ -85,6 +85,7 @@ import { SupervisorOrchestrator } from "./mesh/supervisor.ts";
 import { buildSystemPrompt, type AmbientContext } from "./system-prompt.js";
 import {
   buildAssistantSuggestions,
+  type PlanningStep,
   type AssistantSuggestionsFrameValue,
 } from "./chat-suggestions.js";
 import {
@@ -1293,10 +1294,17 @@ async function runTurnInner(
   if (!draft_trip_id && renderedSummary) {
     emit({ type: "summary", value: renderedSummary });
   }
-  if (!draft_trip_id && !renderedSummary && selections.length === 0) {
+  const suggestionPlanningStep = inferAssistantSuggestionPlanningStep({
+    assistantText,
+    selections,
+    renderedSummary,
+    draftTripId: draft_trip_id,
+  });
+  if (suggestionPlanningStep) {
     assistantSuggestions = buildAssistantSuggestions({
       turnId: `${input.session_id}:${Date.now()}:suggestions`,
       assistantText,
+      planningStep: suggestionPlanningStep,
       latestUserMessage: lastUser,
       userRegion: input.user_region,
       now: new Date(),
@@ -1310,6 +1318,7 @@ async function runTurnInner(
     emitted_summary: renderedSummary !== null,
     draft_trip_created: Boolean(draft_trip_id),
     selection_count: selections.length,
+    suggestion_planning_step: suggestionPlanningStep,
     suggestion_count: assistantSuggestions?.suggestions.length ?? 0,
   });
 
@@ -2031,6 +2040,20 @@ function selectionKindForTool(
   if (toolName === "flight_search_offers") return "flight_offers";
   if (toolName === "restaurant_check_availability") return "time_slots";
   return null;
+}
+
+function inferAssistantSuggestionPlanningStep(input: {
+  assistantText: string;
+  selections: InteractiveSelection[];
+  renderedSummary: ConfirmationSummary | null;
+  draftTripId?: string;
+}): PlanningStep {
+  if (input.renderedSummary || input.draftTripId) return "confirmation";
+  if (input.selections.length > 0) return "selection";
+  if (/\b(booked|confirmed|confirmation|receipt|pnr|order id)\b/i.test(input.assistantText)) {
+    return "post_booking";
+  }
+  return "clarification";
 }
 
 // ──────────────────────────────────────────────────────────────────────────

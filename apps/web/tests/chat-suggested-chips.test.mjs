@@ -61,6 +61,7 @@ await t("free-text identity questions do not emit suggestions", () => {
 await t("airport and budget suggestions are domain-aware and bounded", () => {
   const airport = buildAssistantSuggestions({
     turnId: "turn-airport",
+    planningStep: "clarification",
     assistantText:
       "I can use a few Chicago airports — pick one or tell me what works. Which departure airport should I use?",
     latestUserMessage: "Flight from Chicago to Vegas",
@@ -76,6 +77,7 @@ await t("airport and budget suggestions are domain-aware and bounded", () => {
 
   const budget = buildAssistantSuggestions({
     turnId: "turn-budget",
+    planningStep: "clarification",
     assistantText:
       "I've got a few budget lanes — pick one or tell me what works. What budget should I use?",
   });
@@ -83,16 +85,64 @@ await t("airport and budget suggestions are domain-aware and bounded", () => {
   assert.ok(budget?.suggestions.some((s) => /No hard budget/.test(s.value)));
 });
 
+await t("planning step routes chips to step-appropriate actions", () => {
+  const selection = buildAssistantSuggestions({
+    turnId: "turn-selection",
+    planningStep: "selection",
+    assistantText: "Three good flight options are ready — pick one below.",
+  });
+  assert.deepEqual(
+    selection?.suggestions.map((s) => s.label),
+    ["Cheapest", "Fastest", "Nonstop only"],
+  );
+
+  const confirmation = buildAssistantSuggestions({
+    turnId: "turn-confirmation",
+    planningStep: "confirmation",
+    assistantText:
+      "Here's the final price — tap Confirm to book, or change the traveler if needed.",
+  });
+  assert.deepEqual(
+    confirmation?.suggestions.map((s) => s.value),
+    ["Confirm booking", "Use a different traveler", "Change dates", "Cancel"],
+  );
+  assert.equal(
+    confirmation?.suggestions.some((s) => /Roundtrip|One-way|passenger/i.test(s.value)),
+    false,
+  );
+
+  const postBooking = buildAssistantSuggestions({
+    turnId: "turn-post-booking",
+    planningStep: "post_booking",
+    assistantText: "Booked — your confirmation is ready. Want me to handle what's next?",
+  });
+  assert.deepEqual(
+    postBooking?.suggestions.map((s) => s.label),
+    ["Book hotel", "Add ground transport", "Send to calendar"],
+  );
+});
+
+await t("purely informational turns suppress chips", () => {
+  const frame = buildAssistantSuggestions({
+    turnId: "turn-info",
+    planningStep: "confirmation",
+    assistantText: "The cheapest nonstop option is currently $248.",
+  });
+  assert.equal(frame, null);
+});
+
 await t("system prompt teaches suggestive clarification phrasing", () => {
   assert.match(systemPrompt, /ask ONE short clarifying question/);
-  assert.match(systemPrompt, /suggested-answer chips/);
+  assert.match(systemPrompt, /step-aware suggested-answer chips/);
   assert.match(systemPrompt, /pick one or tell me what works/);
-  assert.match(systemPrompt, /legal traveler names/);
+  assert.match(systemPrompt, /Confirmation chips are for booking actions/);
 });
 
 await t("SSE protocol and event log include assistant_suggestions", () => {
   assert.match(chatRoute, /assistant_suggestions/);
   assert.match(orchestrator, /type: "assistant_suggestions"/);
+  assert.match(orchestrator, /inferAssistantSuggestionPlanningStep/);
+  assert.match(orchestrator, /planningStep: suggestionPlanningStep/);
   assert.match(events, /"assistant_suggestions"/);
   assert.match(migration049, /'assistant_suggestions'/);
 });

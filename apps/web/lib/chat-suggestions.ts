@@ -10,9 +10,16 @@ export interface AssistantSuggestionsFrameValue {
   suggestions: AssistantSuggestion[];
 }
 
+export type PlanningStep =
+  | "clarification"
+  | "selection"
+  | "confirmation"
+  | "post_booking";
+
 export interface BuildAssistantSuggestionsInput {
   turnId: string;
   assistantText: string;
+  planningStep?: PlanningStep;
   latestUserMessage?: string;
   now?: Date;
   userRegion?: string;
@@ -22,18 +29,18 @@ export function buildAssistantSuggestions(
   input: BuildAssistantSuggestionsInput,
 ): AssistantSuggestionsFrameValue | null {
   const text = normalizeText(input.assistantText);
-  if (!looksLikeClarificationQuestion(text)) return null;
-  if (asksForFreeTextIdentity(text)) return null;
+  const planningStep = input.planningStep ?? "clarification";
+  if (!needsUserDecision(text, planningStep)) return null;
 
   const now = input.now ?? new Date();
   const latestUser = normalizeText(input.latestUserMessage ?? "");
-  const candidates =
-    dateSuggestions(text, now) ??
-    airportSuggestions(text, latestUser, input.userRegion) ??
-    tripShapeSuggestions(text) ??
-    travelerSuggestions(text) ??
-    budgetSuggestions(text) ??
-    comfortSuggestions(text);
+  const candidates = suggestionsForPlanningStep({
+    planningStep,
+    text,
+    latestUser,
+    now,
+    userRegion: input.userRegion,
+  });
 
   const suggestions = dedupeSuggestions(candidates ?? []).slice(0, 4);
   if (suggestions.length < 2) return null;
@@ -47,6 +54,46 @@ export function buildAssistantSuggestions(
       value: suggestion.value,
     })),
   };
+}
+
+function suggestionsForPlanningStep(input: {
+  planningStep: PlanningStep;
+  text: string;
+  latestUser: string;
+  now: Date;
+  userRegion?: string;
+}): SuggestionSeed[] | null {
+  if (input.planningStep === "clarification") {
+    if (asksForFreeTextIdentity(input.text)) return null;
+    return (
+      dateSuggestions(input.text, input.now) ??
+      airportSuggestions(input.text, input.latestUser, input.userRegion) ??
+      tripShapeSuggestions(input.text) ??
+      travelerSuggestions(input.text) ??
+      budgetSuggestions(input.text) ??
+      comfortSuggestions(input.text)
+    );
+  }
+  if (input.planningStep === "selection") {
+    return selectionSuggestions(input.text);
+  }
+  if (input.planningStep === "confirmation") {
+    return confirmationSuggestions(input.text);
+  }
+  return postBookingSuggestions(input.text);
+}
+
+function needsUserDecision(text: string, planningStep: PlanningStep): boolean {
+  if (planningStep === "clarification") {
+    return looksLikeClarificationQuestion(text);
+  }
+  if (planningStep === "selection") {
+    return /\b(pick|choose|select|option|offer|offers|which|nonstop|cheapest|fastest)\b/i.test(text);
+  }
+  if (planningStep === "confirmation") {
+    return /\b(confirm|book|booking|final price|ready|tap|traveler|payment|change|cancel)\b/i.test(text);
+  }
+  return /\b(booked|confirmed|confirmation|next|hotel|ground|transport|calendar|receipt)\b/i.test(text);
 }
 
 function looksLikeClarificationQuestion(text: string): boolean {
@@ -156,6 +203,40 @@ function comfortSuggestions(text: string): SuggestionSeed[] | null {
     { label: "Cheapest", value: "Optimize for the cheapest options" },
     { label: "Fastest", value: "Optimize for the fastest options" },
     { label: "Most comfortable", value: "Optimize for comfort" },
+  ];
+}
+
+function selectionSuggestions(text: string): SuggestionSeed[] | null {
+  if (!/\b(pick|choose|select|option|offer|offers|which|nonstop|cheapest|fastest)\b/i.test(text)) {
+    return null;
+  }
+  return [
+    { label: "Cheapest", value: "Pick the cheapest option" },
+    { label: "Fastest", value: "Pick the fastest option" },
+    { label: "Nonstop only", value: "Show me nonstop options only" },
+  ];
+}
+
+function confirmationSuggestions(text: string): SuggestionSeed[] | null {
+  if (!/\b(confirm|book|booking|final price|ready|tap|traveler|payment|change|cancel)\b/i.test(text)) {
+    return null;
+  }
+  return [
+    { label: "Confirm booking", value: "Confirm booking" },
+    { label: "Different traveler", value: "Use a different traveler" },
+    { label: "Change dates", value: "Change dates" },
+    { label: "Cancel", value: "Cancel" },
+  ];
+}
+
+function postBookingSuggestions(text: string): SuggestionSeed[] | null {
+  if (!/\b(booked|confirmed|confirmation|next|hotel|ground|transport|calendar|receipt)\b/i.test(text)) {
+    return null;
+  }
+  return [
+    { label: "Book hotel", value: "Book a hotel for this trip" },
+    { label: "Add ground transport", value: "Add ground transport" },
+    { label: "Send to calendar", value: "Send this booking to my calendar" },
   ];
 }
 
