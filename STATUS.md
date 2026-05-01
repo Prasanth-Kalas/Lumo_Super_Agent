@@ -3,6 +3,7 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Claude Code Python | Lumo_Super_Agent_python | claude-code-python/mlservice-plan-contract-1 | 2026-05-02 | MLSERVICE-PLAN-CONTRACT-1 define cross-language /plan endpoint contract — Pydantic schemas + stub FastAPI route + codegen TS types so codex can build the parallel-write client without waiting |
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-composer-and-drawer-screens-1 | 2026-05-02 | IOS-COMPOSER-AND-DRAWER-SCREENS-1 Phase A composer mic↔send swap (WhatsApp-style) reversing the IOS-MIRROR-WEB-1 always-both pattern, plus Phase B drawer screens (Memory / Marketplace / History) wired to real backend data — iOS-v1 scope per brief; full web-parity features (memory facts + patterns, marketplace risk badges + OAuth, history sessions+trips timeline) filed deferred |
 
 ## Closed lanes
 
