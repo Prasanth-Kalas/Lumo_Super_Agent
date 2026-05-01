@@ -1,0 +1,21 @@
+{
+  "name": "@lumo/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript types generated from apps/ml-service/lumo_ml/schemas.py (Pydantic) — single source of truth for cross-language type sharing between the FastAPI brain and the Next.js orchestrator.",
+  "main": "dist/index.ts",
+  "types": "dist/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.ts",
+      "default": "./dist/index.ts"
+    }
+  },
+  "scripts": {
+    "codegen": "python3 codegen.py",
+    "check-drift": "bash scripts/check-drift.sh"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^15.0.0"
+  }
+}

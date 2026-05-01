@@ -20,6 +20,8 @@
     "lint": "npm run lint --workspace apps/web",
     "lint:commits": "node scripts/check-commit-shape.mjs",
     "lint:registry": "npm run lint:registry --workspace apps/web",
+    "shared-types:codegen": "npm run codegen --workspace packages/lumo-shared-types",
+    "shared-types:check-drift": "npm run check-drift --workspace packages/lumo-shared-types",
     "typecheck": "npm run typecheck --workspace apps/web",
     "test": "npm run test --workspace apps/web",
     "eval:phase1": "npm run eval:phase1 --workspace apps/web",
