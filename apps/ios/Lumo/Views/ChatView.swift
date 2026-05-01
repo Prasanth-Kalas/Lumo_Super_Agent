@@ -123,6 +123,12 @@ struct ChatView: View {
                                     },
                                     onCancel: {
                                         viewModel.sendSuggestion(BookingConfirmationSubmit.cancelText)
+                                    },
+                                    onDifferentTraveler: {
+                                        viewModel.sendSuggestion(BookingConfirmationSubmit.differentTravelerText)
+                                    },
+                                    onMissingFieldsSubmit: { text in
+                                        viewModel.sendSuggestion(text)
                                     }
                                 )
                             }
