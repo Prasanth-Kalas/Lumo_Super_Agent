@@ -14,6 +14,7 @@ struct AppRootView: View {
     private let appConfig: AppConfig
     private let proactiveCache: ProactiveMomentsCache
     private let proactiveClient: ProactiveMomentsFetching
+    private let drawerScreensFetcher: DrawerScreensFetching
 
     init(
         authService: AuthServicing,
@@ -23,7 +24,8 @@ struct AppRootView: View {
         receiptStore: ReceiptStoring,
         appConfig: AppConfig,
         proactiveCache: ProactiveMomentsCache,
-        proactiveClient: ProactiveMomentsFetching
+        proactiveClient: ProactiveMomentsFetching,
+        drawerScreensFetcher: DrawerScreensFetching
     ) {
         self.authService = authService
         self.chatService = chatService
@@ -33,6 +35,7 @@ struct AppRootView: View {
         self.appConfig = appConfig
         self.proactiveCache = proactiveCache
         self.proactiveClient = proactiveClient
+        self.drawerScreensFetcher = drawerScreensFetcher
         _authViewModel = StateObject(wrappedValue: AuthViewModel(auth: authService))
     }
 
@@ -48,6 +51,7 @@ struct AppRootView: View {
                     appConfig: appConfig,
                     proactiveCache: proactiveCache,
                     proactiveClient: proactiveClient,
+                    drawerScreensFetcher: drawerScreensFetcher,
                     onSignOut: handleSignOut
                 )
                     .environment(\.signedInUser, user)

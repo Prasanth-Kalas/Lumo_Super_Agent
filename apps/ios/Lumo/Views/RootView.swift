@@ -38,6 +38,17 @@ struct RootView: View {
     @StateObject private var proactiveViewModel: ProactiveMomentsViewModel
     @StateObject private var recentChats = RecentChatsStore()
 
+    /// Drawer-screen viewmodels (Memory / Marketplace / History).
+    /// Wired in IOS-COMPOSER-AND-DRAWER-SCREENS-1 Phase B. Each owns
+    /// its own fetch state machine; we lift them to RootView so
+    /// destinationView(for:) can pass the same instance every time
+    /// the user navigates into a destination (preserves load state
+    /// across drawer open/close cycles).
+    @StateObject private var memoryViewModel: MemoryScreenViewModel
+    @StateObject private var marketplaceViewModel: MarketplaceScreenViewModel
+    @StateObject private var historyViewModel: HistoryScreenViewModel
+    private let drawerScreensFetcher: DrawerScreensFetching
+
     @State private var path = NavigationPath()
     @State private var drawerOpen: Bool = false
     @State private var showSignOutConfirm: Bool = false
@@ -55,6 +66,7 @@ struct RootView: View {
         appConfig: AppConfig,
         proactiveCache: ProactiveMomentsCache,
         proactiveClient: ProactiveMomentsFetching,
+        drawerScreensFetcher: DrawerScreensFetching,
         onSignOut: @escaping () -> Void
     ) {
         self.chatService = chatService
@@ -63,6 +75,7 @@ struct RootView: View {
         self.receiptStore = receiptStore
         self.appConfig = appConfig
         self.proactiveClient = proactiveClient
+        self.drawerScreensFetcher = drawerScreensFetcher
         self.onSignOut = onSignOut
 
         _chatViewModel = StateObject(
@@ -80,6 +93,15 @@ struct RootView: View {
                 cache: proactiveCache,
                 fetcher: proactiveClient
             )
+        )
+        _memoryViewModel = StateObject(
+            wrappedValue: MemoryScreenViewModel(fetcher: drawerScreensFetcher)
+        )
+        _marketplaceViewModel = StateObject(
+            wrappedValue: MarketplaceScreenViewModel(fetcher: drawerScreensFetcher)
+        )
+        _historyViewModel = StateObject(
+            wrappedValue: HistoryScreenViewModel(fetcher: drawerScreensFetcher)
         )
     }
 
@@ -159,9 +181,19 @@ struct RootView: View {
         case .receiptDetail(let receiptID):
             ReceiptDetailLookupView(receiptID: receiptID, store: receiptStore)
         case .history:
-            HistoryView()
+            HistoryView(
+                viewModel: historyViewModel,
+                onSelectSession: { _ in
+                    // MOBILE-CHAT-LOAD-SESSION-1 follow-up wires the
+                    // ChatViewModel.loadSession(id:) round-trip;
+                    // for now tap dismisses the drawer destination
+                    // and pops back to chat.
+                    path.removeLast(path.count)
+                    drawerOpen = false
+                }
+            )
         case .memory:
-            MemoryView()
+            MemoryView(viewModel: memoryViewModel)
         case .settings:
             SettingsView(
                 paymentService: paymentService,
@@ -170,7 +202,7 @@ struct RootView: View {
                 onSignOut: onSignOut
             )
         case .marketplace:
-            MarketplaceView()
+            MarketplaceView(viewModel: marketplaceViewModel)
         case .profile:
             // Not in EXPLORE today; reachable programmatically (e.g.
             // future Settings → Profile link, deep link from web).
@@ -246,6 +278,9 @@ struct RootView: View {
             case "receipts": path.append(DrawerDestination.receipts)
             case "profile":  path.append(DrawerDestination.profile)
             case "settings": path.append(DrawerDestination.settings)
+            case "memory":      path.append(DrawerDestination.memory)
+            case "marketplace": path.append(DrawerDestination.marketplace)
+            case "history":     path.append(DrawerDestination.history)
             default:         break
             }
         }
