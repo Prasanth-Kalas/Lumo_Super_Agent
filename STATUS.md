@@ -2,7 +2,6 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/web-compound-view-1 | 2026-05-01 | WEB-COMPOUND-VIEW-1 inline per-leg compound dispatch UI |
 
 ## Closed lanes
 
@@ -43,6 +42,7 @@
 | Codex | Lumo_Super_Agent_codex | codex/chip-context-awareness-1 | 2026-05-01 | 2026-05-01 | CHIP-CONTEXT-AWARENESS-1 planning-step-aware suggested chips; confirmation turns no longer emit stale trip-config chips |
 | Codex | Lumo_Super_Agent_codex | codex/chat-confirmation-payload-extend-1 | 2026-05-01 | 2026-05-01 | CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 visible traveler/payment summary in booking confirmation cards |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-booking-confirm-autofill-1 | 2026-05-01 | 2026-05-01 | IOS-BOOKING-CONFIRM-AUTOFILL-1 (Path A re-scope) iOS counterpart of web's existing ItineraryConfirmationCard — decode the `summary` SSE frame, render offer_id + slices + total + Confirm/Cancel + decided-label state; 1 follow-up filed (IOS-CONFIRMATION-RICH-PAYLOAD-1) for the traveler/payment rows now that CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 is on main |
+| Codex | Lumo_Super_Agent_codex | codex/web-compound-view-1 | 2026-05-01 | 2026-05-01 | WEB-COMPOUND-VIEW-1 inline per-leg compound dispatch UI for multi-agent trips (`assistant_compound_dispatch` SSE frame + live compound stream subscription); migration 052 applied to staging |
 
 ## Last push
 
@@ -138,3 +138,4 @@
 - 2026-05-01 — codex/chip-context-awareness-1 → main (FF), CHIP-CONTEXT-AWARENESS-1 closed. Suggested-reply chips now receive planning-step context (`clarification`, `selection`, `confirmation`, `post_booking`); confirmation turns emit booking-action chips instead of stale trip-shape/traveler chips. Codex queued for CHAT-CONFIRMATION-PAYLOAD-EXTEND-1, then WEB-COMPOUND-VIEW-1.
 - 2026-05-01 — codex/chat-confirmation-payload-extend-1 → main (FF), CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 closed. Booking confirmation cards now visibly disclose autofilled traveler and payment details (`Prefilled from approved profile`) while keeping the authoritative itinerary summary hash unchanged. Codex queued for WEB-COMPOUND-VIEW-1.
 - 2026-05-01 — claude-code/ios-booking-confirm-autofill-1 → main (FF), IOS-BOOKING-CONFIRM-AUTOFILL-1 closed (Path A re-scope after the original brief's richer payload turned out to require web/orchestrator extension first). Two-stage rebase: first onto codex/chat-profile-autofill-1 + chip-context-awareness-1 + chat-confirmation-payload-extend-1 at 8d7a4f8, then a second rebase after CHAT-CONFIRMATION-PAYLOAD-EXTEND-1's close-out commit landed mid-merge. STATUS.md push-log conflicts resolved additively each pass; force-with-lease push, FF-merge from feature branch via `git push origin claude-code/ios-booking-confirm-autofill-1:main` since the canonical worktree is on Codex's next lane in flight. 1 follow-up filed and deferred: IOS-CONFIRMATION-RICH-PAYLOAD-1 (now actionable since CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 landed on main while my lane was rebasing — extends iOS BookingConfirmationCard with the traveler/payment summary rows + "Different traveler" affordance to mirror the now-richer web payload). Both Claude Code lanes idle.
+- 2026-05-01 — codex/web-compound-view-1 → main (FF), WEB-COMPOUND-VIEW-1 closed. Chat can now render inline `MULTI-AGENT DISPATCH` strips from the new `assistant_compound_dispatch` SSE frame, subscribe to `/api/compound/transactions/:id/stream` for live per-leg updates, replay strips from history, and demo the Vegas-weekend 3-leg graph through the compound transaction API. Migration 052 applied to staging and verified; Codex idle pending next sprint choice (COMPOUND-MISSION-ROUTING-1, BOOKING-AGENT-CONNECTOR-1, or OPENTABLE-AGENT-CONNECTOR-1).
