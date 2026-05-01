@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/chat-confirmation-payload-extend-1 | 2026-05-01 | CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 rich autofilled booking confirmation payload |
 
 ## Closed lanes
 
