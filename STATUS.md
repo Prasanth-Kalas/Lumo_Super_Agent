@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/app-install-connection-idempotent-1 | 2026-05-01 | APP-INSTALL-CONNECTION-IDEMPOTENT-1 first-party approval connection activation |
 
 ## Closed lanes
 
