@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/chip-overflow-scroll-1 | 2026-05-02 | CHIP-OVERFLOW-SCROLL-1 fix third-chip clipping in SuggestionChips by adding a trailing-edge fade gradient over the existing horizontal ScrollView so the user can tell the strip scrolls (recommendation: horizontal scroll, matches Claude Desktop / ChatGPT) |
 
 ## Closed lanes
 
