@@ -5,6 +5,7 @@ enum ChatEvent: Equatable {
     case error(String)
     case done
     case suggestions(turnID: String, items: [AssistantSuggestion])
+    case selection(InteractiveSelection)
     case other(type: String)
 }
 
@@ -104,6 +105,28 @@ final class ChatService {
             let valueDict = json["value"] as? [String: Any]
             let message = valueDict?["message"] as? String ?? "unknown server error"
             return .error(message)
+        case "selection":
+            // Frame value shape (canonical contract — see
+            // apps/web/lib/orchestrator.ts InteractiveSelection):
+            //   { kind: "flight_offers" | "food_menu" | "time_slots",
+            //     payload: <kind-specific> }
+            // Only flight_offers decodes to a typed payload today;
+            // unknown kinds round-trip via .unsupported so future
+            // surfaces (food, time slots) can land without re-routing
+            // the SSE plumbing.
+            guard
+                let value = json["value"] as? [String: Any],
+                let kind = value["kind"] as? String
+            else {
+                return .other(type: type)
+            }
+            if kind == "flight_offers" {
+                guard let payload = decodeFlightOffersPayload(value["payload"]) else {
+                    return .other(type: type)
+                }
+                return .selection(.flightOffers(payload))
+            }
+            return .selection(.unsupported(kind: kind))
         case "assistant_suggestions":
             // Frame value shape (canonical contract — see
             // apps/web/lib/chat-suggestions.ts):
@@ -134,5 +157,72 @@ final class ChatService {
         default:
             return .other(type: type)
         }
+    }
+
+    /// Pure decoder for an `InteractiveSelection.flightOffers` payload.
+    /// Internal so unit tests can exercise it with raw JSON shapes.
+    /// Tolerant of shape drift — drops malformed offers / segments
+    /// rather than failing the whole frame, so a single bad row
+    /// from Duffel doesn't blank the whole card.
+    static func decodeFlightOffersPayload(_ raw: Any?) -> FlightOffersPayload? {
+        guard let dict = raw as? [String: Any],
+              let rawOffers = dict["offers"] as? [[String: Any]] else {
+            return nil
+        }
+        let offers: [FlightOffer] = rawOffers.compactMap { entry in
+            guard
+                let offer_id = entry["offer_id"] as? String,
+                let total_amount = entry["total_amount"] as? String,
+                let total_currency = entry["total_currency"] as? String,
+                let ownerDict = entry["owner"] as? [String: Any],
+                let ownerName = ownerDict["name"] as? String,
+                let ownerIATA = ownerDict["iata_code"] as? String,
+                let rawSlices = entry["slices"] as? [[String: Any]]
+            else { return nil }
+            let slices: [FlightOffer.Slice] = rawSlices.compactMap { decodeSlice($0) }
+            guard !slices.isEmpty else { return nil }
+            return FlightOffer(
+                offer_id: offer_id,
+                total_amount: total_amount,
+                total_currency: total_currency,
+                owner: .init(name: ownerName, iata_code: ownerIATA),
+                slices: slices
+            )
+        }
+        guard !offers.isEmpty else { return nil }
+        return FlightOffersPayload(offers: offers)
+    }
+
+    private static func decodeSlice(_ raw: [String: Any]) -> FlightOffer.Slice? {
+        guard
+            let originDict = raw["origin"] as? [String: Any],
+            let originIATA = originDict["iata_code"] as? String,
+            let destinationDict = raw["destination"] as? [String: Any],
+            let destinationIATA = destinationDict["iata_code"] as? String,
+            let duration = raw["duration"] as? String,
+            let rawSegs = raw["segments"] as? [[String: Any]]
+        else { return nil }
+        let segments: [FlightOffer.Segment] = rawSegs.compactMap { seg in
+            guard
+                let dep = seg["departing_at"] as? String,
+                let arr = seg["arriving_at"] as? String,
+                let carrierDict = seg["marketing_carrier"] as? [String: Any],
+                let iata = carrierDict["iata_code"] as? String,
+                let flightNumber = seg["marketing_carrier_flight_number"] as? String
+            else { return nil }
+            return FlightOffer.Segment(
+                departing_at: dep,
+                arriving_at: arr,
+                marketing_carrier_iata: iata,
+                marketing_carrier_flight_number: flightNumber
+            )
+        }
+        guard !segments.isEmpty else { return nil }
+        return FlightOffer.Slice(
+            origin: .init(iata_code: originIATA, city_name: originDict["city_name"] as? String),
+            destination: .init(iata_code: destinationIATA, city_name: destinationDict["city_name"] as? String),
+            duration: duration,
+            segments: segments
+        )
     }
 }
