@@ -63,11 +63,6 @@ import { BrandMark } from "@/components/BrandMark";
 import VoiceMode, { type VoiceState } from "@/components/VoiceMode";
 import { LumoWordmark } from "@/components/BrandMark";
 import LeftRail from "@/components/LeftRail";
-// RightRail import removed in WEB-REDESIGN-1. ActiveTripView /
-// LegStatusLite type imports went with it; the activeTrip useMemo
-// they fed has been removed below. The RightRail.tsx file is kept
-// for reference until COMPOUND-EXEC-2 reintroduces per-leg dispatch
-// inline in the chat thread.
 import MobileNav from "@/components/MobileNav";
 import { seedProfile } from "@/lib/seed-profile";
 import {
@@ -166,9 +161,6 @@ export default function Home() {
   // Hands-free is always-on when voice is enabled (#85 removed
   // push-to-talk). State kept for VoiceMode API compatibility.
   const [handsFree, setHandsFree] = useState<boolean>(true);
-  // memoryRefreshKey state removed in WEB-REDESIGN-1 — its only
-  // consumer was RightRail's MemoryPanel. /memory page re-fetches
-  // on its own mount; no central refresh signal is needed today.
   // Mobile drawer open/close.
   const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
   // Auth'd user (id/email/full_name/first_name) — populated from
@@ -738,12 +730,6 @@ export default function Home() {
     );
   }, [messages]);
 
-  // activeTrip derivation removed with the RightRail in WEB-REDESIGN-1.
-  // legStatusesByMsg is still populated by SSE leg_status frames so
-  // COMPOUND-EXEC-2 can reuse it when per-leg dispatch returns inline
-  // in the chat thread.
-
-
   return (
     <main className="flex h-dvh flex-col bg-lumo-bg text-lumo-fg-high">
       {/* ─── Header ─────────────────────────────────────────────────── */}
@@ -1162,10 +1148,6 @@ export default function Home() {
         </div>
       </div>
         </div>
-        {/* RightRail removed in WEB-REDESIGN-1 — Claude-Desktop posture
-            has no right rail. Per-leg dispatch and the live operator
-            HUD will return as inline chat-thread elements once
-            COMPOUND-EXEC-2 ships the stream protocol. */}
       </div>
 
       {/* Post-sign-in location prompt — renders nothing until we have

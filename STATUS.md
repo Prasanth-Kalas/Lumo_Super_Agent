@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/web-rightrail-prune-1 | 2026-05-02 | WEB-RIGHTRAIL-PRUNE-1 delete unused RightRail component and dead references |
 
 ## Closed lanes
 
