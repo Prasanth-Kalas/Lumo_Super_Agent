@@ -98,7 +98,8 @@ struct ChatView: View {
                                         isDisabled: viewModel.isStreaming,
                                         onSubmit: { text in
                                             viewModel.sendSuggestion(text)
-                                        }
+                                        },
+                                        initialSelectedID: fixtureInitialSelectedID
                                     )
                                 }
                             }
@@ -348,5 +349,17 @@ struct ChatView: View {
 
     private func copyToPasteboard(_ text: String) {
         UIPasteboard.general.string = text
+    }
+
+    /// DEBUG fixture seam — when `-LumoFlightOffersSelectedID` is
+    /// passed at launch, the FlightOffersSelectCard mounts with that
+    /// row pre-selected so screenshot captures land the post-tap
+    /// state without scripting a tap event. nil in production.
+    private var fixtureInitialSelectedID: String? {
+        #if DEBUG
+        return UserDefaults.standard.string(forKey: "LumoFlightOffersSelectedID")
+        #else
+        return nil
+        #endif
     }
 }

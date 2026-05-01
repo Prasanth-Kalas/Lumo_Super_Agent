@@ -111,6 +111,22 @@ case "$variant" in
         capture 13-receipt-detail light -LumoPaymentsFixture receipt-detail
         capture 13-receipt-detail dark  -LumoPaymentsFixture receipt-detail
         ;;
+    chat-flight-select-clickable-1)
+        # CHAT-FLIGHT-SELECT-CLICKABLE-1: post-tap selected state on the
+        # FlightOffersSelectCard. -LumoSeedFlightOffers YES seeds a
+        # user/assistant pair plus a 3-offer payload via
+        # RootView.seedFlightOffersFixture; -LumoFlightOffersSelectedID
+        # off_frontier_midmorning pre-commits the second row so the
+        # capture lands the post-tap selected state without scripting
+        # a touch event.
+        echo "[shots] flight-offers card · selected state"
+        capture flight-offers light \
+            -LumoAutoSignIn YES -LumoSeedFlightOffers YES \
+            -LumoFlightOffersSelectedID off_frontier_midmorning
+        capture flight-offers dark \
+            -LumoAutoSignIn YES -LumoSeedFlightOffers YES \
+            -LumoFlightOffersSelectedID off_frontier_midmorning
+        ;;
     chat-suggested-chips-1-ios)
         # CHAT-SUGGESTED-CHIPS-1-IOS: assistant_suggestions chip strip
         # below the assistant clarification message. -LumoSeedChips YES

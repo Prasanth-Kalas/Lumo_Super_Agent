@@ -253,10 +253,100 @@ struct RootView: View {
         if defaults.bool(forKey: "LumoSeedChips") {
             seedChipsFixture()
         }
+        // Seed flight-offers selection card fixture
+        // (CHAT-FLIGHT-SELECT-CLICKABLE-1). Renders a user/assistant
+        // pair plus a 3-offer FlightOffersSelectCard, with the
+        // Frontier row pre-committed so the capture lands the post-
+        // tap selected state.
+        if defaults.bool(forKey: "LumoSeedFlightOffers") {
+            seedFlightOffersFixture()
+        }
         #endif
     }
 
     #if DEBUG
+    private func seedFlightOffersFixture() {
+        let user = ChatMessage(
+            role: .user,
+            text: "Find me a flight from SFO to Vegas on Saturday.",
+            status: .sent
+        )
+        let assistant = ChatMessage(
+            role: .assistant,
+            text: "Here are the morning options.",
+            status: .delivered
+        )
+        let payload = FlightOffersPayload(offers: [
+            FlightOffer(
+                offer_id: "off_united_morning",
+                total_amount: "238.00",
+                total_currency: "USD",
+                owner: .init(name: "United", iata_code: "UA"),
+                slices: [
+                    .init(
+                        origin: .init(iata_code: "SFO", city_name: "San Francisco"),
+                        destination: .init(iata_code: "LAS", city_name: "Las Vegas"),
+                        duration: "PT1H35M",
+                        segments: [
+                            .init(
+                                departing_at: "2026-05-09T07:15:00Z",
+                                arriving_at: "2026-05-09T08:50:00Z",
+                                marketing_carrier_iata: "UA",
+                                marketing_carrier_flight_number: "1234"
+                            )
+                        ]
+                    )
+                ]
+            ),
+            FlightOffer(
+                offer_id: "off_frontier_midmorning",
+                total_amount: "189.00",
+                total_currency: "USD",
+                owner: .init(name: "Frontier", iata_code: "F9"),
+                slices: [
+                    .init(
+                        origin: .init(iata_code: "SFO", city_name: "San Francisco"),
+                        destination: .init(iata_code: "LAS", city_name: "Las Vegas"),
+                        duration: "PT1H30M",
+                        segments: [
+                            .init(
+                                departing_at: "2026-05-09T09:30:00Z",
+                                arriving_at: "2026-05-09T11:00:00Z",
+                                marketing_carrier_iata: "F9",
+                                marketing_carrier_flight_number: "1879"
+                            )
+                        ]
+                    )
+                ]
+            ),
+            FlightOffer(
+                offer_id: "off_alaska_afternoon",
+                total_amount: "274.50",
+                total_currency: "USD",
+                owner: .init(name: "Alaska", iata_code: "AS"),
+                slices: [
+                    .init(
+                        origin: .init(iata_code: "SFO", city_name: "San Francisco"),
+                        destination: .init(iata_code: "LAS", city_name: "Las Vegas"),
+                        duration: "PT1H40M",
+                        segments: [
+                            .init(
+                                departing_at: "2026-05-09T14:50:00Z",
+                                arriving_at: "2026-05-09T16:30:00Z",
+                                marketing_carrier_iata: "AS",
+                                marketing_carrier_flight_number: "456"
+                            )
+                        ]
+                    )
+                ]
+            ),
+        ])
+        chatViewModel._seedForTest(
+            messages: [user, assistant],
+            selections: [assistant.id: [.flightOffers(payload)]]
+        )
+    }
+
     private func seedChipsFixture() {
         let user = ChatMessage(
             role: .user,

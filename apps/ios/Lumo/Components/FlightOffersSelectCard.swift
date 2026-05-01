@@ -22,6 +22,10 @@ struct FlightOffersSelectCard: View {
     let payload: FlightOffersPayload
     let isDisabled: Bool
     let onSubmit: (String) -> Void
+    /// DEBUG fixture seam — pre-selects a row at mount so screenshot
+    /// captures can land the post-tap selected state without
+    /// scripting a touch event. Production callers leave this nil.
+    var initialSelectedID: String? = nil
 
     @State private var selectedOfferID: String?
 
@@ -52,6 +56,14 @@ struct FlightOffersSelectCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Flight offers")
         .accessibilityIdentifier("flight-offers-card")
+        .onAppear {
+            if let initial = initialSelectedID, selectedOfferID == nil {
+                selectedOfferID = initial
+                // No onSubmit callback fires for the DEBUG seam —
+                // the fixture is meant to *display* the selected
+                // state, not commit a turn.
+            }
+        }
     }
 
     private var header: some View {
@@ -123,6 +135,7 @@ struct FlightOffersSelectCard: View {
                 Text(FlightOffersSubmit.formatTime(firstSeg.departing_at))
                     .font(LumoFonts.callout.weight(.medium))
                     .foregroundStyle(LumoColors.label)
+                    .fixedSize()
                 Text(firstSlice.origin.iata_code)
                     .font(.system(.footnote, design: .monospaced))
                     .foregroundStyle(LumoColors.labelSecondary)
@@ -131,34 +144,30 @@ struct FlightOffersSelectCard: View {
                 Text(FlightOffersSubmit.formatTime(lastSeg.arriving_at))
                     .font(LumoFonts.callout.weight(.medium))
                     .foregroundStyle(LumoColors.label)
+                    .fixedSize()
                 Text(firstSlice.destination.iata_code)
                     .font(.system(.footnote, design: .monospaced))
                     .foregroundStyle(LumoColors.labelSecondary)
 
                 if selected {
-                    Spacer(minLength: 6)
-                    selectedPill
+                    Spacer(minLength: 4)
+                    selectedDot
                         .accessibilityIdentifier("flight-offers-row-\(offer.id)-pill")
                 }
             }
         )
     }
 
-    private var selectedPill: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(LumoColors.cyan)
-                .frame(width: 6, height: 6)
-            Text("SELECTED")
-                .font(LumoFonts.caption.weight(.medium))
-                .tracking(1.0)
-        }
-        .foregroundStyle(LumoColors.cyan)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
-        .background(
-            Capsule().fill(LumoColors.cyan.opacity(0.15))
-        )
+    /// Compact selected indicator — a filled cyan dot. The literal
+    /// "SELECTED" word lives in the row's accessibilityAddTraits
+    /// (.isSelected) so VoiceOver still announces it; the visual is
+    /// kept tiny so it doesn't squeeze the times row on iPhone width.
+    private var selectedDot: some View {
+        Circle()
+            .fill(LumoColors.cyan)
+            .frame(width: 8, height: 8)
+            .padding(.trailing, 2)
+            .accessibilityHidden(true)
     }
 
     private func detailLine(_ offer: FlightOffer) -> some View {
