@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/auth-gate-ci-guard-1 | 2026-05-02 | AUTH-GATE-CI-GUARD-1 fail production builds when auth gate bypass is enabled |
 
 ## Closed lanes
 

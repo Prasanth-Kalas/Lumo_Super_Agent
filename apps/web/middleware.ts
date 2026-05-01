@@ -36,7 +36,10 @@
  */
 
 import { NextResponse, type NextRequest } from "next/server";
+import { assertAuthGateNotDisabledInProduction } from "@/lib/auth-gate-guard";
 import { getSupabaseMiddlewareClient } from "@/lib/auth";
+
+assertAuthGateNotDisabledInProduction();
 
 /**
  * Exact-match protected paths. Use this list rather than
@@ -133,8 +136,9 @@ export async function middleware(req: NextRequest) {
   // Server-side dev escape hatch — when LUMO_WEB_DISABLE_AUTH_GATE=1
   // is set in the process env, skip every auth check. Used for
   // screenshot capture and offline preview. Never exposed to the
-  // client (no NEXT_PUBLIC_ prefix), so a leaked env in production
-  // would fail closed at the API layer the moment a real call lands.
+  // client (no NEXT_PUBLIC_ prefix). Production builds/deploys with
+  // NODE_ENV=production are blocked by assertAuthGateNotDisabledInProduction()
+  // above; for local bypass use NODE_ENV=development.
   if (process.env.LUMO_WEB_DISABLE_AUTH_GATE === "1") {
     return res;
   }
