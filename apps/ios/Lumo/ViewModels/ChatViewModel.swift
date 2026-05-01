@@ -51,6 +51,15 @@ final class ChatViewModel: ObservableObject {
     /// expiration.
     @Published private(set) var suggestionsByTurn: [String: [AssistantSuggestion]] = [:]
 
+    /// Per-assistant-message interactive selections (flight offers
+    /// today, food/time slots in follow-up sprints). Keyed by the
+    /// assistant message UUID — the SSE handler attaches selections
+    /// to the in-flight assistant bubble when the frame arrives.
+    /// Same stale-suppression rule as suggestions: the view only
+    /// renders selections for an assistant message that has no
+    /// user message after it, mirroring web's `userMessageExistsAfter`.
+    @Published private(set) var selectionsByMessage: [UUID: [InteractiveSelection]] = [:]
+
     private let service: ChatService
     private let sessionID: String
     private let tts: TextToSpeechServicing?
@@ -138,6 +147,7 @@ final class ChatViewModel: ObservableObject {
         isStreaming = false
         lastFirstTokenLatency = nil
         suggestionsByTurn = [:]
+        selectionsByMessage = [:]
     }
 
     /// Cancel any in-flight stream. Called when the view disappears
@@ -202,6 +212,8 @@ final class ChatViewModel: ObservableObject {
                     }
                 case .suggestions(let turnID, let items):
                     attachSuggestions(turnID: turnID, items: items, assistantID: assistantID)
+                case .selection(let selection):
+                    attachSelection(selection, assistantID: assistantID)
                 case .other:
                     continue
                 }
@@ -232,6 +244,19 @@ final class ChatViewModel: ObservableObject {
         messages[idx].suggestionsTurnId = turnID
     }
 
+    private func attachSelection(_ selection: InteractiveSelection, assistantID: UUID) {
+        // The orchestrator emits at most one selection per kind per
+        // turn (food/flight/time-slots are mutually exclusive in
+        // practice today), but the storage allows a list to keep the
+        // shape symmetric with web's `UIMessage.selections`. If a
+        // future turn re-emits the same kind, the latest wins —
+        // mirrors web's `selections.filter((x) => x.kind !== s.kind)`.
+        var current = selectionsByMessage[assistantID] ?? []
+        current.removeAll { existing in existing.sameKind(as: selection) }
+        current.append(selection)
+        selectionsByMessage[assistantID] = current
+    }
+
     /// Public helper for ChatView's render rule. True when this
     /// assistant message should currently surface its chip strip:
     /// it has a `suggestionsTurnId`, the strip is non-empty, and no
@@ -239,10 +264,24 @@ final class ChatViewModel: ObservableObject {
     /// stale-suppression). Pure look-up — does not mutate state.
     func suggestions(for message: ChatMessage) -> [AssistantSuggestion] {
         guard message.role == .assistant, let turnID = message.suggestionsTurnId else { return [] }
-        guard let idx = messages.firstIndex(where: { $0.id == message.id }) else { return [] }
-        let later = messages.suffix(from: messages.index(after: idx))
-        if later.contains(where: { $0.role == .user }) { return [] }
+        guard !hasUserMessageAfter(message) else { return [] }
         return suggestionsByTurn[turnID] ?? []
+    }
+
+    /// Mirror of `suggestions(for:)` for interactive-selection cards
+    /// (flight offers today). Same stale-suppression rule: chips +
+    /// selections both vanish once the user has moved past the
+    /// assistant's offer turn.
+    func selections(for message: ChatMessage) -> [InteractiveSelection] {
+        guard message.role == .assistant else { return [] }
+        guard !hasUserMessageAfter(message) else { return [] }
+        return selectionsByMessage[message.id] ?? []
+    }
+
+    private func hasUserMessageAfter(_ message: ChatMessage) -> Bool {
+        guard let idx = messages.firstIndex(where: { $0.id == message.id }) else { return false }
+        let later = messages.suffix(from: messages.index(after: idx))
+        return later.contains(where: { $0.role == .user })
     }
 
     /// Test-only seam: prime the chat with a known message list and
@@ -251,9 +290,14 @@ final class ChatViewModel: ObservableObject {
     /// the clear-on-submit cascade without driving the real SSE
     /// stream. Production callers must not use this — the SSE path
     /// is the only legitimate way these get populated at runtime.
-    func _seedForTest(messages: [ChatMessage], suggestions: [String: [AssistantSuggestion]]) {
+    func _seedForTest(
+        messages: [ChatMessage],
+        suggestions: [String: [AssistantSuggestion]] = [:],
+        selections: [UUID: [InteractiveSelection]] = [:]
+    ) {
         self.messages = messages
         self.suggestionsByTurn = suggestions
+        self.selectionsByMessage = selections
     }
 
     private func markAssistantDelivered(id: UUID) {

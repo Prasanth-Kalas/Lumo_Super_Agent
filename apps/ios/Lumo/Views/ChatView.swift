@@ -86,6 +86,23 @@ struct ChatView: View {
                                 onRetry: retryAction(for: message)
                             )
 
+                            // Interactive selection cards (flight
+                            // offers today). Same stale-suppression
+                            // rule as suggestions — only the latest
+                            // assistant message before any user
+                            // message surfaces them.
+                            ForEach(Array(viewModel.selections(for: message).enumerated()), id: \.offset) { _, selection in
+                                if case .flightOffers(let payload) = selection {
+                                    FlightOffersSelectCard(
+                                        payload: payload,
+                                        isDisabled: viewModel.isStreaming,
+                                        onSubmit: { text in
+                                            viewModel.sendSuggestion(text)
+                                        }
+                                    )
+                                }
+                            }
+
                             // Suggestion chips render only on the
                             // latest assistant message before any
                             // user message — `suggestions(for:)`
