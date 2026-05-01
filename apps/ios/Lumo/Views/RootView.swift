@@ -66,7 +66,11 @@ struct RootView: View {
         self.onSignOut = onSignOut
 
         _chatViewModel = StateObject(
-            wrappedValue: ChatViewModel(service: chatService, tts: tts)
+            wrappedValue: ChatViewModel(
+                service: chatService,
+                tts: tts,
+                compoundStreamService: CompoundStreamService.makeFromBundle()
+            )
         )
         _voiceComposer = StateObject(
             wrappedValue: VoiceComposerViewModel(speech: SpeechRecognitionService())

@@ -133,6 +133,19 @@ struct ChatView: View {
                                 )
                             }
 
+                            // Compound-dispatch strip — multi-agent
+                            // trip orchestration. Lives below the
+                            // assistant message that triggered it
+                            // and stays visible after the user
+                            // moves on (mirrors web's CompoundLegStrip
+                            // sticking around as a settled record).
+                            if let dispatch = viewModel.compoundDispatch(for: message) {
+                                CompoundLegStrip(
+                                    payload: dispatch,
+                                    overrides: viewModel.compoundLegStatusOverrides[dispatch.compound_transaction_id] ?? [:]
+                                )
+                            }
+
                             // Suggestion chips render only on the
                             // latest assistant message before any
                             // user message — `suggestions(for:)`

@@ -71,6 +71,28 @@ final class ChatViewModel: ObservableObject {
     /// → decidedLabel pattern in apps/web/app/page.tsx.
     @Published private(set) var summariesByMessage: [UUID: ConfirmationSummary] = [:]
 
+    /// Per-assistant-message compound-dispatch payloads (the
+    /// `assistant_compound_dispatch` SSE frame — multi-agent trip
+    /// orchestration). Like summary cards, the strip stays visible
+    /// after the user moves on: the live URLSession subscription
+    /// closes when all legs reach terminal status, and the strip
+    /// renders as a static settled record.
+    @Published private(set) var compoundDispatchByMessage: [UUID: CompoundDispatchPayload] = [:]
+    /// Per-leg status overrides keyed by compound_transaction_id.
+    /// Per-leg updates arrive via the per-compound stream and merge
+    /// into the inner dictionary (leg_id → latest status). The view
+    /// reads the override layered over the dispatch payload's
+    /// initial status.
+    @Published private(set) var compoundLegStatusOverrides: [String: [String: CompoundLegStatus]] = [:]
+
+    /// Optional subscription handle for live per-leg updates.
+    /// Injected by RootView so test paths can pass a no-op or fake.
+    private let compoundStreamService: CompoundStreamService?
+    /// Active per-compound subscription tasks, keyed by
+    /// compound_transaction_id. Cancelled on reset() and on
+    /// terminal compound state.
+    private var compoundStreamTasks: [String: Task<Void, Never>] = [:]
+
     private let service: ChatService
     private let sessionID: String
     private let tts: TextToSpeechServicing?
@@ -84,11 +106,13 @@ final class ChatViewModel: ObservableObject {
     init(
         service: ChatService,
         sessionID: String = UUID().uuidString,
-        tts: TextToSpeechServicing? = nil
+        tts: TextToSpeechServicing? = nil,
+        compoundStreamService: CompoundStreamService? = nil
     ) {
         self.service = service
         self.sessionID = sessionID
         self.tts = tts
+        self.compoundStreamService = compoundStreamService
     }
 
     func send(mode: VoiceMode = .text) {
@@ -152,6 +176,7 @@ final class ChatViewModel: ObservableObject {
     /// probe so the next turn measures from a true cold start.
     func reset() {
         cancelStream()
+        cancelAllCompoundStreams()
         messages = []
         input = ""
         error = nil
@@ -160,6 +185,15 @@ final class ChatViewModel: ObservableObject {
         suggestionsByTurn = [:]
         selectionsByMessage = [:]
         summariesByMessage = [:]
+        compoundDispatchByMessage = [:]
+        compoundLegStatusOverrides = [:]
+    }
+
+    private func cancelAllCompoundStreams() {
+        for (_, task) in compoundStreamTasks {
+            task.cancel()
+        }
+        compoundStreamTasks = [:]
     }
 
     /// Cancel any in-flight stream. Called when the view disappears
@@ -228,6 +262,8 @@ final class ChatViewModel: ObservableObject {
                     attachSelection(selection, assistantID: assistantID)
                 case .summary(let summary):
                     attachSummary(summary, assistantID: assistantID)
+                case .compoundDispatch(let dispatch):
+                    attachCompoundDispatch(dispatch, assistantID: assistantID)
                 case .other:
                     continue
                 }
@@ -276,6 +312,72 @@ final class ChatViewModel: ObservableObject {
         // shouldn't emit a second summary on the same turn but defending
         // here keeps the view surface predictable on replay paths).
         summariesByMessage[assistantID] = summary
+    }
+
+    private func attachCompoundDispatch(_ dispatch: CompoundDispatchPayload, assistantID: UUID) {
+        compoundDispatchByMessage[assistantID] = dispatch
+        // Seed initial overrides from the dispatch's own statuses
+        // so the override layer always has a value to read for
+        // every leg (simpler view-side rendering).
+        let initial = Dictionary(
+            uniqueKeysWithValues: dispatch.legs.map { ($0.leg_id, $0.status) }
+        )
+        let existing = compoundLegStatusOverrides[dispatch.compound_transaction_id] ?? [:]
+        // Don't clobber later updates that may already have arrived;
+        // merge the dispatch statuses in only where the override is
+        // missing.
+        var merged = existing
+        for (leg_id, status) in initial where merged[leg_id] == nil {
+            merged[leg_id] = status
+        }
+        compoundLegStatusOverrides[dispatch.compound_transaction_id] = merged
+
+        // Open the live per-leg subscription if the orchestrator
+        // hasn't already settled all legs. The view's settled-state
+        // pulse-suppression matches web exactly.
+        if !CompoundDispatchHelpers.isSettled(legs: dispatch.legs, statuses: merged),
+           let stream = compoundStreamService,
+           compoundStreamTasks[dispatch.compound_transaction_id] == nil {
+            startCompoundStream(stream: stream, dispatch: dispatch)
+        }
+    }
+
+    private func startCompoundStream(stream: CompoundStreamService, dispatch: CompoundDispatchPayload) {
+        let id = dispatch.compound_transaction_id
+        let task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                for try await update in stream.subscribe(compoundTransactionID: id) {
+                    if Task.isCancelled { break }
+                    self.applyCompoundLegStatusUpdate(update, compoundID: id)
+                    // Close the subscription as soon as every leg has
+                    // settled — mirrors web's `if (settled) return`
+                    // gate that prevents the EventSource from
+                    // reopening.
+                    if let dispatch = self.compoundDispatchByMessage.values
+                        .first(where: { $0.compound_transaction_id == id }),
+                       CompoundDispatchHelpers.isSettled(
+                        legs: dispatch.legs,
+                        statuses: self.compoundLegStatusOverrides[id] ?? [:]
+                       ) {
+                        break
+                    }
+                }
+            } catch {
+                // Network/stream errors close the subscription
+                // silently — the strip stays visible with whatever
+                // statuses arrived. The user sees the last known
+                // state rather than a spinner stuck forever.
+            }
+            self.compoundStreamTasks[id] = nil
+        }
+        compoundStreamTasks[id] = task
+    }
+
+    private func applyCompoundLegStatusUpdate(_ update: CompoundLegStatusUpdate, compoundID: String) {
+        var overrides = compoundLegStatusOverrides[compoundID] ?? [:]
+        overrides[update.leg_id] = update.status
+        compoundLegStatusOverrides[compoundID] = overrides
     }
 
     /// Public helper for ChatView's render rule. True when this
@@ -333,6 +435,32 @@ final class ChatViewModel: ObservableObject {
         return later.contains(where: { $0.role == .user })
     }
 
+    /// Compound-dispatch payload attached to an assistant message,
+    /// if any. Like summaries, the strip stays visible after the
+    /// user moves on — the live subscription closes when all legs
+    /// reach terminal status, and the strip becomes a settled
+    /// record. Mirrors web's `m.compoundDispatch` (page.tsx).
+    func compoundDispatch(for message: ChatMessage) -> CompoundDispatchPayload? {
+        guard message.role == .assistant else { return nil }
+        return compoundDispatchByMessage[message.id]
+    }
+
+    /// Live status for a leg, reading the override layer first
+    /// (most recent leg-status frame from the per-compound stream)
+    /// and falling back to the dispatch's initial status. Pure
+    /// look-up.
+    func compoundLegStatus(compoundID: String, legID: String, fallback: CompoundLegStatus) -> CompoundLegStatus {
+        compoundLegStatusOverrides[compoundID]?[legID] ?? fallback
+    }
+
+    /// Aggregate "settled" for a dispatch — convenience for the
+    /// view to drive the badge + animation suppression. Same
+    /// predicate web uses, applied over the override layer.
+    func compoundSettled(_ dispatch: CompoundDispatchPayload) -> Bool {
+        let overrides = compoundLegStatusOverrides[dispatch.compound_transaction_id] ?? [:]
+        return CompoundDispatchHelpers.isSettled(legs: dispatch.legs, statuses: overrides)
+    }
+
     /// Test-only seam: prime the chat with a known message list and
     /// chip cache so tests can verify `suggestions(for:)`'s
     /// stale-suppression rule, the chip-tap → user-bubble path, and
@@ -343,12 +471,23 @@ final class ChatViewModel: ObservableObject {
         messages: [ChatMessage],
         suggestions: [String: [AssistantSuggestion]] = [:],
         selections: [UUID: [InteractiveSelection]] = [:],
-        summaries: [UUID: ConfirmationSummary] = [:]
+        summaries: [UUID: ConfirmationSummary] = [:],
+        compoundDispatches: [UUID: CompoundDispatchPayload] = [:],
+        compoundOverrides: [String: [String: CompoundLegStatus]] = [:]
     ) {
         self.messages = messages
         self.suggestionsByTurn = suggestions
         self.selectionsByMessage = selections
         self.summariesByMessage = summaries
+        self.compoundDispatchByMessage = compoundDispatches
+        self.compoundLegStatusOverrides = compoundOverrides
+    }
+
+    /// Test-only seam for driving a single leg-status update
+    /// without spinning up the live URLSession subscription. Used
+    /// by the status-transition tests.
+    func _applyCompoundLegStatusForTest(_ update: CompoundLegStatusUpdate, compoundID: String) {
+        applyCompoundLegStatusUpdate(update, compoundID: compoundID)
     }
 
     private func markAssistantDelivered(id: UUID) {
