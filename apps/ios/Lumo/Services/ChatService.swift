@@ -6,6 +6,7 @@ enum ChatEvent: Equatable {
     case done
     case suggestions(turnID: String, items: [AssistantSuggestion])
     case selection(InteractiveSelection)
+    case summary(ConfirmationSummary)
     case other(type: String)
 }
 
@@ -127,6 +128,38 @@ final class ChatService {
                 return .selection(.flightOffers(payload))
             }
             return .selection(.unsupported(kind: kind))
+        case "summary":
+            // Frame value shape (canonical contract — see
+            // node_modules/@lumo/agent-sdk/src/confirmation.ts):
+            //   { kind: "structured-itinerary" | "structured-trip" | …,
+            //     hash, payload, session_id, turn_id, rendered_at }
+            // Only structured-itinerary decodes today; future kinds
+            // (trip, reservation, cart, generic booking) round-trip
+            // via .summary(.unsupported(kind:)) so the wiring is
+            // ready when their cards land.
+            guard
+                let value = json["value"] as? [String: Any],
+                let kind = value["kind"] as? String,
+                let hash = value["hash"] as? String,
+                let session_id = value["session_id"] as? String,
+                let turn_id = value["turn_id"] as? String,
+                let rendered_at = value["rendered_at"] as? String
+            else {
+                return .other(type: type)
+            }
+            let envelope = ConfirmationEnvelope(
+                hash: hash,
+                session_id: session_id,
+                turn_id: turn_id,
+                rendered_at: rendered_at
+            )
+            if kind == "structured-itinerary" {
+                guard let payload = decodeItineraryPayload(value["payload"]) else {
+                    return .other(type: type)
+                }
+                return .summary(.itinerary(payload, envelope: envelope))
+            }
+            return .summary(.unsupported(kind: kind, envelope: envelope))
         case "assistant_suggestions":
             // Frame value shape (canonical contract — see
             // apps/web/lib/chat-suggestions.ts):
@@ -191,6 +224,59 @@ final class ChatService {
         }
         guard !offers.isEmpty else { return nil }
         return FlightOffersPayload(offers: offers)
+    }
+
+    /// Pure decoder for a `structured-itinerary` summary payload.
+    /// Mirrors the web `ItineraryPayload` shape exactly (see
+    /// apps/web/components/ItineraryConfirmationCard.tsx). Tolerant
+    /// of shape drift — drops malformed slices/segments rather than
+    /// failing the whole frame.
+    static func decodeItineraryPayload(_ raw: Any?) -> ItineraryPayload? {
+        guard
+            let dict = raw as? [String: Any],
+            let kind = dict["kind"] as? String, kind == "structured-itinerary",
+            let offer_id = dict["offer_id"] as? String,
+            let total_amount = dict["total_amount"] as? String,
+            let total_currency = dict["total_currency"] as? String,
+            let rawSlices = dict["slices"] as? [[String: Any]]
+        else { return nil }
+        let slices: [ItinerarySlice] = rawSlices.compactMap(decodeItinerarySlice)
+        guard !slices.isEmpty else { return nil }
+        return ItineraryPayload(
+            kind: kind,
+            offer_id: offer_id,
+            total_amount: total_amount,
+            total_currency: total_currency,
+            slices: slices
+        )
+    }
+
+    private static func decodeItinerarySlice(_ raw: [String: Any]) -> ItinerarySlice? {
+        guard
+            let origin = raw["origin"] as? String,
+            let destination = raw["destination"] as? String,
+            let rawSegs = raw["segments"] as? [[String: Any]]
+        else { return nil }
+        let segments: [ItinerarySegment] = rawSegs.compactMap { seg in
+            guard
+                let segOrigin = seg["origin"] as? String,
+                let segDest = seg["destination"] as? String,
+                let dep = seg["departing_at"] as? String,
+                let arr = seg["arriving_at"] as? String,
+                let carrier = seg["carrier"] as? String,
+                let flight_number = seg["flight_number"] as? String
+            else { return nil }
+            return ItinerarySegment(
+                origin: segOrigin,
+                destination: segDest,
+                departing_at: dep,
+                arriving_at: arr,
+                carrier: carrier,
+                flight_number: flight_number
+            )
+        }
+        guard !segments.isEmpty else { return nil }
+        return ItinerarySlice(origin: origin, destination: destination, segments: segments)
     }
 
     private static func decodeSlice(_ raw: [String: Any]) -> FlightOffer.Slice? {
