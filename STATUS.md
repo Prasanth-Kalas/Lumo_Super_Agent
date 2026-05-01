@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-compound-view-1 | 2026-05-01 | IOS-COMPOUND-VIEW-1 mirror web's CompoundLegStrip on iOS — render `assistant_compound_dispatch` SSE frame as in-thread per-leg dispatch strip with live status pills + URLSession-bytes subscription to `/api/compound/transactions/:id/stream` for per-leg updates; settled-state suppression matches web |
 
 ## Closed lanes
 
