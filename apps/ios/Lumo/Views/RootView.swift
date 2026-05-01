@@ -245,10 +245,41 @@ struct RootView: View {
             default:         break
             }
         }
+        // Seed assistant_suggestions chip-strip fixture (CHAT-SUGGESTED-CHIPS-1-IOS).
+        // Renders a user → assistant clarification turn with three
+        // suggestion chips below, deterministic copy taken from the
+        // canonical date-suggestion path in
+        // apps/web/lib/chat-suggestions.ts.
+        if defaults.bool(forKey: "LumoSeedChips") {
+            seedChipsFixture()
+        }
         #endif
     }
 
     #if DEBUG
+    private func seedChipsFixture() {
+        let user = ChatMessage(
+            role: .user,
+            text: "Plan a weekend trip to Vegas",
+            status: .sent
+        )
+        let assistant = ChatMessage(
+            role: .assistant,
+            text: "When are you traveling?",
+            status: .delivered,
+            suggestionsTurnId: "fixture-turn-1"
+        )
+        let chips = [
+            AssistantSuggestion(id: "s1", label: "Next weekend", value: "May 9, 2026 to May 11, 2026"),
+            AssistantSuggestion(id: "s2", label: "In 2 weeks", value: "May 16, 2026 to May 18, 2026"),
+            AssistantSuggestion(id: "s3", label: "Memorial Day weekend", value: "May 23, 2026 to May 25, 2026"),
+        ]
+        chatViewModel._seedForTest(
+            messages: [user, assistant],
+            suggestions: ["fixture-turn-1": chips]
+        )
+    }
+
     private func seedFixtureRecents() {
         // Idempotent: only seed once per cold launch, regardless of how
         // many times this view appears.

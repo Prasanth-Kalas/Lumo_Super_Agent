@@ -111,6 +111,15 @@ case "$variant" in
         capture 13-receipt-detail light -LumoPaymentsFixture receipt-detail
         capture 13-receipt-detail dark  -LumoPaymentsFixture receipt-detail
         ;;
+    chat-suggested-chips-1-ios)
+        # CHAT-SUGGESTED-CHIPS-1-IOS: assistant_suggestions chip strip
+        # below the assistant clarification message. -LumoSeedChips YES
+        # seeds a deterministic user/assistant turn pair with three
+        # date-suggestion chips via RootView.seedChipsFixture (DEBUG-only).
+        echo "[shots] chips strip below assistant clarification"
+        capture chips light -LumoAutoSignIn YES -LumoSeedChips YES
+        capture chips dark  -LumoAutoSignIn YES -LumoSeedChips YES
+        ;;
     ios-mirror-web-1)
         # IOS-MIRROR-WEB-1: drawer adopts the web mobile-drawer EXPLORE
         # order + account chip footer + ported color tokens. Same launch
