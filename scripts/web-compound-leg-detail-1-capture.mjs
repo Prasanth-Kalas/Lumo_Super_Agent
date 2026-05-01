@@ -27,6 +27,7 @@ const outDir = path.join(
   "docs/notes/web-compound-leg-detail-1-screenshots",
 );
 const baseURL = process.env.LUMO_WEB_URL ?? "http://localhost:3000";
+const fixedNow = Date.parse("2026-05-01T17:05:27.000Z");
 
 const shots = [
   { state: "pending", theme: "light", name: "leg-detail-pending-light.png", waitFor: "QUEUED" },
@@ -52,6 +53,25 @@ async function main() {
         colorScheme: shot.theme,
       });
       const page = await ctx.newPage();
+      await page.addInitScript((now) => {
+        const OriginalDate = Date;
+        class FixedDate extends OriginalDate {
+          constructor(...args) {
+            if (args.length === 0) {
+              super(now);
+            } else {
+              super(...args);
+            }
+          }
+          static now() {
+            return now;
+          }
+        }
+        FixedDate.parse = OriginalDate.parse;
+        FixedDate.UTC = OriginalDate.UTC;
+        FixedDate.prototype = OriginalDate.prototype;
+        globalThis.Date = FixedDate;
+      }, fixedNow);
       const url = new URL("/fixtures/compound-leg-strip", baseURL);
       url.searchParams.set("state", shot.state);
       await page.goto(url.toString(), { waitUntil: "networkidle" });

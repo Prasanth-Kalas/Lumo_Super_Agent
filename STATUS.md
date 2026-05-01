@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/web-visual-regression-ci-1 | 2026-05-02 | WEB-VISUAL-REGRESSION-CI-1 wire web screenshot baselines into PR visual regression CI |
 
 ## Closed lanes
 

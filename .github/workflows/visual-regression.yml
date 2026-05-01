@@ -1,0 +1,85 @@
+name: Web visual regression
+
+on:
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "scripts/*capture*.mjs"
+      - "docs/notes/**-screenshots/**"
+      - ".github/workflows/visual-regression.yml"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  screenshots:
+    name: Screenshot diff
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip-visual-regression') }}
+    env:
+      LUMO_WEB_URL: http://127.0.0.1:3105
+      LUMO_WEB_DISABLE_AUTH_GATE: "1"
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiJ9.fixture
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Preserve committed screenshot baselines
+        run: |
+          rm -rf /tmp/lumo-visual-baseline /tmp/lumo-visual-diff
+          mkdir -p /tmp/lumo-visual-baseline
+          cp -R docs/notes /tmp/lumo-visual-baseline/notes
+
+      - name: Start web dev server
+        run: |
+          cd apps/web
+          npx next dev -H 127.0.0.1 -p 3105 > /tmp/lumo-web-dev.log 2>&1 &
+          echo "$!" > /tmp/lumo-web-dev.pid
+          for i in {1..90}; do
+            if curl -fsS "$LUMO_WEB_URL/login" >/tmp/lumo-web-ready.html; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/lumo-web-dev.log
+          exit 1
+
+      - name: Capture current screenshots
+        run: |
+          set -euo pipefail
+          for script in $(find scripts -maxdepth 1 -type f -name '*capture*.mjs' | sort); do
+            echo "::group::${script}"
+            node "$script"
+            echo "::endgroup::"
+          done
+
+      - name: Compare against baseline
+        run: |
+          node apps/web/scripts/visual-diff.mjs \
+            --baseline /tmp/lumo-visual-baseline/notes \
+            --actual docs/notes \
+            --diff /tmp/lumo-visual-diff \
+            --threshold 0.005 \
+            --json /tmp/lumo-visual-diff/results.json
+
+      - name: Upload visual diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-diffs
+          path: |
+            /tmp/lumo-visual-diff
+            /tmp/lumo-web-dev.log
+          if-no-files-found: ignore

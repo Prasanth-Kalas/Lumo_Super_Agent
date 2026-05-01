@@ -34,6 +34,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const outDir = path.join(repoRoot, "docs/notes/web-redesign-1-screenshots");
 const baseURL = process.env.LUMO_WEB_URL ?? "http://localhost:3000";
+const FIXED_NOW = Date.parse("2026-05-02T12:00:00.000Z");
 
 const FAKE_ME = {
   user: {
@@ -165,6 +166,7 @@ async function captureMobileDrawer(browser) {
 
 async function mockAuthedShell(page, opts = {}) {
   const history = opts.history ?? { sessions: [] };
+  await freezeDate(page, FIXED_NOW);
   // /api/me — pretend a user is signed in.
   await page.route("**/api/me", (route) =>
     route.fulfill({
@@ -208,6 +210,28 @@ async function mockAuthedShell(page, opts = {}) {
       }),
     );
   }
+}
+
+async function freezeDate(page, fixedNow) {
+  await page.addInitScript((now) => {
+    const OriginalDate = Date;
+    class FixedDate extends OriginalDate {
+      constructor(...args) {
+        if (args.length === 0) {
+          super(now);
+        } else {
+          super(...args);
+        }
+      }
+      static now() {
+        return now;
+      }
+    }
+    FixedDate.parse = OriginalDate.parse;
+    FixedDate.UTC = OriginalDate.UTC;
+    FixedDate.prototype = OriginalDate.prototype;
+    globalThis.Date = FixedDate;
+  }, fixedNow);
 }
 
 async function applyTheme(page, theme) {
