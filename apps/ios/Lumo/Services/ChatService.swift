@@ -231,6 +231,12 @@ final class ChatService {
     /// apps/web/components/ItineraryConfirmationCard.tsx). Tolerant
     /// of shape drift — drops malformed slices/segments rather than
     /// failing the whole frame.
+    ///
+    /// The four trailing fields (`traveler_summary`, `payment_summary`,
+    /// `prefilled`, `missing_fields`) are optional on the wire; older
+    /// summaries decode the same as before with all four absent.
+    /// Added in CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 (web) /
+    /// IOS-CONFIRMATION-RICH-PAYLOAD-1 (iOS).
     static func decodeItineraryPayload(_ raw: Any?) -> ItineraryPayload? {
         guard
             let dict = raw as? [String: Any],
@@ -242,13 +248,45 @@ final class ChatService {
         else { return nil }
         let slices: [ItinerarySlice] = rawSlices.compactMap(decodeItinerarySlice)
         guard !slices.isEmpty else { return nil }
+        // Trailing autofill metadata — optional + tolerant. Web emits
+        // `null` for the strings when the orchestrator didn't autofill
+        // them; treat null, missing, and empty-string identically.
+        let travelerSummary: String? = {
+            guard let s = dict["traveler_summary"] as? String, !s.isEmpty else { return nil }
+            return s
+        }()
+        let paymentSummary: String? = {
+            guard let s = dict["payment_summary"] as? String, !s.isEmpty else { return nil }
+            return s
+        }()
+        let prefilled = (dict["prefilled"] as? Bool) ?? false
+        let rawMissing = (dict["missing_fields"] as? [String]) ?? []
+        let missing = rawMissing
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         return ItineraryPayload(
             kind: kind,
             offer_id: offer_id,
             total_amount: total_amount,
             total_currency: total_currency,
-            slices: slices
+            slices: slices,
+            traveler_summary: travelerSummary,
+            payment_summary: paymentSummary,
+            prefilled: prefilled,
+            missing_fields: dedupePreservingOrder(missing)
         )
+    }
+
+    /// Web's `normalizeMissingFields` dedupes while preserving order.
+    /// Tiny helper here to keep iOS byte-identical.
+    private static func dedupePreservingOrder(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for v in values where !seen.contains(v) {
+            seen.insert(v)
+            out.append(v)
+        }
+        return out
     }
 
     private static func decodeItinerarySlice(_ raw: [String: Any]) -> ItinerarySlice? {
