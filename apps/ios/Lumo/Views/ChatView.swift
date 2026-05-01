@@ -104,6 +104,29 @@ struct ChatView: View {
                                 }
                             }
 
+                            // Booking confirmation card — money gate
+                            // for `flight_price_offer`. Lands on the
+                            // turn AFTER offer selection. Confirm /
+                            // Cancel both route through the same
+                            // sendSuggestion path so the orchestrator's
+                            // isAffirmative regex sees an
+                            // indistinguishable confirm-turn whether
+                            // the user typed "Yes, book it." or
+                            // tapped Confirm.
+                            if case let .itinerary(itinerary, _) = viewModel.summary(for: message) {
+                                BookingConfirmationCard(
+                                    payload: itinerary,
+                                    decision: viewModel.summaryDecision(for: message),
+                                    isDisabled: viewModel.isStreaming,
+                                    onConfirm: {
+                                        viewModel.sendSuggestion(BookingConfirmationSubmit.confirmText)
+                                    },
+                                    onCancel: {
+                                        viewModel.sendSuggestion(BookingConfirmationSubmit.cancelText)
+                                    }
+                                )
+                            }
+
                             // Suggestion chips render only on the
                             // latest assistant message before any
                             // user message — `suggestions(for:)`

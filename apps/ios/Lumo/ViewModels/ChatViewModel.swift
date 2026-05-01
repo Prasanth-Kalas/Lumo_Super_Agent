@@ -60,6 +60,17 @@ final class ChatViewModel: ObservableObject {
     /// user message after it, mirroring web's `userMessageExistsAfter`.
     @Published private(set) var selectionsByMessage: [UUID: [InteractiveSelection]] = [:]
 
+    /// Per-assistant-message confirmation summaries (the money-gate
+    /// `summary` SSE frame — flight itineraries today; trips,
+    /// reservations, carts in follow-up sprints). The card stays
+    /// visible after the user confirms or cancels: the user message
+    /// they sent ("Yes, book it." / "Cancel — don't book that.")
+    /// flips it into a decided-label state, but the summary itself
+    /// stays in the cache so the rendered card preserves its
+    /// terminal copy. Mirrors web's `userMessageExistsAfter(m.id)`
+    /// → decidedLabel pattern in apps/web/app/page.tsx.
+    @Published private(set) var summariesByMessage: [UUID: ConfirmationSummary] = [:]
+
     private let service: ChatService
     private let sessionID: String
     private let tts: TextToSpeechServicing?
@@ -148,6 +159,7 @@ final class ChatViewModel: ObservableObject {
         lastFirstTokenLatency = nil
         suggestionsByTurn = [:]
         selectionsByMessage = [:]
+        summariesByMessage = [:]
     }
 
     /// Cancel any in-flight stream. Called when the view disappears
@@ -214,6 +226,8 @@ final class ChatViewModel: ObservableObject {
                     attachSuggestions(turnID: turnID, items: items, assistantID: assistantID)
                 case .selection(let selection):
                     attachSelection(selection, assistantID: assistantID)
+                case .summary(let summary):
+                    attachSummary(summary, assistantID: assistantID)
                 case .other:
                     continue
                 }
@@ -257,6 +271,13 @@ final class ChatViewModel: ObservableObject {
         selectionsByMessage[assistantID] = current
     }
 
+    private func attachSummary(_ summary: ConfirmationSummary, assistantID: UUID) {
+        // One summary per assistant turn; latest wins (the orchestrator
+        // shouldn't emit a second summary on the same turn but defending
+        // here keeps the view surface predictable on replay paths).
+        summariesByMessage[assistantID] = summary
+    }
+
     /// Public helper for ChatView's render rule. True when this
     /// assistant message should currently surface its chip strip:
     /// it has a `suggestionsTurnId`, the strip is non-empty, and no
@@ -278,6 +299,34 @@ final class ChatViewModel: ObservableObject {
         return selectionsByMessage[message.id] ?? []
     }
 
+    /// Confirmation summary attached to an assistant message, if any.
+    /// Unlike chips and selection cards, summaries don't auto-suppress
+    /// when a later user message lands — the card transitions into
+    /// a `decidedLabel` state instead, mirroring the web shell's
+    /// `userMessageExistsAfter(m.id)` → "Confirmed — booking…" /
+    /// "Cancelled" footer copy. The view layer reads this plus
+    /// `summaryDecision(for:)` to drive that transition.
+    func summary(for message: ChatMessage) -> ConfirmationSummary? {
+        guard message.role == .assistant else { return nil }
+        return summariesByMessage[message.id]
+    }
+
+    /// Decided state for a summary's two terminal labels. `confirmed`
+    /// when the next user message reads as an affirmative ("Yes, book
+    /// it." / "Confirm" / etc.), `cancelled` when it cancels, nil
+    /// while the user hasn't acted. Pure look-up against the message
+    /// list — no separate decision cache needed because the user's
+    /// own message is the source of truth.
+    func summaryDecision(for message: ChatMessage) -> ConfirmationDecision? {
+        guard message.role == .assistant else { return nil }
+        guard let idx = messages.firstIndex(where: { $0.id == message.id }) else { return nil }
+        let later = messages.suffix(from: messages.index(after: idx))
+        guard let next = later.first(where: { $0.role == .user }) else { return nil }
+        let trimmed = next.text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed.hasPrefix("cancel") { return .cancelled }
+        return .confirmed
+    }
+
     private func hasUserMessageAfter(_ message: ChatMessage) -> Bool {
         guard let idx = messages.firstIndex(where: { $0.id == message.id }) else { return false }
         let later = messages.suffix(from: messages.index(after: idx))
@@ -293,11 +342,13 @@ final class ChatViewModel: ObservableObject {
     func _seedForTest(
         messages: [ChatMessage],
         suggestions: [String: [AssistantSuggestion]] = [:],
-        selections: [UUID: [InteractiveSelection]] = [:]
+        selections: [UUID: [InteractiveSelection]] = [:],
+        summaries: [UUID: ConfirmationSummary] = [:]
     ) {
         self.messages = messages
         self.suggestionsByTurn = suggestions
         self.selectionsByMessage = selections
+        self.summariesByMessage = summaries
     }
 
     private func markAssistantDelivered(id: UUID) {
