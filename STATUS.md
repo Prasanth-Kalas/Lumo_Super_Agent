@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/chat-suggested-chips-1-ios | 2026-05-01 | CHAT-SUGGESTED-CHIPS-1-IOS mirror Codex's assistant_suggestions SSE frame on iOS — chip strip below assistant questions, tap submits chip value as user message, suggestions clear on submit |
 
 ## Closed lanes
 
