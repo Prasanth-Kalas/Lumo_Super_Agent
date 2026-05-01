@@ -2,7 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/approval-natural-language-commit-1 | 2026-05-01 | APPROVAL-NATURAL-LANGUAGE-COMMIT-1 typed install-card approval/cancel commits the real install transaction |
+| Codex | Lumo_Super_Agent_codex | codex/web-compound-leg-detail-1 | 2026-05-02 | WEB-COMPOUND-LEG-DETAIL-1 web mirror of iOS compound leg detail expansion |
 
 ## Closed lanes
 

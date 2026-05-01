@@ -6,6 +6,7 @@ import {
   isLegStatusV2Status,
   type LegStatusV2Status,
 } from "../sse/leg-status.ts";
+import { coerceCompoundEvidence } from "../compound-leg-detail.ts";
 
 export interface CompoundDispatchLeg {
   leg_id: string;
@@ -22,6 +23,9 @@ export interface CompoundDispatchLeg {
    * server-side. Empty array on root legs.
    */
   depends_on: string[];
+  timestamp?: string | null;
+  provider_reference?: string | null;
+  evidence?: Record<string, string> | null;
 }
 
 export interface AssistantCompoundDispatchFrameValue {
@@ -49,6 +53,10 @@ export function buildAssistantCompoundDispatchFrame(
         description: descriptionForLeg(leg),
         status: normalizeDispatchStatus(leg.status),
         depends_on: Array.isArray(leg.depends_on) ? leg.depends_on.slice() : [],
+        provider_reference: leg.provider_reference ?? null,
+        evidence: coerceCompoundEvidence(
+          "evidence" in leg ? (leg as { evidence?: unknown }).evidence : null,
+        ),
       })),
   };
 }

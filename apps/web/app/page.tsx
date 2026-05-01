@@ -50,6 +50,10 @@ import CompoundLegStrip, {
   type CompoundLegStripPayload,
 } from "@/components/CompoundLegStrip";
 import {
+  coerceCompoundEvidence,
+  normalizeCompoundTimestamp,
+} from "@/lib/compound-leg-detail";
+import {
   ReservationConfirmationCard,
   type ReservationPayload,
 } from "@/components/ReservationConfirmationCard";
@@ -149,6 +153,8 @@ export default function Home() {
   >({});
   const [missionInstallStateByMission, setMissionInstallStateByMission] =
     useState<Record<string, Record<string, "done" | "cancelled">>>({});
+  const [compoundExpandedLegs, setCompoundExpandedLegs] =
+    useState<Record<string, boolean>>({});
 
   // Voice mode — see components/VoiceMode.tsx. `voiceEnabled` is the
   // master toggle, persisted across reloads. `handsFree` auto-restarts
@@ -908,7 +914,16 @@ export default function Home() {
 
                 {m.role === "assistant" && m.compoundDispatch ? (
                   <div className="pl-[18px]">
-                    <CompoundLegStrip payload={m.compoundDispatch} />
+                    <CompoundLegStrip
+                      payload={m.compoundDispatch}
+                      expandedLegIds={compoundExpandedLegs}
+                      onToggleLeg={(legId) =>
+                        setCompoundExpandedLegs((prev) => ({
+                          ...prev,
+                          [legId]: !prev[legId],
+                        }))
+                      }
+                    />
                   </div>
                 ) : null}
 
@@ -1256,6 +1271,15 @@ function assistantCompoundDispatchToUI(value: unknown): UICompoundDispatch | nul
         agent_display_name: agentDisplayName,
         description,
         status,
+        depends_on: Array.isArray(item["depends_on"])
+          ? item["depends_on"].filter((value): value is string => typeof value === "string")
+          : [],
+        timestamp: normalizeCompoundTimestamp(item["timestamp"]),
+        provider_reference:
+          typeof item["provider_reference"] === "string"
+            ? item["provider_reference"].trim()
+            : null,
+        evidence: coerceCompoundEvidence(item["evidence"]),
       };
     })
     .filter((item): item is UICompoundDispatch["legs"][number] => item !== null);

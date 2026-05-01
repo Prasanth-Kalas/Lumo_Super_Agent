@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CompoundLegDetailContent } from "./CompoundLegDetailContent";
+import {
+  coerceCompoundEvidence,
+  hasCompoundLegMetadata,
+  isCompoundTerminalStatus,
+  mergeCompoundLegMetadata,
+  normalizeCompoundTimestamp,
+  type CompoundLegDetailStatus,
+  type CompoundLegMetadata,
+} from "@/lib/compound-leg-detail";
 
-export type CompoundLegStripStatus =
-  | "pending"
-  | "in_flight"
-  | "committed"
-  | "failed"
-  | "rollback_pending"
-  | "rolled_back"
-  | "rollback_failed"
-  | "manual_review";
+export type CompoundLegStripStatus = CompoundLegDetailStatus;
 
 export interface CompoundLegStripLeg {
   leg_id: string;
@@ -18,6 +20,10 @@ export interface CompoundLegStripLeg {
   agent_display_name: string;
   description: string;
   status: CompoundLegStripStatus;
+  depends_on?: string[];
+  timestamp?: string | null;
+  provider_reference?: string | null;
+  evidence?: Record<string, string> | null;
 }
 
 export interface CompoundLegStripPayload {
@@ -29,34 +35,54 @@ export interface CompoundLegStripPayload {
 export interface CompoundLegStripProps {
   payload: CompoundLegStripPayload;
   streamUrl?: string | null;
+  expandedLegIds?: Record<string, boolean>;
+  onToggleLeg?: (legId: string) => void;
 }
-
-const TERMINAL_STATUSES = new Set<CompoundLegStripStatus>([
-  "committed",
-  "failed",
-  "rolled_back",
-  "rollback_failed",
-  "manual_review",
-]);
 
 export default function CompoundLegStrip({
   payload,
   streamUrl,
+  expandedLegIds,
+  onToggleLeg,
 }: CompoundLegStripProps) {
   const initialStatuses = useMemo(
     () => Object.fromEntries(payload.legs.map((leg) => [leg.leg_id, leg.status])),
     [payload.legs],
   );
+  const initialMetadata = useMemo(
+    () =>
+      Object.fromEntries(
+        payload.legs.map((leg) => [
+          leg.leg_id,
+          {
+            timestamp: leg.timestamp ?? null,
+            provider_reference: leg.provider_reference ?? null,
+            evidence: leg.evidence ?? null,
+          } satisfies CompoundLegMetadata,
+        ]),
+      ),
+    [payload.legs],
+  );
   const [statuses, setStatuses] =
     useState<Record<string, CompoundLegStripStatus>>(initialStatuses);
+  const [metadataByLeg, setMetadataByLeg] =
+    useState<Record<string, CompoundLegMetadata>>(initialMetadata);
+  const [localExpandedLegIds, setLocalExpandedLegIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setStatuses(initialStatuses);
   }, [initialStatuses]);
+  useEffect(() => {
+    setMetadataByLeg(initialMetadata);
+  }, [initialMetadata]);
 
   const settled = payload.legs.every((leg) =>
-    TERMINAL_STATUSES.has(statuses[leg.leg_id] ?? leg.status),
+    isCompoundTerminalStatus(statuses[leg.leg_id] ?? leg.status),
   );
+  const expanded = expandedLegIds ?? localExpandedLegIds;
+  const toggleLeg = onToggleLeg ?? ((legId: string) => {
+    setLocalExpandedLegIds((prev) => ({ ...prev, [legId]: !prev[legId] }));
+  });
 
   useEffect(() => {
     if (streamUrl === null) return;
@@ -72,6 +98,10 @@ export default function CompoundLegStrip({
       setStatuses((prev) => ({
         ...prev,
         [frame.leg_id]: frame.status,
+      }));
+      setMetadataByLeg((prev) => ({
+        ...prev,
+        [frame.leg_id]: mergeCompoundLegMetadata(prev[frame.leg_id], frame.metadata),
       }));
     });
     source.addEventListener("error", () => {
@@ -108,13 +138,11 @@ export default function CompoundLegStrip({
       <div className="divide-y divide-lumo-hair">
         {payload.legs.map((leg) => {
           const status = statuses[leg.leg_id] ?? leg.status;
-          return (
-            <div
-              key={leg.leg_id}
-              className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3"
-              data-leg-id={leg.leg_id}
-              data-status={status}
-            >
+          const metadata = metadataByLeg[leg.leg_id] ?? {};
+          const canExpand = hasCompoundLegMetadata(metadata);
+          const isExpanded = canExpand && expanded[leg.leg_id] === true;
+          const row = (
+            <>
               <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-lumo-hair bg-lumo-inset text-[15px] text-lumo-fg">
                 {agentGlyph(leg.agent_id)}
               </div>
@@ -126,20 +154,68 @@ export default function CompoundLegStrip({
                   {leg.agent_display_name}
                 </div>
               </div>
-              <span
-                className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusClass(
-                  status,
-                )}`}
-              >
+              <div className="flex items-center gap-2">
                 <span
-                  className={
-                    status === "in_flight" || status === "rollback_pending"
-                      ? "inline-block h-1.5 w-1.5 rounded-full bg-current mr-1.5 animate-pulse align-middle"
-                      : "hidden"
-                  }
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusClass(
+                    status,
+                  )}`}
+                >
+                  <span
+                    className={
+                      status === "in_flight" || status === "rollback_pending"
+                        ? "inline-block h-1.5 w-1.5 rounded-full bg-current mr-1.5 animate-pulse align-middle"
+                        : "hidden"
+                    }
+                  />
+                  {statusLabel(status)}
+                </span>
+                {canExpand ? (
+                  <span
+                    aria-hidden
+                    className={`text-[18px] leading-none text-lumo-fg-low transition-transform duration-150 ${
+                      isExpanded ? "rotate-90" : ""
+                    }`}
+                  >
+                    ›
+                  </span>
+                ) : null}
+              </div>
+            </>
+          );
+          return (
+            <div
+              key={leg.leg_id}
+              data-leg-id={leg.leg_id}
+              data-status={status}
+            >
+              {canExpand ? (
+                <button
+                  type="button"
+                  className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-lumo-elevated/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lumo-edge"
+                  aria-expanded={isExpanded}
+                  aria-controls={`compound-leg-detail-${leg.leg_id}`}
+                  onClick={() => toggleLeg(leg.leg_id)}
+                  data-testid={`compound-leg-strip-row-${leg.leg_id}`}
+                >
+                  {row}
+                </button>
+              ) : (
+                <div
+                  className="grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3"
+                  data-testid={`compound-leg-strip-row-${leg.leg_id}`}
+                >
+                  {row}
+                </div>
+              )}
+              {isExpanded ? (
+                <CompoundLegDetailContent
+                  leg={leg}
+                  status={status}
+                  metadata={metadata}
+                  settled={settled}
+                  allLegs={payload.legs}
                 />
-                {statusLabel(status)}
-              </span>
+              ) : null}
             </div>
           );
         })}
@@ -148,13 +224,26 @@ export default function CompoundLegStrip({
   );
 }
 
-function parseLegStatusFrame(data: string): { leg_id: string; status: CompoundLegStripStatus } | null {
+function parseLegStatusFrame(data: string): {
+  leg_id: string;
+  status: CompoundLegStripStatus;
+  metadata: CompoundLegMetadata;
+} | null {
   try {
     const frame = JSON.parse(data) as Record<string, unknown>;
     const legId = typeof frame.leg_id === "string" ? frame.leg_id : "";
     const status = typeof frame.status === "string" ? frame.status : "";
     if (!legId || !isCompoundLegStripStatus(status)) return null;
-    return { leg_id: legId, status };
+    return {
+      leg_id: legId,
+      status,
+      metadata: {
+        timestamp: normalizeCompoundTimestamp(frame.timestamp),
+        provider_reference:
+          typeof frame.provider_reference === "string" ? frame.provider_reference : null,
+        evidence: coerceCompoundEvidence(frame.evidence),
+      },
+    };
   } catch {
     return null;
   }

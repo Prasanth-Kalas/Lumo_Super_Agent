@@ -134,7 +134,7 @@ t("status normalization stays within SSE v2 status vocabulary", () => {
 t("chat shell parses, stores, replays, and renders compound dispatch frames", () => {
   assert.match(page, /assistantCompoundDispatchToUI\(frame\.value\)/);
   assert.match(page, /raw\["compoundDispatch"\]/);
-  assert.match(page, /CompoundLegStrip payload=\{m\.compoundDispatch\}/);
+  assert.match(page, /<CompoundLegStrip[\s\S]*payload=\{m\.compoundDispatch\}/);
   assert.match(historyReplay, /event\.frame_type === "assistant_compound_dispatch"/);
   assert.match(historyReplay, /compoundDispatch/);
 });
