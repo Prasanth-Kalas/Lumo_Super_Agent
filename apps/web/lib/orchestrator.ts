@@ -91,7 +91,9 @@ import {
 import {
   bookingProfileSnapshot,
   bookingProfileSnapshotForSession,
+  bookingProfileSnapshotToConfirmationPayload,
   bookingProfileSnapshotToPii,
+  type BookingProfileSnapshot,
 } from "./booking-profile.js";
 import {
   forgetFact,
@@ -1292,6 +1294,10 @@ async function runTurnInner(
   // leg summary from a tool result, emit it now. (For compound trips the
   // emit happens above; the route handler only emits this frame once.)
   if (!draft_trip_id && renderedSummary) {
+    renderedSummary = withBookingConfirmationProfilePayload(
+      renderedSummary,
+      bookingProfile,
+    );
     emit({ type: "summary", value: renderedSummary });
   }
   const suggestionPlanningStep = inferAssistantSuggestionPlanningStep({
@@ -2054,6 +2060,25 @@ function inferAssistantSuggestionPlanningStep(input: {
     return "post_booking";
   }
   return "clarification";
+}
+
+function withBookingConfirmationProfilePayload(
+  summary: ConfirmationSummary,
+  bookingProfile: BookingProfileSnapshot | null,
+): ConfirmationSummary {
+  if (!bookingProfile || summary.kind !== "structured-itinerary" || !isRecord(summary.payload)) {
+    return summary;
+  }
+  return {
+    ...summary,
+    // Display-only enrichment. The hash remains the agent-authoritative
+    // hash for the original itinerary payload, so the money gate still
+    // compares the exact summary hash the pricing tool produced.
+    payload: {
+      ...summary.payload,
+      ...bookingProfileSnapshotToConfirmationPayload(bookingProfile),
+    },
+  };
 }
 
 // ──────────────────────────────────────────────────────────────────────────

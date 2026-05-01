@@ -8,7 +8,9 @@
  * shape is the canonical summary the Flight Agent hashes (see
  * apps/flight-agent/lib/duffel-stub.ts :: canonicalItinerarySummary).
  * This component is display-only — it MUST NOT mutate or re-shape
- * the payload, or the hash check in the shell will fail.
+ * the payload. The server may add display-only profile fields to the
+ * payload; the summary hash remains the agent-authoritative itinerary
+ * hash used by the shell's money gate.
  *
  * Confirm / Cancel fire callbacks the parent uses to send the next
  * user message. The parent is responsible for locking the card after
@@ -18,7 +20,7 @@
  * ReservationConfirmationCard so the two money-gate surfaces feel of
  * a piece.
  */
-import { useMemo } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 
 export interface ItinerarySegment {
   origin: string; // IATA
@@ -41,12 +43,18 @@ export interface ItineraryPayload {
   total_amount: string; // decimal string from agent ("287.00")
   total_currency: string; // ISO 4217
   slices: ItinerarySlice[];
+  traveler_summary?: string | null;
+  payment_summary?: string | null;
+  prefilled?: boolean;
+  missing_fields?: string[];
 }
 
 export interface ItineraryConfirmationCardProps {
   payload: ItineraryPayload;
   onConfirm: () => void;
   onCancel: () => void;
+  onDifferentTraveler?: () => void;
+  onMissingFieldsSubmit?: (message: string) => void;
   /** Disable both buttons (busy / already decided). */
   disabled?: boolean;
   /** Optional deciding-state label shown in place of buttons. */
@@ -129,6 +137,8 @@ export function ItineraryConfirmationCard({
   payload,
   onConfirm,
   onCancel,
+  onDifferentTraveler,
+  onMissingFieldsSubmit,
   disabled,
   decidedLabel,
 }: ItineraryConfirmationCardProps) {
@@ -136,6 +146,22 @@ export function ItineraryConfirmationCard({
     () => formatMoney(payload.total_amount, payload.total_currency),
     [payload.total_amount, payload.total_currency],
   );
+  const missingFields = useMemo(
+    () => normalizeMissingFields(payload.missing_fields ?? []),
+    [payload.missing_fields],
+  );
+  const [missingValues, setMissingValues] = useState<Record<string, string>>({});
+
+  function submitMissingFields(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!onMissingFieldsSubmit || disabled) return;
+    const details = missingFields
+      .map((field) => [field, (missingValues[field] ?? "").trim()] as const)
+      .filter(([, value]) => value.length > 0)
+      .map(([field, value]) => `${missingFieldLabel(field)}: ${value}`);
+    if (details.length === 0) return;
+    onMissingFieldsSubmit(`Here are the missing booking details: ${details.join("; ")}`);
+  }
 
   return (
     <div
@@ -164,6 +190,72 @@ export function ItineraryConfirmationCard({
           </div>
         </div>
       </div>
+
+      {payload.traveler_summary || payload.payment_summary || missingFields.length > 0 ? (
+        <div className="border-b border-lumo-hair px-5 py-3.5 space-y-3">
+          {payload.prefilled ? (
+            <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-low font-medium">
+              Prefilled from approved profile
+            </div>
+          ) : null}
+          {payload.traveler_summary ? (
+            <ProfileSummaryRow
+              marker={initialFor(payload.traveler_summary)}
+              label="Traveler"
+              value={payload.traveler_summary}
+            />
+          ) : null}
+          {payload.payment_summary ? (
+            <ProfileSummaryRow
+              marker="CARD"
+              label="Payment"
+              value={payload.payment_summary}
+            />
+          ) : null}
+          {missingFields.length > 0 ? (
+            <form
+              onSubmit={submitMissingFields}
+              className="rounded-lg border border-lumo-hair bg-lumo-inset px-3 py-3"
+            >
+              <div className="text-[11px] font-medium text-lumo-fg-mid">
+                Need: {missingFields.map(missingFieldLabel).join(", ")}
+              </div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {missingFields.map((field) => (
+                  <label key={field} className="text-[11px] text-lumo-fg-low">
+                    {missingFieldLabel(field)}
+                    <input
+                      type="text"
+                      value={missingValues[field] ?? ""}
+                      onChange={(event) =>
+                        setMissingValues((prev) => ({
+                          ...prev,
+                          [field]: event.currentTarget.value,
+                        }))
+                      }
+                      disabled={disabled}
+                      placeholder={missingFieldPlaceholder(field)}
+                      className="mt-1 h-8 w-full rounded-md border border-lumo-hair bg-lumo-bg px-2.5 text-[12.5px] text-lumo-fg outline-none transition-colors placeholder:text-lumo-fg-low focus:border-lumo-edge disabled:opacity-50"
+                    />
+                  </label>
+                ))}
+              </div>
+              {onMissingFieldsSubmit ? (
+                <button
+                  type="submit"
+                  disabled={
+                    disabled ||
+                    missingFields.every((field) => !(missingValues[field] ?? "").trim())
+                  }
+                  className="mt-2 h-8 rounded-md border border-lumo-hair px-3 text-[12px] font-medium text-lumo-fg-mid transition-colors hover:bg-lumo-elevated hover:text-lumo-fg disabled:opacity-40"
+                >
+                  Send details
+                </button>
+              ) : null}
+            </form>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Slices & segments. One row per segment. */}
       <div className="px-5 py-4 divide-y divide-lumo-hair">
@@ -232,6 +324,16 @@ export function ItineraryConfirmationCard({
           </div>
         ) : (
           <div className="flex items-center gap-1.5">
+            {onDifferentTraveler ? (
+              <button
+                type="button"
+                onClick={onDifferentTraveler}
+                disabled={disabled}
+                className="h-8 px-3 rounded-md text-[12.5px] font-medium text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors disabled:opacity-40"
+              >
+                Different traveler
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onCancel}
@@ -253,4 +355,57 @@ export function ItineraryConfirmationCard({
       </div>
     </div>
   );
+}
+
+function ProfileSummaryRow({
+  marker,
+  label,
+  value,
+}: {
+  marker: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="grid grid-cols-[auto_1fr] items-center gap-3">
+      <div className="flex h-8 min-w-8 items-center justify-center rounded-md border border-lumo-hair bg-lumo-elevated px-2 font-mono text-[10px] font-semibold text-lumo-fg-mid">
+        {marker}
+      </div>
+      <div className="min-w-0">
+        <div className="text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-low font-medium">
+          {label}
+        </div>
+        <div className="mt-0.5 truncate text-[13px] text-lumo-fg">{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function normalizeMissingFields(fields: string[]): string[] {
+  return Array.from(new Set(fields.map((field) => field.trim()).filter(Boolean)));
+}
+
+function missingFieldLabel(field: string): string {
+  if (field === "payment_method_id") return "Payment method";
+  if (field === "traveler_profile") return "Traveler profile";
+  if (field === "passport_optional") return "Passport";
+  if (field === "dob") return "Date of birth";
+  return field
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function missingFieldPlaceholder(field: string): string {
+  if (field === "payment_method_id") return "Default card or payment method";
+  if (field === "traveler_profile") return "Traveler name and details";
+  if (field === "email") return "traveler@example.com";
+  if (field === "phone") return "+1 ...";
+  if (field === "dob") return "YYYY-MM-DD";
+  return "";
+}
+
+function initialFor(value: string): string {
+  return value.trim().charAt(0).toUpperCase() || "P";
 }

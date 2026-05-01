@@ -70,6 +70,13 @@ export interface BookingProfileSnapshot {
   prefill_summary: string | null;
 }
 
+export interface BookingConfirmationProfilePayload {
+  traveler_summary: string | null;
+  payment_summary: string | null;
+  prefilled: boolean;
+  missing_fields: BookingProfileFieldName[];
+}
+
 export interface BookingProfileSnapshotRows {
   userId: string;
   grantedScopes: string[];
@@ -225,6 +232,28 @@ export function missingBookingProfileFields(
   snapshot: BookingProfileSnapshot | null,
 ): BookingProfileFieldName[] {
   return snapshot?.required_missing_fields ?? [];
+}
+
+export function bookingProfileSnapshotToConfirmationPayload(
+  snapshot: BookingProfileSnapshot | null,
+): BookingConfirmationProfilePayload {
+  if (!snapshot) {
+    return {
+      traveler_summary: null,
+      payment_summary: null,
+      prefilled: false,
+      missing_fields: [],
+    };
+  }
+  return {
+    traveler_summary: buildTravelerConfirmationSummary(snapshot.fields),
+    payment_summary:
+      snapshot.fields.payment_method_id.status === "present"
+        ? snapshot.fields.payment_method_id.value?.label ?? null
+        : null,
+    prefilled: snapshot.required_missing_fields.length === 0,
+    missing_fields: snapshot.required_missing_fields,
+  };
 }
 
 export function applyBookingProfileDefaults(
@@ -412,6 +441,24 @@ function buildPrefillSummary(fields: BookingProfileSnapshot["fields"]): string |
     parts.push(fields.payment_method_id.value.label);
   }
   return parts.length ? `Booking for ${parts.join(" · ")}` : null;
+}
+
+function buildTravelerConfirmationSummary(
+  fields: BookingProfileSnapshot["fields"],
+): string | null {
+  const parts: string[] = [];
+  if (fields.name.status === "present" && fields.name.value) {
+    parts.push(String(fields.name.value));
+  } else if (
+    fields.traveler_profile.status === "present" &&
+    fields.traveler_profile.label
+  ) {
+    parts.push(fields.traveler_profile.label);
+  }
+  if (fields.email.status === "present" && fields.email.value) {
+    parts.push(String(fields.email.value));
+  }
+  return parts.length ? parts.join(" · ") : null;
 }
 
 function stringAt(row: Record<string, unknown>, key: string): string | null {

@@ -878,6 +878,8 @@ export default function Home() {
                       payload={m.summary.payload as ItineraryPayload}
                       onConfirm={() => void sendText("Yes, book it.")}
                       onCancel={() => void sendText("Cancel — don't book that.")}
+                      onDifferentTraveler={() => void sendText("Use a different traveler")}
+                      onMissingFieldsSubmit={(message) => void sendText(message)}
                       disabled={busy || isReplayLoading || !!decided?.exists}
                       decidedLabel={decided?.kind ?? null}
                     />
