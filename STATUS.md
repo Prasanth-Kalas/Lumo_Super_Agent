@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/web-recents-timestamp-port-1 | 2026-05-02 | WEB-RECENTS-TIMESTAMP-PORT-1 port iOS-style recents time-since labels to web |
 
 ## Closed lanes
 

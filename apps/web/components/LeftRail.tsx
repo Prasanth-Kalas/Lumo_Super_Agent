@@ -24,6 +24,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { formatTimeSince } from "@/lib/format-time-since";
 
 interface RecentSession {
   session_id: string;
@@ -241,11 +242,15 @@ export default function LeftRail({
                         <div className="line-clamp-2">
                           {s.preview ?? <em className="text-lumo-fg-low">(empty)</em>}
                         </div>
-                        {s.trip_count > 0 ? (
-                          <div className="mt-0.5 inline-flex items-center text-[10px] text-g-blue">
-                            {s.trip_count} trip{s.trip_count === 1 ? "" : "s"}
-                          </div>
-                        ) : null}
+                        <div className="mt-0.5 truncate text-[10.5px] text-lumo-fg-low">
+                          <span>{formatTimeSince(s.last_activity_at)}</span>
+                          {s.trip_count > 0 ? (
+                            <span>
+                              {" "}
+                              · {s.trip_count} trip{s.trip_count === 1 ? "" : "s"}
+                            </span>
+                          ) : null}
+                        </div>
                       </a>
                     </li>
                   );

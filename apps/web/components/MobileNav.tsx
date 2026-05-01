@@ -33,10 +33,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { LumoWordmark } from "@/components/BrandMark";
+import { formatTimeSince } from "@/lib/format-time-since";
 
 interface RecentSession {
   session_id: string;
   preview: string | null;
+  last_activity_at: string;
   trip_count: number;
 }
 
@@ -84,6 +86,7 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
           sessions: Array<{
             session_id: string;
             preview: string | null;
+            last_activity_at: string;
             trip_ids: string[];
           }>;
         };
@@ -92,6 +95,7 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
           j.sessions.slice(0, 8).map((s) => ({
             session_id: s.session_id,
             preview: s.preview,
+            last_activity_at: s.last_activity_at,
             trip_count: s.trip_ids.length,
           })),
         );
@@ -223,11 +227,15 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
                       <span className="truncate block">
                         {s.preview ?? <em className="text-lumo-fg-low">(empty)</em>}
                       </span>
-                      {s.trip_count > 0 ? (
-                        <span className="block mt-0.5 text-[11.5px] text-lumo-accent">
-                          {s.trip_count} trip{s.trip_count === 1 ? "" : "s"}
-                        </span>
-                      ) : null}
+                      <span className="block mt-0.5 truncate text-[11.5px] text-lumo-fg-low">
+                        {formatTimeSince(s.last_activity_at)}
+                        {s.trip_count > 0 ? (
+                          <>
+                            {" "}
+                            · {s.trip_count} trip{s.trip_count === 1 ? "" : "s"}
+                          </>
+                        ) : null}
+                      </span>
                     </Link>
                   </li>
                 ))
