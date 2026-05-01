@@ -122,6 +122,38 @@ case "$variant" in
         capture confirmation-card dark \
             -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
         ;;
+    ios-composer-and-drawer-screens-1)
+        # IOS-COMPOSER-AND-DRAWER-SCREENS-1: composer mic↔send swap +
+        # drawer screens (Memory / Marketplace / History). Captures
+        # 10 PNGs total — 4 composer pair (light + dark, empty + with
+        # text) plus 6 drawer screens (light only per brief).
+        echo "[shots] composer · empty (mic visible)"
+        capture composer/composer-empty light -LumoAutoSignIn YES
+        capture composer/composer-empty dark  -LumoAutoSignIn YES
+        echo "[shots] composer · with text (send visible)"
+        capture composer/composer-with-text light \
+            -LumoAutoSignIn YES -LumoStartChatInput "Plan a weekend trip to Vegas"
+        capture composer/composer-with-text dark \
+            -LumoAutoSignIn YES -LumoStartChatInput "Plan a weekend trip to Vegas"
+        echo "[shots] drawer · memory list"
+        capture screens/memory-list light \
+            -LumoAutoSignIn YES -LumoStartDestination memory -LumoSeedDrawerScreens YES
+        echo "[shots] drawer · memory edit"
+        capture screens/memory-edit light \
+            -LumoAutoSignIn YES -LumoStartDestination memory-edit -LumoSeedDrawerScreens YES
+        echo "[shots] drawer · marketplace list"
+        capture screens/marketplace-list light \
+            -LumoAutoSignIn YES -LumoStartDestination marketplace -LumoSeedDrawerScreens YES
+        echo "[shots] drawer · marketplace detail"
+        capture screens/marketplace-detail light \
+            -LumoAutoSignIn YES -LumoStartDestination marketplace-detail -LumoSeedDrawerScreens YES
+        echo "[shots] drawer · history list"
+        capture screens/history-list light \
+            -LumoAutoSignIn YES -LumoStartDestination history -LumoSeedDrawerScreens YES
+        echo "[shots] drawer · history empty"
+        capture screens/history-empty light \
+            -LumoAutoSignIn YES -LumoStartDestination history -LumoSeedDrawerScreens empty
+        ;;
     chip-overflow-scroll-1)
         # CHIP-OVERFLOW-SCROLL-1: trailing-edge fade overlay on the
         # SuggestionChips horizontal scroll strip so the user sees

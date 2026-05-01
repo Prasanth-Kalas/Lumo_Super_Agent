@@ -293,17 +293,22 @@ struct ChatView: View {
 
     // MARK: - Input bar
     //
-    // IOS-MIRROR-WEB-1 reshapes the composer to match the web chat
-    // composer (apps/web/app/page.tsx): a bordered rounded block
-    // pinned to the bottom, with the text field on top and an
-    // explicit toolbar row beneath holding mic + Send. Both buttons
-    // are always visible — Send disables when the input is empty or
-    // a stream is in flight, mic stays available for push-to-talk.
+    // IOS-COMPOSER-AND-DRAWER-SCREENS-1 Phase A re-pivots from the
+    // IOS-MIRROR-WEB-1 always-both layout (mic + Send always visible
+    // in a toolbar row) to the WhatsApp / Telegram / Signal pattern:
+    // single rounded text field with one trailing icon that swaps
+    // based on input state. Empty → mic; non-empty → paperplane.
+    // Listening overlays a pulsing waveform icon in the same slot.
+    //
+    // The decision is documented in
+    // docs/doctrines/mic-vs-send-button.md as the canonical Lumo
+    // posture; rationale baked into ChatComposerTrailingButton's doc
+    // comment too. Voice + send wiring behaviour is unchanged — only
+    // the icon's position and visibility flips.
 
     private var inputBar: some View {
         VStack(spacing: 0) {
-            // Bordered composer block
-            VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: LumoSpacing.sm) {
                 LumoTextField(
                     "Ask Lumo to book a flight, order dinner, plan a trip…",
                     text: $viewModel.input,
@@ -311,47 +316,21 @@ struct ChatView: View {
                     onSubmit: { viewModel.send(mode: .text) }
                 )
                 .focused($inputFocused)
-                .padding(.horizontal, LumoSpacing.md)
-                .padding(.top, LumoSpacing.md)
+                .frame(minHeight: 28)
 
-                // Toolbar row — mic on left, Send on right.
-                HStack(spacing: LumoSpacing.sm) {
-                    VoicePushToTalkButton(
-                        isListening: voiceComposer.state.isListening,
-                        isDisabled: viewModel.isStreaming,
-                        onTap: { Task { await voiceComposer.tapToTalk() } },
-                        onLongPressBegan: { Task { await voiceComposer.pressBegan() } },
-                        onLongPressEnded: { voiceComposer.release() }
-                    )
-
-                    Spacer()
-
-                    Button(action: handleSendTap) {
-                        HStack(spacing: LumoSpacing.xs) {
-                            Text("Send")
-                                .font(LumoFonts.callout.weight(.medium))
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 13, weight: .semibold))
-                        }
-                        // Inversion pair — bg uses the foreground color
-                        // (label) and text uses the page background.
-                        // Resolves to dark-text-on-light-pill in dark
-                        // mode and light-text-on-dark-pill in light
-                        // mode. Mirrors web's `bg-lumo-fg text-lumo-bg`.
-                        .foregroundStyle(canSend ? LumoColors.background : LumoColors.labelTertiary)
-                        .padding(.horizontal, LumoSpacing.md)
-                        .frame(height: 36)
-                        .background(
-                            Capsule().fill(canSend ? LumoColors.label : LumoColors.surfaceElevated)
-                        )
-                    }
-                    .accessibilityLabel("Send message")
-                    .accessibilityIdentifier("chat.send")
-                    .disabled(!canSend)
-                }
-                .padding(.horizontal, LumoSpacing.md)
-                .padding(.vertical, LumoSpacing.sm)
+                ChatComposerTrailingButton(
+                    mode: ChatComposerTrailingButton.Mode.from(
+                        input: viewModel.input,
+                        isListening: voiceComposer.state.isListening
+                    ),
+                    isDisabled: viewModel.isStreaming && !voiceComposer.state.isListening,
+                    onTap: handleTrailingTap,
+                    onLongPressBegan: { Task { await voiceComposer.pressBegan() } },
+                    onLongPressEnded: { voiceComposer.release() }
+                )
             }
+            .padding(.horizontal, LumoSpacing.md)
+            .padding(.vertical, LumoSpacing.sm + 2)
             .background(
                 RoundedRectangle(cornerRadius: LumoRadius.lg)
                     .fill(LumoColors.surface)
@@ -364,6 +343,19 @@ struct ChatView: View {
             .padding(.bottom, LumoSpacing.sm)
         }
         .background(LumoColors.background.ignoresSafeArea(edges: .bottom))
+    }
+
+    private func handleTrailingTap() {
+        let mode = ChatComposerTrailingButton.Mode.from(
+            input: viewModel.input,
+            isListening: voiceComposer.state.isListening
+        )
+        switch mode {
+        case .mic, .waveform:
+            Task { await voiceComposer.tapToTalk() }
+        case .send:
+            handleSendTap()
+        }
     }
 
     // MARK: - Voice → chat handoff
