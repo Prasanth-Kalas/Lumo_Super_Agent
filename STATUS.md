@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-compound-leg-detail-1 | 2026-05-01 | IOS-COMPOUND-LEG-DETAIL-1 tap-to-expand per-leg detail in CompoundLegStrip — pending/in_flight/committed/failed/manual_review content branches + live elapsed-time ticker; iOS gets it first, web port follows |
 
 ## Closed lanes
 
