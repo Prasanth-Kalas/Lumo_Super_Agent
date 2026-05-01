@@ -88,6 +88,11 @@ import {
   type AssistantSuggestionsFrameValue,
 } from "./chat-suggestions.js";
 import {
+  bookingProfileSnapshot,
+  bookingProfileSnapshotForSession,
+  bookingProfileSnapshotToPii,
+} from "./booking-profile.js";
+import {
   forgetFact,
   getProfile,
   listHighConfidencePatterns,
@@ -376,6 +381,16 @@ async function runTurnInner(
   for (const agentId of sessionConnectedAgentIds) connectedAgentIds.add(agentId);
   const dispatchReadyAgentIds = new Set(installedAgentIds);
   for (const agentId of sessionConnectedAgentIds) dispatchReadyAgentIds.add(agentId);
+  const connectedApprovalScopes = sessionApprovals
+    .filter((approval) => approval.connected_at !== null)
+    .flatMap((approval) => approval.granted_scopes);
+  const bookingProfile = authenticated && connectedApprovalScopes.length > 0
+    ? await bookingProfileSnapshot(input.user_id, connectedApprovalScopes)
+    : null;
+  const userPiiForDispatch = {
+    ...input.user_pii,
+    ...bookingProfileSnapshotToPii(bookingProfile),
+  };
 
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
@@ -664,6 +679,7 @@ async function runTurnInner(
         patterns: patternsForPrompt,
       },
       ambient: input.ambient,
+      bookingProfile,
     });
     await systemPromptSpan.end({ status: "ok" });
   } catch (error) {
@@ -1032,7 +1048,7 @@ async function runTurnInner(
         device_kind: input.device_kind,
         prior_summary: renderedSummary ?? priorSummary,
         user_confirmed: userConfirmed,
-        user_pii: input.user_pii,
+        user_pii: userPiiForDispatch,
       };
       // MCP branch. Tool names starting with `mcp__` live in the
       // MCP namespace — route to the MCP dispatcher instead of the
@@ -1341,6 +1357,14 @@ export async function dispatchConfirmedTrip(
   emit: EmitFrame,
 ): Promise<void> {
   const registry = await ensureRegistry();
+  const bookingProfile = input.user_id !== "anon"
+    ? await bookingProfileSnapshotForSession(input.user_id, input.session_id)
+    : null;
+  const userPiiForDispatch = {
+    ...input.user_pii,
+    ...bookingProfileSnapshotToPii(bookingProfile),
+  };
+  const dispatchInput: DispatchTripInput = { ...input, user_pii: userPiiForDispatch };
 
   // Mark the trip as dispatching. confirmTrip was already called by the
   // route handler (it needs the hash equality check wired into the gate).
@@ -1398,7 +1422,7 @@ export async function dispatchConfirmedTrip(
         dispatchOneLegForward({
           leg,
           trip,
-          input,
+          input: dispatchInput,
           emit,
         }),
       ),
@@ -1469,18 +1493,18 @@ export async function dispatchConfirmedTrip(
       step.tool_name,
       step.body as unknown as Record<string, unknown>,
       {
-        user_id: input.user_id,
-        session_id: input.session_id,
+        user_id: dispatchInput.user_id,
+        session_id: dispatchInput.session_id,
         turn_id,
-        idempotency_key: `${input.session_id}:trip_${input.trip_id}:rollback_leg_${step.order}`,
-        region: input.user_region,
-        device_kind: input.device_kind,
+        idempotency_key: `${dispatchInput.session_id}:trip_${dispatchInput.trip_id}:rollback_leg_${step.order}`,
+        region: dispatchInput.user_region,
+        device_kind: dispatchInput.device_kind,
         prior_summary: null,
         // Cancel tools are idempotent and do not go through the
         // money-gate (cost_tier !== "money"), so user_confirmed is not
         // meaningful — we pass true defensively.
         user_confirmed: true,
-        user_pii: input.user_pii,
+        user_pii: dispatchInput.user_pii,
       },
       {},
       (info) =>

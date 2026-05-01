@@ -607,7 +607,7 @@ function buildDuffelFlightRouting(): Record<string, ToolRoutingEntry> {
       cost_tier: "money",
       operation_id: "book_flight",
       requires_confirmation: "structured-reservation",
-      pii_required: ["name", "email", "phone", "dob", "payment_method_id"],
+      pii_required: ["name", "email", "phone", "dob", "payment_method_id", "traveler_profile"],
     },
     duffel_cancel_flight: {
       ...common,

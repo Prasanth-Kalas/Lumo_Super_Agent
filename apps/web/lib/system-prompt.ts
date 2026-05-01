@@ -6,6 +6,10 @@
 import type { RegistryEntry } from "./agent-registry.js";
 import { VOICE_MODE_PROMPT } from "./voice-format.js";
 import type { BehaviorPattern, UserFact, UserProfile } from "./memory.js";
+import {
+  bookingProfileSnapshotToPrompt,
+  type BookingProfileSnapshot,
+} from "./booking-profile-core.js";
 
 export interface AmbientContext {
   /** User's browser-reported local time, ISO string. */
@@ -49,6 +53,7 @@ export function buildSystemPrompt(opts: {
    * hands us the ephemeral bag and we thread it into the prompt.
    */
   ambient?: AmbientContext;
+  bookingProfile?: BookingProfileSnapshot | null;
 }): string {
   const agentLines = opts.agents
     .map(
@@ -70,6 +75,7 @@ export function buildSystemPrompt(opts: {
 
   const memoryBlock = formatMemoryBlock(opts.memory);
   const ambientBlock = formatAmbientBlock(opts.ambient);
+  const bookingProfileBlock = bookingProfileSnapshotToPrompt(opts.bookingProfile ?? null);
 
   return `You are Lumo, a universal personal concierge.
 
@@ -80,6 +86,7 @@ USER REGION: ${opts.user_region}
 ${opts.user_first_name ? `USER: ${opts.user_first_name}` : ""}
 ${ambientBlock}
 ${memoryBlock}
+${bookingProfileBlock}
 CAPABILITIES YOU HAVE (via tools):
 ${agentLines || "  (none currently registered)"}
 

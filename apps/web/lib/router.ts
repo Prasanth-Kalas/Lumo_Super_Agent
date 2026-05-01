@@ -35,6 +35,7 @@ import {
   getConnectedSessionAppApproval,
   isFirstPartyLumoApp,
 } from "./session-app-approvals.js";
+import { applyBookingProfileDefaults } from "./booking-profile.js";
 import { dispatchInternalTool, isInternalAgent } from "./integrations/registry.js";
 import {
   evaluateRuntimePolicy,
@@ -282,6 +283,8 @@ export async function dispatchToolCall(
     );
   }
 
+  const argsForDispatch = applyBookingProfileDefaults(args, piiPayload);
+
   const finish = (outcome: DispatchOutcome): DispatchOutcome => {
     void recordRuntimeUsage({
       user_id: ctx.user_id,
@@ -331,7 +334,7 @@ export async function dispatchToolCall(
   // identity via the Bearer token). Everything else — confirmation
   // gate, circuit-breaker accounting, latency tracking — still runs.
   if (isInternalAgent(agent.manifest.agent_id)) {
-    if (!authHeader) {
+    if (!authHeader && !(hasSessionConnection && isFirstPartyLumoApp(agent.manifest))) {
       return finish(
         failure(
           "connection_required",
@@ -342,11 +345,11 @@ export async function dispatchToolCall(
     }
     try {
       // authHeader is "Bearer <token>"; strip the prefix.
-      const access_token = authHeader.slice("Bearer ".length);
+      const access_token = authHeader ? authHeader.slice("Bearer ".length) : "";
       const result = await dispatchInternalTool({
         tool_name: toolName,
         access_token,
-        args,
+        args: argsForDispatch,
         user_id: ctx.user_id,
       });
       recordSuccess(routing.agent_id);
@@ -376,7 +379,7 @@ export async function dispatchToolCall(
     routing.http_method === "GET" || routing.http_method === "DELETE"
       ? undefined
       : JSON.stringify({
-          ...args,
+          ...argsForDispatch,
           _pii: piiPayload,
           _ctx: {
             region: ctx.region,

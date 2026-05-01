@@ -54,6 +54,10 @@ import { recordEvent, type EventFrameType } from "@/lib/events";
 import { getServerUser } from "@/lib/auth";
 import { resolveCardOutcome } from "@/lib/mission-execution";
 import { resolveLatestInputGateForSession } from "@/lib/mission-gate-resolution";
+import {
+  bookingProfileSnapshotForSession,
+  bookingProfileSnapshotToPii,
+} from "@/lib/booking-profile";
 
 export const runtime = "nodejs"; // orchestrator uses Anthropic SDK + node:crypto
 export const dynamic = "force-dynamic";
@@ -116,18 +120,23 @@ export async function POST(req: NextRequest): Promise<Response> {
   const user_region = body.region ?? "US";
   const device_kind = body.device_kind ?? "web";
 
-  // user_pii now pulls name/email from the auth'd user. More fields
-  // (phone, address, payment_method_id) will come from a profile form
-  // we haven't built yet — the router filter intersects this with the
-  // agent's pii_scope before sending.
+  const bookingProfile = user_id !== "anon"
+    ? await bookingProfileSnapshotForSession(user_id, body.session_id)
+    : null;
+
+  // user_pii starts with auth name/email, then adds booking details the
+  // user already approved for this session (default payment method,
+  // traveler profile, etc.). The router still intersects this with each
+  // agent's pii_scope before sending anything.
   const user_pii: Record<string, unknown> = authedUser
     ? {
         email: authedUser.email,
         name:
           (authedUser.user_metadata as { full_name?: string } | null)
             ?.full_name ?? authedUser.email,
+        ...bookingProfileSnapshotToPii(bookingProfile),
       }
-    : {};
+    : bookingProfileSnapshotToPii(bookingProfile);
 
   // Record the inbound user message as an audit event. We record the
   // WHOLE last user message so replay can re-feed the orchestrator
