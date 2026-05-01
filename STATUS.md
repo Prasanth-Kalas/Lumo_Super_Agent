@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code Python | Lumo_Super_Agent_python | claude-code-python/mlservice-plan-contract-1 | 2026-05-02 | MLSERVICE-PLAN-CONTRACT-1 define cross-language /plan endpoint contract — Pydantic schemas + stub FastAPI route + codegen TS types so codex can build the parallel-write client without waiting |
 
 ## Closed lanes
 
