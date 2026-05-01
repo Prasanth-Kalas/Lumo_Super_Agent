@@ -218,6 +218,199 @@ final class BookingConfirmationCardTests: XCTestCase {
         XCTAssertEqual(BookingConfirmationSubmit.cancelText, "Cancel — don't book that.")
     }
 
+    // MARK: - 4. Rich payload — IOS-CONFIRMATION-RICH-PAYLOAD-1
+
+    func test_parseFrame_summary_itinerary_decodesTravelerPaymentPrefilledMissing() {
+        // Mirrors web's CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 wire shape
+        // (apps/web/components/ItineraryConfirmationCard.tsx ItineraryPayload
+        // trailing fields). All four populated here.
+        let line = #"data: {"type":"summary","value":{"kind":"structured-itinerary","hash":"h","session_id":"s","turn_id":"t","rendered_at":"2026-05-01T15:30:00Z","payload":{"kind":"structured-itinerary","offer_id":"off_x","total_amount":"189.00","total_currency":"USD","slices":[{"origin":"SFO","destination":"LAS","segments":[{"origin":"SFO","destination":"LAS","departing_at":"2026-05-09T09:30:00Z","arriving_at":"2026-05-09T11:00:00Z","carrier":"F9","flight_number":"1879"}]}],"traveler_summary":"Prasanth Kalas · prasanth@lumo.rentals","payment_summary":"Visa ending in 4242","prefilled":true,"missing_fields":[]}}}"#
+        guard case let .summary(.itinerary(payload, _)) = ChatService.parseFrame(line: line) else {
+            return XCTFail("expected .summary(.itinerary(...))")
+        }
+        XCTAssertEqual(payload.traveler_summary, "Prasanth Kalas · prasanth@lumo.rentals")
+        XCTAssertEqual(payload.payment_summary, "Visa ending in 4242")
+        XCTAssertTrue(payload.prefilled)
+        XCTAssertTrue(payload.missing_fields.isEmpty)
+        XCTAssertTrue(payload.hasAutofillBlock)
+    }
+
+    func test_parseFrame_summary_itinerary_richFieldsOmitted_backwardsCompat() {
+        // Older summaries without the rich fields decode the same as
+        // before — nil/false/empty. The card's autofill block then
+        // suppresses (via hasAutofillBlock) so the visible UX is
+        // identical to the pre-CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 card.
+        let line = #"data: {"type":"summary","value":{"kind":"structured-itinerary","hash":"h","session_id":"s","turn_id":"t","rendered_at":"2026-05-01T15:30:00Z","payload":{"kind":"structured-itinerary","offer_id":"off_x","total_amount":"189.00","total_currency":"USD","slices":[{"origin":"SFO","destination":"LAS","segments":[{"origin":"SFO","destination":"LAS","departing_at":"2026-05-09T09:30:00Z","arriving_at":"2026-05-09T11:00:00Z","carrier":"F9","flight_number":"1879"}]}]}}}"#
+        guard case let .summary(.itinerary(payload, _)) = ChatService.parseFrame(line: line) else {
+            return XCTFail("expected .summary(.itinerary(...))")
+        }
+        XCTAssertNil(payload.traveler_summary)
+        XCTAssertNil(payload.payment_summary)
+        XCTAssertFalse(payload.prefilled)
+        XCTAssertTrue(payload.missing_fields.isEmpty)
+        XCTAssertFalse(payload.hasAutofillBlock)
+    }
+
+    func test_parseFrame_summary_itinerary_missingFields_dedupedAndTrimmed() {
+        // Web's normalizeMissingFields dedupes + trims; iOS mirrors.
+        let line = #"data: {"type":"summary","value":{"kind":"structured-itinerary","hash":"h","session_id":"s","turn_id":"t","rendered_at":"2026-05-01T15:30:00Z","payload":{"kind":"structured-itinerary","offer_id":"off_x","total_amount":"189.00","total_currency":"USD","slices":[{"origin":"SFO","destination":"LAS","segments":[{"origin":"SFO","destination":"LAS","departing_at":"2026-05-09T09:30:00Z","arriving_at":"2026-05-09T11:00:00Z","carrier":"F9","flight_number":"1879"}]}],"prefilled":false,"missing_fields":["payment_method_id","  payment_method_id ","","traveler_profile"]}}}"#
+        guard case let .summary(.itinerary(payload, _)) = ChatService.parseFrame(line: line) else {
+            return XCTFail("expected .summary(.itinerary(...))")
+        }
+        XCTAssertEqual(payload.missing_fields, ["payment_method_id", "traveler_profile"])
+    }
+
+    func test_parseFrame_summary_itinerary_emptyStringTraveler_decodesAsNil() {
+        // Web treats null and missing identically; iOS additionally
+        // collapses empty-string into nil so the autofill block
+        // suppresses cleanly when the orchestrator emitted an empty
+        // descriptor.
+        let line = #"data: {"type":"summary","value":{"kind":"structured-itinerary","hash":"h","session_id":"s","turn_id":"t","rendered_at":"2026-05-01T15:30:00Z","payload":{"kind":"structured-itinerary","offer_id":"off_x","total_amount":"189.00","total_currency":"USD","slices":[{"origin":"SFO","destination":"LAS","segments":[{"origin":"SFO","destination":"LAS","departing_at":"2026-05-09T09:30:00Z","arriving_at":"2026-05-09T11:00:00Z","carrier":"F9","flight_number":"1879"}]}],"traveler_summary":"","payment_summary":"","prefilled":true}}}"#
+        guard case let .summary(.itinerary(payload, _)) = ChatService.parseFrame(line: line) else {
+            return XCTFail("expected .summary(.itinerary(...))")
+        }
+        XCTAssertNil(payload.traveler_summary)
+        XCTAssertNil(payload.payment_summary)
+    }
+
+    // Submit-string contracts (locked)
+
+    func test_differentTravelerText_locked() {
+        // Byte-identical with apps/web/app/page.tsx:
+        //   onDifferentTraveler={() => void sendText("Use a different traveler")}
+        // No trailing period — matches web exactly.
+        XCTAssertEqual(BookingConfirmationSubmit.differentTravelerText, "Use a different traveler")
+    }
+
+    func test_missingFieldsText_buildsCanonicalSemicolonList() {
+        // Locks the byte-identical web ↔ iOS submit string.
+        // Web's submitMissingFields:
+        //   "Here are the missing booking details: <Label>: <value>; <Label>: <value>"
+        let entries: [(String, String)] = [
+            ("payment_method_id", "Visa 4242"),
+            ("dob", "1991-04-21"),
+        ]
+        let result = BookingConfirmationSubmit.missingFieldsText(entries)
+        XCTAssertEqual(
+            result,
+            "Here are the missing booking details: Payment method: Visa 4242; Date of birth: 1991-04-21"
+        )
+    }
+
+    func test_missingFieldsText_dropsEmptyValues() {
+        let entries: [(String, String)] = [
+            ("payment_method_id", "Visa 4242"),
+            ("dob", "   "),
+            ("phone", ""),
+        ]
+        XCTAssertEqual(
+            BookingConfirmationSubmit.missingFieldsText(entries),
+            "Here are the missing booking details: Payment method: Visa 4242"
+        )
+    }
+
+    func test_missingFieldsText_returnsNilWhenNothingFilled() {
+        XCTAssertNil(BookingConfirmationSubmit.missingFieldsText([
+            ("payment_method_id", ""),
+            ("dob", "  "),
+        ]))
+    }
+
+    func test_missingFieldLabel_matchesWebMapping() {
+        // Web's missingFieldLabel mapping (locks parity).
+        XCTAssertEqual(BookingConfirmationSubmit.missingFieldLabel("payment_method_id"), "Payment method")
+        XCTAssertEqual(BookingConfirmationSubmit.missingFieldLabel("traveler_profile"), "Traveler profile")
+        XCTAssertEqual(BookingConfirmationSubmit.missingFieldLabel("passport_optional"), "Passport")
+        XCTAssertEqual(BookingConfirmationSubmit.missingFieldLabel("dob"), "Date of birth")
+        // Title-case fallback for arbitrary fields.
+        XCTAssertEqual(BookingConfirmationSubmit.missingFieldLabel("phone_number"), "Phone Number")
+    }
+
+    func test_travelerInitial_extractsFirstUppercased() {
+        XCTAssertEqual(BookingConfirmationSubmit.travelerInitial("Prasanth Kalas"), "P")
+        XCTAssertEqual(BookingConfirmationSubmit.travelerInitial("alice@x.com"), "A")
+        XCTAssertEqual(BookingConfirmationSubmit.travelerInitial("   "), "P")
+        XCTAssertEqual(BookingConfirmationSubmit.travelerInitial(""), "P")
+    }
+
+    // Submit cascade — Different-traveler tap
+
+    func test_sendSuggestion_appendsUserBubbleWithDifferentTravelerText() {
+        let svc = ChatService(baseURL: URL(string: "http://localhost:0")!)
+        let vm = ChatViewModel(service: svc)
+        let assistant = ChatMessage(role: .assistant, text: "Here's the price.", status: .delivered)
+        let payload = makeItineraryPayloadWithAutofill()
+        let envelope = ConfirmationEnvelope(
+            hash: "h", session_id: "s", turn_id: "t", rendered_at: "2026-05-01T00:00:00Z"
+        )
+        vm._seedForTest(
+            messages: [assistant],
+            summaries: [assistant.id: .itinerary(payload, envelope: envelope)]
+        )
+
+        vm.sendSuggestion(BookingConfirmationSubmit.differentTravelerText)
+
+        let users = vm.messages.filter { $0.role == .user }
+        XCTAssertEqual(users.count, 1)
+        XCTAssertEqual(users.first?.text, "Use a different traveler")
+        XCTAssertFalse((users.first?.text ?? "").hasSuffix("."),
+                       "no trailing period — web's submit string omits it")
+    }
+
+    func test_hasAutofillBlock_guardsRendering() {
+        let bare = ItineraryPayload(
+            kind: "structured-itinerary",
+            offer_id: "x", total_amount: "0", total_currency: "USD",
+            slices: []
+        )
+        XCTAssertFalse(bare.hasAutofillBlock)
+
+        let withTraveler = ItineraryPayload(
+            kind: "structured-itinerary",
+            offer_id: "x", total_amount: "0", total_currency: "USD",
+            slices: [],
+            traveler_summary: "Alice"
+        )
+        XCTAssertTrue(withTraveler.hasAutofillBlock)
+
+        let withMissing = ItineraryPayload(
+            kind: "structured-itinerary",
+            offer_id: "x", total_amount: "0", total_currency: "USD",
+            slices: [],
+            missing_fields: ["payment_method_id"]
+        )
+        XCTAssertTrue(withMissing.hasAutofillBlock)
+    }
+
+    private func makeItineraryPayloadWithAutofill() -> ItineraryPayload {
+        ItineraryPayload(
+            kind: "structured-itinerary",
+            offer_id: "off_united_morning",
+            total_amount: "238.00",
+            total_currency: "USD",
+            slices: [
+                ItinerarySlice(
+                    origin: "SFO",
+                    destination: "LAS",
+                    segments: [
+                        ItinerarySegment(
+                            origin: "SFO",
+                            destination: "LAS",
+                            departing_at: "2026-05-09T07:15:00Z",
+                            arriving_at: "2026-05-09T08:50:00Z",
+                            carrier: "UA",
+                            flight_number: "1234"
+                        )
+                    ]
+                )
+            ],
+            traveler_summary: "Prasanth Kalas · prasanth@lumo.rentals",
+            payment_summary: "Visa ending in 4242",
+            prefilled: true,
+            missing_fields: []
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeItineraryPayload() -> ItineraryPayload {
