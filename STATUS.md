@@ -2,6 +2,8 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code Python | Lumo_Super_Agent_python | claude-code-python/mlservice-modal-deploy-1 | 2026-05-02 | MLSERVICE-MODAL-DEPLOY-1 deploy apps/ml-service/ to Modal (workspace ac-uQRceJnpCxUC5fBO2zf08F), wire LUMO_ML_AGENT_URL into Vercel, smoke-test in CI |
+
 ## Closed lanes
 
 | Lane | Worktree | Branch | Started | Closed | Sprint |
