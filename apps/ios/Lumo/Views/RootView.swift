@@ -273,10 +273,83 @@ struct RootView: View {
         if defaults.bool(forKey: "LumoSeedBookingConfirmation") {
             seedBookingConfirmationFixture()
         }
+        // Seed compound-dispatch strip fixture
+        // (IOS-COMPOUND-VIEW-1). The flag value drives the
+        // settled-or-not state via CompoundLegStatus values:
+        //   "live"    → flight committed, hotel in_flight, restaurant pending
+        //   "settled" → all three committed
+        if let raw = defaults.string(forKey: "LumoSeedCompoundDispatch"),
+           !raw.isEmpty {
+            seedCompoundDispatchFixture(state: raw)
+        }
         #endif
     }
 
     #if DEBUG
+    private func seedCompoundDispatchFixture(state: String) {
+        let user = ChatMessage(
+            role: .user,
+            text: "Plan a Vegas weekend — flight, hotel, dinner.",
+            status: .sent
+        )
+        let assistant = ChatMessage(
+            role: .assistant,
+            text: "On it — three agents working in parallel.",
+            status: .delivered
+        )
+        // Status mapping per fixture state. Initial dispatch
+        // statuses populate the override layer through
+        // _seedForTest so the rendered strip matches the
+        // requested settled / live posture without spinning up
+        // a real subscription.
+        let legStatuses: (CompoundLegStatus, CompoundLegStatus, CompoundLegStatus)
+        switch state {
+        case "settled":
+            legStatuses = (.committed, .committed, .committed)
+        default:
+            // "live" or anything else → mid-dispatch state.
+            legStatuses = (.committed, .in_flight, .pending)
+        }
+        let dispatch = CompoundDispatchPayload(
+            kind: "assistant_compound_dispatch",
+            compound_transaction_id: "ct_vegas_fixture",
+            legs: [
+                CompoundLeg(
+                    leg_id: "leg_flight",
+                    agent_id: "lumo-flights",
+                    agent_display_name: "Lumo Flights",
+                    description: "Booking flight ORD → LAS",
+                    status: legStatuses.0
+                ),
+                CompoundLeg(
+                    leg_id: "leg_hotel",
+                    agent_id: "lumo-hotels",
+                    agent_display_name: "Lumo Hotels",
+                    description: "Booking hotel near the Strip",
+                    status: legStatuses.1
+                ),
+                CompoundLeg(
+                    leg_id: "leg_restaurant",
+                    agent_id: "lumo-restaurants",
+                    agent_display_name: "Lumo Restaurants",
+                    description: "Booking dinner reservation",
+                    status: legStatuses.2
+                ),
+            ]
+        )
+        chatViewModel._seedForTest(
+            messages: [user, assistant],
+            compoundDispatches: [assistant.id: dispatch],
+            compoundOverrides: [
+                dispatch.compound_transaction_id: [
+                    "leg_flight":     legStatuses.0,
+                    "leg_hotel":      legStatuses.1,
+                    "leg_restaurant": legStatuses.2,
+                ]
+            ]
+        )
+    }
+
     private func seedBookingConfirmationFixture() {
         let user = ChatMessage(
             role: .user,

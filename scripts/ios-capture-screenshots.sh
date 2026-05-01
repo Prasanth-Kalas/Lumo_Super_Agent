@@ -122,6 +122,25 @@ case "$variant" in
         capture confirmation-card dark \
             -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
         ;;
+    ios-compound-view-1)
+        # IOS-COMPOUND-VIEW-1: per-leg compound-dispatch strip
+        # in two states. -LumoSeedCompoundDispatch <state> seeds
+        # a deterministic 3-leg payload via
+        # RootView.seedCompoundDispatchFixture. State values:
+        #   live    → flight committed, hotel in_flight, restaurant pending
+        #   settled → all three committed
+        echo "[shots] compound-dispatch strip · live (mid-dispatch)"
+        capture compound-dispatch light \
+            -LumoAutoSignIn YES -LumoSeedCompoundDispatch live
+        capture compound-dispatch dark \
+            -LumoAutoSignIn YES -LumoSeedCompoundDispatch live
+
+        echo "[shots] compound-dispatch strip · settled (all committed)"
+        capture compound-settled light \
+            -LumoAutoSignIn YES -LumoSeedCompoundDispatch settled
+        capture compound-settled dark \
+            -LumoAutoSignIn YES -LumoSeedCompoundDispatch settled
+        ;;
     ios-confirmation-rich-payload-1)
         # IOS-CONFIRMATION-RICH-PAYLOAD-1: confirmation card with the
         # rich autofill block visible (traveler row + payment row +
