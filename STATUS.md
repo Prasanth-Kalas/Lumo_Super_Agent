@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/duffel-dispatch-regression-diag-1 | 2026-05-01 | DUFFEL-DISPATCH-REGRESSION-DIAG-1 orchestrator must call Duffel and emit flight offers |
 
 ## Closed lanes
 

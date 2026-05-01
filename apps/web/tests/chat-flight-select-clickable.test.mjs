@@ -4,7 +4,7 @@
  * Two slices:
  *   1. Pure-helper tests against `buildOfferSubmitText` — the orchestrator
  *      contract. Locks the exact submit-text shape so the orchestrator's
- *      `flight_price_offer` handoff doesn't break.
+ *      Duffel-offer handoff doesn't break.
  *   2. Source-level structural tests on the .tsx — assert the new
  *      tap-to-submit cascade replaces the previous two-step radio +
  *      Continue-button flow. Mirrors the pattern used by the other
@@ -55,7 +55,7 @@ t("buildOfferSubmitText: includes offer_id verbatim", () => {
   assert.match(
     text,
     /\boffer off_abc_xyz\b/,
-    "submit text must carry the exact offer_id so the orchestrator can route to flight_price_offer without ambiguity",
+    "submit text must carry the exact offer_id so the orchestrator can route the selected Duffel offer without ambiguity",
   );
 });
 

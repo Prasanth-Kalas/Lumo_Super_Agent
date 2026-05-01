@@ -4,7 +4,7 @@
  * FlightOffersSelectCard
  *
  * Single-select offers card rendered inline in the Super Agent chat
- * when the orchestrator calls `flight_search_offers`. Each row shows
+ * when the orchestrator calls `duffel_search_flights`. Each row shows
  * one Duffel-shaped offer: carrier + flight numbers, depart → arrive,
  * duration, stop-count, and price on the right.
  *
@@ -14,8 +14,8 @@
  *   pill, sibling rows fade to 40% opacity, then after a brief
  *   confirmation window the card submits the selection back into the
  *   chat stream — a single natural-language turn carrying the exact
- *   `offer_id` so the orchestrator can forward it to
- *   `flight_price_offer` without ambiguity.
+ *   `offer_id` so the orchestrator can forward the chosen Duffel offer
+ *   into the pricing / booking confirmation flow without ambiguity.
  * - Keyboard: each row is a focusable button, Enter / Space triggers
  *   the same submit-on-tap path. Tab walks the offers in DOM order.
  * - Typing the carrier name in the chat composer ("frontier") still

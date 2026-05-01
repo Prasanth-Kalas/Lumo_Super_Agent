@@ -74,26 +74,30 @@ export async function classifyIntent(
         model: provider.model,
         latencyMs: Date.now() - started,
       });
-      return parsed.confidence < MIN_CONFIDENCE
+      const withToolHints = applyDeterministicToolHints(parsed, input);
+      return withToolHints.confidence < MIN_CONFIDENCE
         ? {
-            ...parsed,
+            ...withToolHints,
             bucket: "reasoning_path",
-            reasoning: `${parsed.reasoning} Low confidence defaulted to reasoning path.`,
+            reasoning: `${withToolHints.reasoning} Low confidence defaulted to reasoning path.`,
           }
-        : parsed;
+        : withToolHints;
     } catch (error) {
       const isLast = provider === providers[providers.length - 1];
       if (isLast) {
-        return {
+        return applyDeterministicToolHints({
           ...FALLBACK_CLASSIFICATION,
           latencyMs: Date.now() - started,
           errorCode: error instanceof Error ? error.name : "classifier_error",
-        };
+        }, input);
       }
     }
   }
 
-  return { ...FALLBACK_CLASSIFICATION, latencyMs: Date.now() - started };
+  return applyDeterministicToolHints(
+    { ...FALLBACK_CLASSIFICATION, latencyMs: Date.now() - started },
+    input,
+  );
 }
 
 export function normalizeClassifierPayload(
@@ -201,6 +205,7 @@ function classifierSystemPrompt(): string {
     "fast_path: simple Q&A, status, rewrite, greeting, no private data, no purchases, no multi-step planning.",
     "tool_path: likely needs 1-3 tools or installed agent calls but light reasoning.",
     "reasoning_path: money movement, travel booking, compound plans, ambiguous or high-stakes requests, permission/card confirmations, or low confidence.",
+    "Never classify flight search, fare lookup, or travel offer requests as fast_path; they require tools.",
   ].join(" ");
 }
 
@@ -241,6 +246,38 @@ function normalizeBucket(value: unknown): AgentTimingBucket {
     return value;
   }
   return "reasoning_path";
+}
+
+function applyDeterministicToolHints(
+  classification: IntentClassification,
+  input: ClassifyIntentInput,
+): IntentClassification {
+  const lastUser =
+    input.messages
+      .slice()
+      .reverse()
+      .find((message) => message.role === "user")?.content ?? "";
+  if (classification.bucket === "fast_path" && looksLikeFlightOfferRequest(lastUser)) {
+    return {
+      ...classification,
+      bucket: "tool_path",
+      reasoning: `${classification.reasoning} Flight offer request requires Duffel tool dispatch.`,
+    };
+  }
+  return classification;
+}
+
+export function looksLikeFlightOfferRequest(message: string): boolean {
+  const text = message.toLowerCase();
+  if (!text.trim()) return false;
+  const hasFlight =
+    /\b(flight|flights|fly|airfare|fare|fares|airline|airlines|airport|airports)\b/.test(text);
+  if (!hasFlight) return false;
+  const hasSearchVerb =
+    /\b(find|look|lookup|search|show|get|book|need|want|compare|price|prices|option|options)\b/.test(text);
+  const hasRoute =
+    /\b(from|to|between|depart|leav(?:e|ing)|arriv(?:e|ing)|ord|mdw|chicago|las|vegas|nyc|jfk|lga|ewr|sfo|lax|mia)\b/.test(text);
+  return hasSearchVerb && hasRoute;
 }
 
 function clampConfidence(value: unknown): number {

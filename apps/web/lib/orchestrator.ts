@@ -120,6 +120,10 @@ import type {
   AssistantCompoundDispatchFrameValue,
 } from "./compound/dispatch-frame.ts";
 import {
+  flightOffersSelectionPayload,
+  isFlightOfferDiscoveryTool,
+} from "./flight-offers-selection.ts";
+import {
   beginDispatch,
   confirmTrip,
   createDraftTrip,
@@ -1244,7 +1248,7 @@ async function runTurnInner(
           const idx = selections.findIndex((s) => s.kind === kind);
           const entry: InteractiveSelection = {
             kind,
-            payload: outcome.result,
+            payload: selectionPayloadForTool(tu.name, outcome.result),
           };
           if (idx >= 0) selections[idx] = entry;
           else selections.push(entry);
@@ -2060,7 +2064,7 @@ function computeLegDepths(
 function isInteractiveDiscoveryTool(toolName: string): boolean {
   return (
     toolName === "food_get_restaurant_menu" ||
-    toolName === "flight_search_offers" ||
+    isFlightOfferDiscoveryTool(toolName) ||
     toolName === "restaurant_check_availability"
   );
 }
@@ -2069,9 +2073,13 @@ function selectionKindForTool(
   toolName: string,
 ): InteractiveSelection["kind"] | null {
   if (toolName === "food_get_restaurant_menu") return "food_menu";
-  if (toolName === "flight_search_offers") return "flight_offers";
+  if (isFlightOfferDiscoveryTool(toolName)) return "flight_offers";
   if (toolName === "restaurant_check_availability") return "time_slots";
   return null;
+}
+
+function selectionPayloadForTool(toolName: string, result: unknown): unknown {
+  return flightOffersSelectionPayload(toolName, result);
 }
 
 function inferAssistantSuggestionPlanningStep(input: {
