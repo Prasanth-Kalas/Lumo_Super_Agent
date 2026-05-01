@@ -30,6 +30,7 @@ const userApprovals = readFileSync("lib/user-app-approvals.ts", "utf8");
 const orchestrator = readFileSync("lib/orchestrator.ts", "utf8");
 const missionRoute = readFileSync("app/api/lumo/mission/route.ts", "utf8");
 const installRoute = readFileSync("app/api/lumo/mission/install/route.ts", "utf8");
+const installApproval = readFileSync("lib/mission-install-approval.ts", "utf8");
 const revokeRoute = readFileSync("app/api/preferences/app-approvals/revoke/route.ts", "utf8");
 const USER_ID = "00000000-0000-0000-0000-000000000001";
 const registry = makeRegistry();
@@ -96,7 +97,8 @@ t("runtime bootstraps user approvals before mission planning", () => {
   assert.match(orchestrator, /mergeSessionAppApprovals\(\s*loadedSessionApprovals,\s*bootstrappedSessionApprovals/s);
   assert.match(missionRoute, /bootstrapUserAppApprovalsForSession\(user_id, session_id\)/);
   assert.match(missionRoute, /mergeSessionAppApprovals\(\s*loadedSessionApprovals,\s*bootstrappedSessionApprovals/s);
-  assert.match(installRoute, /connectFirstPartySessionAppApproval/);
+  assert.match(installRoute, /commitMissionInstallApproval/);
+  assert.match(installApproval, /connectFirstPartySessionAppApproval/);
 });
 
 t("revocation disables future first-party propagation", () => {

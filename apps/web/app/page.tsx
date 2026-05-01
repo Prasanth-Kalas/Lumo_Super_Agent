@@ -147,6 +147,8 @@ export default function Home() {
   const [suggestionsByTurn, setSuggestionsByTurn] = useState<
     Record<string, UIAssistantSuggestions>
   >({});
+  const [missionInstallStateByMission, setMissionInstallStateByMission] =
+    useState<Record<string, Record<string, "done" | "cancelled">>>({});
 
   // Voice mode — see components/VoiceMode.tsx. `voiceEnabled` is the
   // master toggle, persisted across reloads. `handsFree` auto-restarts
@@ -582,6 +584,17 @@ export default function Home() {
                 return m;
               });
             }
+          } else if (frame.type === "internal") {
+            const change = missionInstallStateChangeToUI(frame.value);
+            if (change) {
+              setMissionInstallStateByMission((prev) => ({
+                ...prev,
+                [change.mission_id]: {
+                  ...(prev[change.mission_id] ?? {}),
+                  [change.agent_id]: change.state === "approved" ? "done" : "cancelled",
+                },
+              }));
+            }
           } else if (frame.type === "tool") {
             // Debug channel; not surfaced yet.
           } else if (frame.type === "error") {
@@ -943,6 +956,9 @@ export default function Home() {
                     <LumoMissionCard
                       plan={m.mission}
                       disabled={busy || isReplayLoading}
+                      stateOverrides={
+                        missionInstallStateByMission[m.mission.mission_id] ?? {}
+                      }
                       onContinue={(text) => void sendText(text)}
                     />
                   </div>
@@ -1249,6 +1265,25 @@ function assistantCompoundDispatchToUI(value: unknown): UICompoundDispatch | nul
     compound_transaction_id: compoundId,
     legs,
   };
+}
+
+function missionInstallStateChangeToUI(value: unknown): {
+  mission_id: string;
+  agent_id: string;
+  state: "approved" | "cancelled";
+} | null {
+  if (!isRecord(value)) return null;
+  if (value["kind"] !== "mission_install_state_change") return null;
+  const detail = isRecord(value["detail"]) ? value["detail"] : value;
+  const mission_id =
+    typeof detail["mission_id"] === "string" ? detail["mission_id"].trim() : "";
+  const agent_id =
+    typeof detail["agent_id"] === "string" ? detail["agent_id"].trim() : "";
+  const state = detail["state"];
+  if (!mission_id || !agent_id || (state !== "approved" && state !== "cancelled")) {
+    return null;
+  }
+  return { mission_id, agent_id, state };
 }
 
 function isCompoundDispatchStatus(value: string): value is UICompoundDispatch["legs"][number]["status"] {

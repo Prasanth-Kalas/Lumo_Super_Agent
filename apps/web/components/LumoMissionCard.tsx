@@ -101,6 +101,7 @@ export interface LumoMissionPlan {
 interface LumoMissionCardProps {
   plan: LumoMissionPlan;
   disabled?: boolean;
+  stateOverrides?: Record<string, "done" | "cancelled">;
   onContinue: (text: string) => void;
 }
 
@@ -109,6 +110,7 @@ type InstallState = "idle" | "working" | "done" | "error";
 export function LumoMissionCard({
   plan,
   disabled = false,
+  stateOverrides = {},
   onContinue,
 }: LumoMissionCardProps) {
   const [stateByAgent, setStateByAgent] = useState<Record<string, InstallState>>({});
@@ -129,13 +131,20 @@ export function LumoMissionCard({
     [plan.install_proposals],
   );
   const activeAutoInstallable = useMemo(
-    () => autoInstallable.filter((p) => !declined.has(p.agent_id)),
-    [autoInstallable, declined],
+    () =>
+      autoInstallable.filter(
+        (p) => !declined.has(p.agent_id) && stateOverrides[p.agent_id] !== "cancelled",
+      ),
+    [autoInstallable, declined, stateOverrides],
   );
   const allAutoInstalled =
     activeAutoInstallable.length > 0 &&
-    activeAutoInstallable.every((p) => stateByAgent[p.agent_id] === "done");
-  const hasOAuth = oauthProposals.some((p) => !declined.has(p.agent_id));
+    activeAutoInstallable.every(
+      (p) => stateOverrides[p.agent_id] === "done" || stateByAgent[p.agent_id] === "done",
+    );
+  const hasOAuth = oauthProposals.some(
+    (p) => !declined.has(p.agent_id) && stateOverrides[p.agent_id] !== "cancelled",
+  );
 
   const hasDetailsContent =
     plan.install_proposals.some((p) => p.profile_fields_requested.length > 0 || p.rank_score !== null) ||
@@ -311,8 +320,12 @@ export function LumoMissionCard({
 
       <div className="mt-4 space-y-3">
         {plan.install_proposals.map((proposal) => {
-          const state = stateByAgent[proposal.agent_id] ?? "idle";
-          const isDeclined = declined.has(proposal.agent_id);
+          const externalState = stateOverrides[proposal.agent_id] ?? null;
+          const state = externalState === "done"
+            ? "done"
+            : stateByAgent[proposal.agent_id] ?? "idle";
+          const isDeclined =
+            declined.has(proposal.agent_id) || externalState === "cancelled";
           return (
             <div
               key={`${proposal.agent_id}-${proposal.action}`}

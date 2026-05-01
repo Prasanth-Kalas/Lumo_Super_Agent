@@ -26,6 +26,7 @@ const migration050 = readFileSync("../../db/migrations/050_session_app_approvals
 const orchestrator = readFileSync("lib/orchestrator.ts", "utf8");
 const missionRoute = readFileSync("app/api/lumo/mission/route.ts", "utf8");
 const installRoute = readFileSync("app/api/lumo/mission/install/route.ts", "utf8");
+const installApproval = readFileSync("lib/mission-install-approval.ts", "utf8");
 const lumoMissionCard = readFileSync("components/LumoMissionCard.tsx", "utf8");
 const USER_ID = "00000000-0000-0000-0000-000000000001";
 const registry = makeRegistry();
@@ -87,8 +88,9 @@ t("orchestrator loads session approvals before planning", () => {
 });
 
 t("mission install route persists session approval and verifies card key", () => {
-  assert.match(installRoute, /upsertSessionAppApproval/);
-  assert.match(installRoute, /approval_idempotency_key_mismatch/);
+  assert.match(installRoute, /commitMissionInstallApproval/);
+  assert.match(installApproval, /upsertSessionAppApproval/);
+  assert.match(installApproval, /approval_idempotency_key_mismatch/);
   assert.match(installRoute, /session_approval/);
   assert.match(lumoMissionCard, /approval_idempotency_key: proposal\.approval_idempotency_key/);
   assert.match(lumoMissionCard, /session_id: plan\.session_id/);

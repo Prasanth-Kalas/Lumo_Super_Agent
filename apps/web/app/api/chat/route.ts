@@ -59,6 +59,7 @@ import {
   bookingProfileSnapshotForSession,
   bookingProfileSnapshotToPii,
 } from "@/lib/booking-profile";
+import { commitPendingInstallDecisionFromText } from "@/lib/mission-install-natural-language";
 
 export const runtime = "nodejs"; // orchestrator uses Anthropic SDK + node:crypto
 export const dynamic = "force-dynamic";
@@ -202,6 +203,27 @@ export async function POST(req: NextRequest): Promise<Response> {
       };
 
       try {
+        const pendingInstallDecision =
+          user_id !== "anon"
+            ? await commitPendingInstallDecisionFromText({
+                user_id,
+                session_id: body.session_id,
+                text: lastUserMessage,
+              })
+            : null;
+        if (pendingInstallDecision) {
+          emit({ type: "internal", value: pendingInstallDecision.state_frame });
+          emit({ type: "text", value: pendingInstallDecision.assistant_text });
+          send({ type: "done" });
+          void recordEvent({
+            session_id: body.session_id,
+            trip_id: activeTripId,
+            frame_type: "done",
+            frame_value: { type: "done" },
+          });
+          return;
+        }
+
         // ─── Compound-trip confirm turn ──────────────────────────────
         // If the prior turn drafted a TripSummary for this session AND
         // the user just said yes, we bypass the Claude loop and go
