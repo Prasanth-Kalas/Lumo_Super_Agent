@@ -62,7 +62,7 @@ t("3-turn session skips previously approved app cards", () => {
     registry,
     user_id: USER_ID,
     session_id: "session-demo",
-    session_approved_agent_ids: ["flight"],
+    session_connected_agent_ids: ["flight"],
   });
   assert.deepEqual(turn2.install_proposals.map((p) => p.agent_id), ["hotel"]);
   assert.equal(turn2.install_proposals.some((p) => p.agent_id === "flight"), false);
@@ -72,7 +72,7 @@ t("3-turn session skips previously approved app cards", () => {
     registry,
     user_id: USER_ID,
     session_id: "session-demo",
-    session_approved_agent_ids: ["flight"],
+    session_connected_agent_ids: ["flight"],
   });
   assert.equal(turn3.install_proposals.length, 0);
   assert.deepEqual(turn3.ready_agents.map((agent) => agent.agent_id), ["flight"]);
@@ -80,10 +80,10 @@ t("3-turn session skips previously approved app cards", () => {
 
 t("orchestrator loads session approvals before planning", () => {
   assert.match(orchestrator, /listSessionAppApprovals/);
-  assert.match(orchestrator, /sessionApprovedAgentIds/);
-  assert.match(orchestrator, /session_approved_agent_ids: Array\.from\(sessionApprovedAgentIds\)/);
+  assert.match(orchestrator, /sessionConnectedAgentIds/);
+  assert.match(orchestrator, /session_connected_agent_ids: Array\.from\(sessionConnectedAgentIds\)/);
   assert.match(missionRoute, /listSessionAppApprovals/);
-  assert.match(missionRoute, /session_approved_agent_ids: Array\.from\(sessionApprovedAgentIds\)/);
+  assert.match(missionRoute, /session_connected_agent_ids: Array\.from\(sessionConnectedAgentIds\)/);
 });
 
 t("mission install route persists session approval and verifies card key", () => {
