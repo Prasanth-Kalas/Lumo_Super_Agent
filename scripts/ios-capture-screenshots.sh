@@ -111,6 +111,17 @@ case "$variant" in
         capture 13-receipt-detail light -LumoPaymentsFixture receipt-detail
         capture 13-receipt-detail dark  -LumoPaymentsFixture receipt-detail
         ;;
+    ios-booking-confirm-autofill-1)
+        # IOS-BOOKING-CONFIRM-AUTOFILL-1: pre-tap booking confirmation
+        # card with both Confirm + Cancel visible. -LumoSeedBookingConfirmation
+        # YES seeds a deterministic user/assistant pair plus a
+        # structured-itinerary summary via RootView.seedBookingConfirmationFixture.
+        echo "[shots] booking confirmation card · pre-tap"
+        capture confirmation-card light \
+            -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
+        capture confirmation-card dark \
+            -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
+        ;;
     chat-flight-select-clickable-1)
         # CHAT-FLIGHT-SELECT-CLICKABLE-1: post-tap selected state on the
         # FlightOffersSelectCard. -LumoSeedFlightOffers YES seeds a

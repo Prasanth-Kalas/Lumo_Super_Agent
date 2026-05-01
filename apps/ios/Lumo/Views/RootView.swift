@@ -261,10 +261,63 @@ struct RootView: View {
         if defaults.bool(forKey: "LumoSeedFlightOffers") {
             seedFlightOffersFixture()
         }
+        // Seed booking-confirmation card fixture
+        // (IOS-BOOKING-CONFIRM-AUTOFILL-1). Renders the assistant
+        // turn that emits a structured-itinerary summary so the
+        // capture lands the pre-tap card state with Confirm + Cancel
+        // both visible.
+        if defaults.bool(forKey: "LumoSeedBookingConfirmation") {
+            seedBookingConfirmationFixture()
+        }
         #endif
     }
 
     #if DEBUG
+    private func seedBookingConfirmationFixture() {
+        let user = ChatMessage(
+            role: .user,
+            text: "Yes, the Frontier 9:30 nonstop.",
+            status: .sent
+        )
+        let assistant = ChatMessage(
+            role: .assistant,
+            text: "Here's the final price — tap Confirm to book.",
+            status: .delivered
+        )
+        let payload = ItineraryPayload(
+            kind: "structured-itinerary",
+            offer_id: "off_frontier_midmorning",
+            total_amount: "189.00",
+            total_currency: "USD",
+            slices: [
+                ItinerarySlice(
+                    origin: "SFO",
+                    destination: "LAS",
+                    segments: [
+                        ItinerarySegment(
+                            origin: "SFO",
+                            destination: "LAS",
+                            departing_at: "2026-05-09T09:30:00Z",
+                            arriving_at: "2026-05-09T11:00:00Z",
+                            carrier: "F9",
+                            flight_number: "1879"
+                        )
+                    ]
+                )
+            ]
+        )
+        let envelope = ConfirmationEnvelope(
+            hash: "fixture-hash",
+            session_id: "fixture-session",
+            turn_id: "fixture-turn",
+            rendered_at: "2026-05-01T15:30:00Z"
+        )
+        chatViewModel._seedForTest(
+            messages: [user, assistant],
+            summaries: [assistant.id: .itinerary(payload, envelope: envelope)]
+        )
+    }
+
     private func seedFlightOffersFixture() {
         let user = ChatMessage(
             role: .user,

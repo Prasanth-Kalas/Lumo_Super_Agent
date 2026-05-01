@@ -152,15 +152,20 @@ struct BookingConfirmationCard: View {
 
     private var footer: some View {
         HStack(alignment: .center, spacing: LumoSpacing.sm) {
-            Text("Offer ")
-                .font(LumoFonts.caption)
-                .foregroundStyle(LumoColors.labelTertiary)
-                +
-            Text(payload.offer_id)
-                .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(LumoColors.labelSecondary)
-            Spacer(minLength: LumoSpacing.sm)
+            (
+                Text("Offer ")
+                    .font(LumoFonts.caption)
+                    .foregroundColor(.secondary)
+                + Text(payload.offer_id)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.primary)
+            )
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .layoutPriority(0)
+            Spacer(minLength: LumoSpacing.xs)
             footerActions
+                .layoutPriority(1)
         }
         .padding(.horizontal, LumoSpacing.md)
         .padding(.vertical, LumoSpacing.sm)
@@ -187,9 +192,10 @@ struct BookingConfirmationCard: View {
                 .accessibilityIdentifier("booking-confirmation-cancel")
 
                 Button(action: onConfirm) {
-                    Text("Confirm booking")
+                    Text("Confirm")
                         .font(LumoFonts.footnote.weight(.medium))
                         .foregroundStyle(LumoColors.background)
+                        .fixedSize()
                         .padding(.horizontal, 14)
                         .frame(height: 32)
                         .background(
@@ -198,6 +204,7 @@ struct BookingConfirmationCard: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isDisabled)
+                .accessibilityLabel("Confirm booking")
                 .accessibilityIdentifier("booking-confirmation-confirm")
             }
         }
