@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-confirmation-rich-payload-1 | 2026-05-01 | IOS-CONFIRMATION-RICH-PAYLOAD-1 mirror web's traveler/payment summary + Different-traveler button + missing-fields branch on the iOS BookingConfirmationCard, decoding the new payload fields Codex added in CHAT-CONFIRMATION-PAYLOAD-EXTEND-1 |
 
 ## Closed lanes
 
