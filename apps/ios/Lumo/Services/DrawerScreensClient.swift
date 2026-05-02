@@ -155,10 +155,10 @@ struct MemoryPatternDTO: Codable, Equatable, Identifiable {
     let last_observed_at: String
 }
 
-/// Subset of web's `/api/marketplace` agent shape that iOS-v1 lists.
-/// We drop risk badges, OAuth `connect_model`, MCP fields,
-/// `coming_soon` metadata, etc — IOS-MARKETPLACE-RICH-CARDS-1 picks
-/// those up.
+/// Subset of web's `/api/marketplace` agent shape iOS renders.
+/// IOS-MARKETPLACE-RICH-CARDS-1 added the rich-card fields
+/// (risk_badge, connect_model, source/coming_soon) on top of the
+/// initial iOS-v1 cut.
 struct MarketplaceAgentDTO: Codable, Equatable, Identifiable {
     let agent_id: String
     let display_name: String
@@ -167,10 +167,24 @@ struct MarketplaceAgentDTO: Codable, Equatable, Identifiable {
     let intents: [String]
     let install: MarketplaceInstallStateDTO?
     let listing: MarketplaceListingDTO?
+    /// `"none" | "oauth2" | "mcp"` etc. — drives the install vs
+    /// connect-via-web messaging. Optional for backwards-compat
+    /// with older snapshots.
+    let connect_model: String?
+    /// `"lumo" | "mcp" | "coming_soon"`. When "coming_soon" the
+    /// row renders a placeholder pill instead of Install.
+    let source: String?
+    let coming_soon_label: String?
+    let coming_soon_rationale: String?
+    let risk_badge: MarketplaceRiskBadgeDTO?
 
     var id: String { agent_id }
 
     var isInstalled: Bool { install?.status == "installed" }
+
+    var isComingSoon: Bool { source == "coming_soon" }
+
+    var requiresOAuth: Bool { connect_model == "oauth2" }
 
     var category: String? { listing?.category }
 
@@ -181,7 +195,12 @@ struct MarketplaceAgentDTO: Codable, Equatable, Identifiable {
         domain: String,
         intents: [String] = [],
         install: MarketplaceInstallStateDTO? = nil,
-        listing: MarketplaceListingDTO? = nil
+        listing: MarketplaceListingDTO? = nil,
+        connect_model: String? = nil,
+        source: String? = nil,
+        coming_soon_label: String? = nil,
+        coming_soon_rationale: String? = nil,
+        risk_badge: MarketplaceRiskBadgeDTO? = nil
     ) {
         self.agent_id = agent_id
         self.display_name = display_name
@@ -190,7 +209,24 @@ struct MarketplaceAgentDTO: Codable, Equatable, Identifiable {
         self.intents = intents
         self.install = install
         self.listing = listing
+        self.connect_model = connect_model
+        self.source = source
+        self.coming_soon_label = coming_soon_label
+        self.coming_soon_rationale = coming_soon_rationale
+        self.risk_badge = risk_badge
     }
+}
+
+/// Mirror of web's risk_badge shape. iOS renders the level pill +
+/// surfaces the reasons via the row's accessibility hint so the
+/// affordance is non-mystery for VoiceOver users.
+struct MarketplaceRiskBadgeDTO: Codable, Equatable {
+    let level: String
+    let score: Double?
+    let reasons: [String]
+    let mitigations: [String]?
+    let source: String?
+    let latency_ms: Double?
 }
 
 struct MarketplaceInstallStateDTO: Codable, Equatable {
@@ -788,7 +824,12 @@ extension MarketplaceAgentDTO {
             domain: domain,
             intents: intents,
             install: MarketplaceInstallStateDTO(status: "installed", installed_at: iso),
-            listing: listing
+            listing: listing,
+            connect_model: connect_model,
+            source: source,
+            coming_soon_label: coming_soon_label,
+            coming_soon_rationale: coming_soon_rationale,
+            risk_badge: risk_badge
         )
     }
 }

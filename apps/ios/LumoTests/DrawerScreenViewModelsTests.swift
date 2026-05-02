@@ -102,6 +102,89 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         XCTAssertEqual(decoded.patterns, [])
     }
 
+    func test_marketplaceResponse_decodes_richCardFields() throws {
+        // IOS-MARKETPLACE-RICH-CARDS-1 — verify risk_badge,
+        // connect_model, source/coming_soon fields decode and the
+        // computed flags (requiresOAuth, isComingSoon) reflect them.
+        let json = """
+        {
+          "agents": [
+            {
+              "agent_id": "lumo-google",
+              "display_name": "Lumo Google",
+              "one_liner": "Reads your calendar.",
+              "domain": "calendar",
+              "intents": ["read_calendar"],
+              "connect_model": "oauth2",
+              "source": "lumo",
+              "risk_badge": {
+                "level": "medium",
+                "score": 0.42,
+                "reasons": ["reads private calendar"],
+                "mitigations": [],
+                "source": "ml",
+                "latency_ms": 120
+              }
+            },
+            {
+              "agent_id": "lumo-airbnb",
+              "display_name": "Lumo Airbnb",
+              "one_liner": "Coming soon.",
+              "domain": "stays",
+              "intents": [],
+              "source": "coming_soon",
+              "coming_soon_label": "In review",
+              "coming_soon_rationale": "Airbnb partner App Store review"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(MarketplaceResponseDTO.self, from: json)
+        XCTAssertEqual(decoded.agents.count, 2)
+        let google = decoded.agents[0]
+        XCTAssertEqual(google.connect_model, "oauth2")
+        XCTAssertTrue(google.requiresOAuth)
+        XCTAssertFalse(google.isComingSoon)
+        XCTAssertEqual(google.risk_badge?.level, "medium")
+        XCTAssertEqual(google.risk_badge?.reasons.first, "reads private calendar")
+        let airbnb = decoded.agents[1]
+        XCTAssertTrue(airbnb.isComingSoon)
+        XCTAssertEqual(airbnb.coming_soon_label, "In review")
+    }
+
+    func test_marketplaceUI_riskStyle_branchesMatchWeb() {
+        XCTAssertEqual(MarketplaceUI.riskStyle("low").label, "low risk")
+        XCTAssertEqual(MarketplaceUI.riskStyle("medium").label, "medium risk")
+        XCTAssertEqual(MarketplaceUI.riskStyle("high").label, "high risk")
+        XCTAssertEqual(MarketplaceUI.riskStyle("review_required").label, "review")
+        XCTAssertEqual(MarketplaceUI.riskStyle("custom").label, "custom",
+                       "unknown levels surface raw label, matching web fallback")
+    }
+
+    func test_marketplaceAgent_oldSnapshotDecodes_withoutNewFields() throws {
+        // Backwards-compat: a snapshot from before IOS-MARKETPLACE-RICH-CARDS-1
+        // shipped (no connect_model / source / risk_badge) must still decode.
+        let json = """
+        {
+          "agents": [
+            {
+              "agent_id": "old",
+              "display_name": "Old",
+              "one_liner": "Legacy.",
+              "domain": "flights",
+              "intents": []
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(MarketplaceResponseDTO.self, from: json)
+        XCTAssertEqual(decoded.agents.count, 1)
+        XCTAssertNil(decoded.agents[0].risk_badge)
+        XCTAssertNil(decoded.agents[0].connect_model)
+        XCTAssertFalse(decoded.agents[0].requiresOAuth)
+        XCTAssertFalse(decoded.agents[0].isComingSoon)
+    }
+
     func test_marketplaceResponse_decodes_subsetOfWebSchema() throws {
         // Web returns much more (risk_badge, connect_model, MCP, etc).
         // iOS only consumes a subset; the decoder must NOT throw on

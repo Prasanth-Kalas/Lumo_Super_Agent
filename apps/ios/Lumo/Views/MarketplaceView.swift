@@ -146,9 +146,19 @@ private struct MarketplaceAgentRow: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(agent.display_name)
-                    .font(LumoFonts.bodyEmphasized)
-                    .foregroundStyle(LumoColors.label)
+                HStack(alignment: .firstTextBaseline, spacing: LumoSpacing.xs) {
+                    Text(agent.display_name)
+                        .font(LumoFonts.bodyEmphasized)
+                        .foregroundStyle(LumoColors.label)
+                    if let badge = agent.risk_badge {
+                        MarketplaceRiskPill(badge: badge)
+                    }
+                    if agent.requiresOAuth {
+                        MarketplaceConnectModelPill(label: "OAuth")
+                    } else if agent.source == "mcp" {
+                        MarketplaceConnectModelPill(label: "MCP")
+                    }
+                }
                 Text(agent.one_liner)
                     .font(LumoFonts.callout)
                     .foregroundStyle(LumoColors.labelSecondary)
@@ -157,7 +167,18 @@ private struct MarketplaceAgentRow: View {
 
             Spacer()
 
-            if agent.isInstalled {
+            if agent.isComingSoon {
+                Text(agent.coming_soon_label ?? "Coming soon")
+                    .font(LumoFonts.caption.weight(.medium))
+                    .foregroundStyle(LumoColors.labelTertiary)
+                    .padding(.horizontal, LumoSpacing.sm)
+                    .padding(.vertical, 4)
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(LumoColors.separator, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    )
+                    .accessibilityLabel(Text(agent.coming_soon_rationale ?? agent.coming_soon_label ?? "Coming soon"))
+            } else if agent.isInstalled {
                 Text("Installed")
                     .font(LumoFonts.caption.weight(.medium))
                     .foregroundStyle(LumoColors.cyan)
@@ -240,7 +261,37 @@ struct MarketplaceAgentDetailView: View {
                         Text(agent.domain)
                             .font(LumoFonts.caption)
                             .foregroundStyle(LumoColors.labelSecondary)
+                        HStack(spacing: LumoSpacing.xs) {
+                            if let badge = agent.risk_badge {
+                                MarketplaceRiskPill(badge: badge)
+                            }
+                            if agent.requiresOAuth {
+                                MarketplaceConnectModelPill(label: "OAuth")
+                            } else if agent.source == "mcp" {
+                                MarketplaceConnectModelPill(label: "MCP")
+                            }
+                        }
                     }
+                }
+
+                if let badge = agent.risk_badge, !badge.reasons.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("RISK SIGNALS")
+                            .font(LumoFonts.caption.weight(.semibold))
+                            .tracking(1.2)
+                            .foregroundStyle(LumoColors.labelTertiary)
+                        ForEach(badge.reasons.prefix(4), id: \.self) { reason in
+                            HStack(alignment: .top, spacing: LumoSpacing.xs) {
+                                Text("•")
+                                    .foregroundStyle(LumoColors.labelTertiary)
+                                Text(reason)
+                                    .font(LumoFonts.caption)
+                                    .foregroundStyle(LumoColors.labelSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("marketplace.detail.riskReasons")
                 }
 
                 Text(agent.one_liner)
@@ -264,25 +315,60 @@ struct MarketplaceAgentDetailView: View {
                         .accessibilityIdentifier("marketplace.detail.installError")
                 }
 
-                Button(action: handleInstallTap) {
-                    HStack(spacing: LumoSpacing.xs) {
-                        if installInFlight {
-                            ProgressView()
-                                .controlSize(.small)
-                                .tint(LumoColors.background)
-                        }
-                        Text(isInstalled ? "Installed" : "Install")
+                if agent.isComingSoon {
+                    VStack(alignment: .leading, spacing: LumoSpacing.xs) {
+                        Text(agent.coming_soon_label ?? "Coming soon")
                             .font(LumoFonts.bodyEmphasized)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .foregroundStyle(LumoColors.labelSecondary)
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(LumoColors.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                            )
+                            .accessibilityIdentifier("marketplace.detail.comingSoon")
+                        if let why = agent.coming_soon_rationale, !why.isEmpty {
+                            Text(why)
+                                .font(LumoFonts.caption)
+                                .foregroundStyle(LumoColors.labelTertiary)
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .foregroundStyle(LumoColors.background)
-                    .background(
-                        Capsule().fill(isInstalled ? LumoColors.labelTertiary : LumoColors.cyan)
-                    )
+                } else if agent.requiresOAuth && !agent.isInstalled {
+                    VStack(alignment: .leading, spacing: LumoSpacing.xs) {
+                        Text("Connect via web for now")
+                            .font(LumoFonts.bodyEmphasized)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .foregroundStyle(LumoColors.warning)
+                            .overlay(
+                                Capsule().stroke(LumoColors.warning.opacity(0.45), lineWidth: 1)
+                            )
+                            .accessibilityIdentifier("marketplace.detail.oauthHint")
+                        Text("This app uses OAuth, which iOS hasn't wired yet. Connect it from the web app and it'll show up here.")
+                            .font(LumoFonts.caption)
+                            .foregroundStyle(LumoColors.labelTertiary)
+                    }
+                } else {
+                    Button(action: handleInstallTap) {
+                        HStack(spacing: LumoSpacing.xs) {
+                            if installInFlight {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(LumoColors.background)
+                            }
+                            Text(isInstalled ? "Installed" : "Install")
+                                .font(LumoFonts.bodyEmphasized)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .foregroundStyle(LumoColors.background)
+                        .background(
+                            Capsule().fill(isInstalled ? LumoColors.labelTertiary : LumoColors.cyan)
+                        )
+                    }
+                    .accessibilityIdentifier(isInstalled ? "marketplace.detail.installed" : "marketplace.detail.install")
+                    .disabled(installInFlight || isInstalled)
                 }
-                .accessibilityIdentifier(isInstalled ? "marketplace.detail.installed" : "marketplace.detail.install")
-                .disabled(installInFlight || isInstalled)
             }
             .padding(LumoSpacing.lg)
         }
@@ -324,6 +410,92 @@ private struct FlowChips: View {
                         )
                 }
             }
+        }
+    }
+}
+
+// MARK: - IOS-MARKETPLACE-RICH-CARDS-1 — risk + connect model pills
+
+struct MarketplaceRiskPill: View {
+    let badge: MarketplaceRiskBadgeDTO
+
+    var body: some View {
+        let style = MarketplaceUI.riskStyle(badge.level)
+        Text(style.label.uppercased())
+            .font(LumoFonts.caption.weight(.semibold))
+            .tracking(1.2)
+            .foregroundStyle(style.foreground)
+            .padding(.horizontal, LumoSpacing.xs)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(style.background))
+            .overlay(Capsule().stroke(style.border, lineWidth: 1))
+            .accessibilityLabel(Text("\(style.label) risk"))
+            .accessibilityHint(Text(badge.reasons.joined(separator: "; ")))
+    }
+}
+
+struct MarketplaceConnectModelPill: View {
+    let label: String
+
+    var body: some View {
+        Text(label.uppercased())
+            .font(LumoFonts.caption.weight(.semibold))
+            .tracking(1.2)
+            .foregroundStyle(LumoColors.labelTertiary)
+            .padding(.horizontal, LumoSpacing.xs)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(LumoColors.surfaceElevated))
+            .overlay(Capsule().stroke(LumoColors.separator, lineWidth: 1))
+    }
+}
+
+// MARK: - UI helpers (mirror of apps/web/components/AgentCard.tsx)
+
+enum MarketplaceUI {
+    struct RiskStyle {
+        let label: String
+        let foreground: Color
+        let background: Color
+        let border: Color
+    }
+
+    static func riskStyle(_ level: String) -> RiskStyle {
+        switch level {
+        case "low":
+            return RiskStyle(
+                label: "low risk",
+                foreground: LumoColors.success,
+                background: LumoColors.success.opacity(0.10),
+                border: LumoColors.success.opacity(0.30)
+            )
+        case "medium":
+            return RiskStyle(
+                label: "medium risk",
+                foreground: LumoColors.warning,
+                background: LumoColors.warning.opacity(0.10),
+                border: LumoColors.warning.opacity(0.35)
+            )
+        case "high":
+            return RiskStyle(
+                label: "high risk",
+                foreground: LumoColors.error,
+                background: LumoColors.error.opacity(0.10),
+                border: LumoColors.error.opacity(0.35)
+            )
+        case "review_required":
+            return RiskStyle(
+                label: "review",
+                foreground: LumoColors.labelTertiary,
+                background: LumoColors.surfaceElevated,
+                border: LumoColors.separator
+            )
+        default:
+            return RiskStyle(
+                label: level,
+                foreground: LumoColors.labelTertiary,
+                background: LumoColors.surfaceElevated,
+                border: LumoColors.separator
+            )
         }
     }
 }
