@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-deepgram-impl-1 | 2026-05-02 | DEEPGRAM-IOS-IMPL-1 (STANDBY) replace ElevenLabs TTS + SFSpeechRecognizer STT with Deepgram Aura-2 (TTS) + Nova-3 (STT); 60s short-lived token via POST /api/audio/deepgram-token; recon allowed now (contract frozen on codex/deepgram-migration-1 at 60b70d8 but not yet merged to main); scope work resumes when codex's lane lands on main |
 
 ## Closed lanes
 
