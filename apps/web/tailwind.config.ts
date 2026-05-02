@@ -59,24 +59,35 @@ const config: Config = {
       },
       fontFamily: {
         sans:    ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
-        display: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        // WEB-DESIGN-OVERHAUL-1 — `font-display` now points at
+        // Instrument Serif so editorial hero copy gets a distinct
+        // voice from the body text. Falls back to the body sans on
+        // older browsers / preview-CDN cold starts.
+        display: ["var(--font-display)", "var(--font-sans)", "ui-serif", "Georgia", "serif"],
         mono:    ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
       },
       borderRadius: {
-        // Restrained radius scale — rounded-3xl is never used.
         sm:    "4px",
         DEFAULT: "6px",
         md:    "6px",
         lg:    "8px",
         xl:    "10px",
         "2xl": "12px",
+        // WEB-DESIGN-OVERHAUL-1 — larger radii reserved for hero
+        // surfaces (login/landing/marketplace featured card). Body
+        // cards still cap at 2xl.
+        "3xl": "20px",
+        "4xl": "28px",
       },
       boxShadow: {
-        // Single lift — 1px hairline + a soft diffusion. No ambient fog.
         card:          "var(--lumo-shadow)",
         cardHero:      "var(--lumo-shadow)",
         ring:          "0 0 0 1px var(--lumo-edge)",
         "ring-accent": "0 0 0 1px var(--lumo-accent)",
+        // WEB-DESIGN-OVERHAUL-1 — multi-tier depth.
+        "card-lift":   "var(--lumo-shadow-card)",
+        lift:          "var(--lumo-shadow-lift)",
+        hero:          "var(--lumo-shadow-hero)",
       },
       keyframes: {
         "fade-up": {

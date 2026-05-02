@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 /**
@@ -7,11 +7,24 @@ import "./globals.css";
  * weights slow first paint for no visible gain in a chat UI. JetBrains
  * Mono is used for hashes, kbd chips, and the deterministic fields
  * on confirmation cards.
+ *
+ * WEB-DESIGN-OVERHAUL-1 — Instrument Serif joins the family as the
+ * `--font-display` value. Used only for hero/editorial copy on
+ * landing, login, and section heroes; body text stays Inter so the
+ * chat surface keeps its current voice.
  */
 const sans = Inter({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-sans",
+  display: "swap",
+});
+
+const display = Instrument_Serif({
+  subsets: ["latin"],
+  weight: ["400"],
+  style: ["normal", "italic"],
+  variable: "--font-display",
   display: "swap",
 });
 
@@ -65,7 +78,7 @@ export default function RootLayout({
     <html
       lang="en"
       data-theme="dark"
-      className={`${sans.variable} ${mono.variable}`}
+      className={`${sans.variable} ${display.variable} ${mono.variable}`}
       suppressHydrationWarning
     >
       <head>

@@ -3,24 +3,17 @@
 /**
  * Login page — email/password sign in.
  *
- * Intentionally minimal: we inherit Supabase Auth's rate limiting,
- * email verification, and reset-password flows. This form is just the
- * glue.
+ * WEB-DESIGN-OVERHAUL-1 — editorial flat-bold layout.
+ *   - Two-column on md+: left side is editorial copy in display
+ *     serif, right side is the form on a softly-elevated card.
+ *   - Mobile collapses to single-column with the form on top.
+ *   - Solid colors only; cyan rule + cyan italic emphasis are the
+ *     visual accents (no gradients).
  *
- * Next/redirect-on-success:
- *   ?next=/marketplace/food   → redirect after successful login
- *   default                    → /
+ * Auth wiring is unchanged — Supabase Auth via createBrowserClient,
+ * with seedProfile after success and ?next= redirect support.
  *
- * For signup flow, see /signup. For magic link / SSO later — we'll add
- * alternate CTA rows here.
- *
- * Suspense wrap: the form calls useSearchParams() which forces
- * client-side rendering. Next 14 refuses to prerender a page whose
- * root uses that hook without a Suspense boundary — build error
- * "missing-suspense-with-csr-bailout". We split the form out into a
- * child component and render it inside a <Suspense> at the page
- * root; the page shell prerenders (static fallback), the form
- * hydrates on the client with the real ?next param.
+ * Suspense wrap: useSearchParams() forces CSR; the page shell prerenders.
  */
 
 import { Suspense, useEffect, useState } from "react";
@@ -28,16 +21,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
 import OAuthButtons from "@/components/OAuthButtons";
+import { LumoWordmark } from "@/components/BrandMark";
 import { seedProfile } from "@/lib/seed-profile";
 
-/**
- * NEXT_PUBLIC_* vars are inlined at BUILD time. If the Vercel project
- * doesn't have them configured when `next build` runs, these resolve
- * to empty strings in the shipped client bundle — and every
- * supabase.auth.* call fails with a misleading error. isAuthConfigured
- * lets the form render a clear "not set up" state instead of failing
- * mid-submit.
- */
 function supabaseEnv(): { url: string; anonKey: string } {
   return {
     url: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
@@ -61,24 +47,53 @@ export default function LoginPage() {
   );
 }
 
-/**
- * Static fallback rendered during build-time prerender and while
- * the real form is hydrating. Matches the final layout so there's
- * no visible flash.
- */
 function LoginShell() {
   return (
-    <main className="min-h-dvh flex items-center justify-center bg-lumo-bg text-lumo-fg-high px-5">
-      <div className="w-full max-w-sm">
-        <h1 className="text-[24px] font-semibold tracking-tight mb-1">
-          Sign in to Lumo
-        </h1>
-        <p className="text-[13.5px] text-lumo-fg-mid mb-6">
-          One account. Every connected app.
-        </p>
-        <div className="h-[220px] rounded-md border border-lumo-hair bg-lumo-surface animate-pulse" />
+    <main className="min-h-dvh bg-lumo-bg text-lumo-fg">
+      <Header />
+      <div className="mx-auto max-w-6xl px-6 grid md:grid-cols-2 gap-10 md:gap-16 py-12 md:py-24">
+        <EditorialCopy />
+        <div className="rounded-3xl border border-lumo-hair bg-lumo-surface p-8 shadow-card-lift h-[420px] animate-pulse" />
       </div>
     </main>
+  );
+}
+
+function Header() {
+  return (
+    <header className="sticky top-0 z-10 border-b border-lumo-hair bg-lumo-bg/85 backdrop-blur-md">
+      <div className="max-w-6xl mx-auto flex items-center justify-between px-6 h-14">
+        <Link href="/" className="flex items-center gap-2 text-lumo-fg">
+          <LumoWordmark height={20} />
+        </Link>
+        <Link
+          href="/signup"
+          className="h-9 px-4 rounded-full text-[13px] font-semibold border border-lumo-hair text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge transition-colors inline-flex items-center"
+        >
+          Create account
+        </Link>
+      </div>
+    </header>
+  );
+}
+
+function EditorialCopy() {
+  return (
+    <div className="md:pt-6">
+      <div className="text-[10.5px] uppercase tracking-[0.18em] text-lumo-fg-mid font-medium font-mono inline-flex items-center gap-2">
+        <span className="h-[2px] w-6 bg-lumo-accent" aria-hidden />
+        Welcome back
+      </div>
+      <h1 className="mt-6 font-display text-[56px] md:text-[88px] leading-[0.95] tracking-[-0.02em] text-lumo-fg">
+        Pick up
+        <br />
+        <span className="italic text-lumo-accent">where you left off.</span>
+      </h1>
+      <p className="mt-7 text-[15px] md:text-[16px] text-lumo-fg-mid leading-[1.65] max-w-md">
+        Your trips, memory, and connected apps are waiting. Sign in to keep
+        the conversation going.
+      </p>
+    </div>
   );
 }
 
@@ -113,12 +128,7 @@ function LoginForm() {
         setError(err.message);
         return;
       }
-      // Idempotent profile seed — fills in timezone/language from the
-      // browser and display_name from auth metadata on first login
-      // per session. No-ops if the profile is already complete.
       void seedProfile();
-      // Middleware will see the new cookie on the next request; we can
-      // push straight to `next`.
       router.replace(next);
       router.refresh();
     } catch (err) {
@@ -128,45 +138,43 @@ function LoginForm() {
     }
   }
 
-  // The auth env check can differ between the server render and the
-  // browser bundle in local/dev setups. Render the static shell until
-  // hydration completes so React never sees mismatched first-paint text.
   if (!mounted) {
     return <LoginShell />;
   }
 
-  // Auth env not configured — tell the user plainly instead of
-  // letting the form fail silently.
   if (!isAuthConfigured()) {
     return (
-      <main className="min-h-dvh flex items-center justify-center bg-lumo-bg text-lumo-fg-high px-5">
-        <div className="w-full max-w-md space-y-4">
-          <h1 className="text-[22px] font-semibold tracking-tight">
-            Account system isn&apos;t set up yet
+      <main className="min-h-dvh bg-lumo-bg text-lumo-fg">
+        <Header />
+        <div className="mx-auto max-w-2xl px-6 py-20 space-y-5">
+          <h1 className="font-display text-[44px] md:text-[56px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
+            Account system{" "}
+            <span className="italic text-lumo-accent">
+              isn&apos;t set up yet.
+            </span>
           </h1>
-          <p className="text-[13.5px] text-lumo-fg-mid leading-relaxed">
+          <p className="text-[14.5px] text-lumo-fg-mid leading-relaxed max-w-prose">
             Lumo&apos;s sign-in is powered by Supabase Auth. The
             NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY
-            environment variables aren&apos;t configured on this
-            deployment, so the form can&apos;t talk to the auth
-            server.
+            environment variables aren&apos;t configured on this deployment,
+            so the form can&apos;t talk to the auth server.
           </p>
-          <p className="text-[13px] text-lumo-fg-low leading-relaxed">
-            If you&apos;re the admin: set both vars on Vercel
-            (Project → Settings → Environment Variables), then
-            redeploy. The URL looks like
-            <code className="mx-1 rounded bg-lumo-elevated px-1 py-0.5 text-[12px]">
+          <p className="text-[13.5px] text-lumo-fg-low leading-relaxed max-w-prose">
+            If you&apos;re the admin: set both vars on Vercel (Project →
+            Settings → Environment Variables), then redeploy. The URL looks
+            like{" "}
+            <code className="mx-1 rounded bg-lumo-elevated px-1.5 py-0.5 text-[12.5px]">
               https://&lt;ref&gt;.supabase.co
             </code>
-            and the anon key starts with
-            <code className="mx-1 rounded bg-lumo-elevated px-1 py-0.5 text-[12px]">
+            and the anon key starts with{" "}
+            <code className="mx-1 rounded bg-lumo-elevated px-1.5 py-0.5 text-[12.5px]">
               eyJ
             </code>
             .
           </p>
           <Link
             href="/"
-            className="inline-block text-[13px] text-lumo-accent hover:underline underline-offset-4"
+            className="inline-block text-[13.5px] text-lumo-accent hover:underline underline-offset-4"
           >
             ← Back to Lumo
           </Link>
@@ -176,69 +184,78 @@ function LoginForm() {
   }
 
   return (
-    <main className="min-h-dvh flex items-center justify-center bg-lumo-bg text-lumo-fg-high px-5">
-      <div className="w-full max-w-sm">
-        <h1 className="text-[24px] font-semibold tracking-tight mb-1">
-          Sign in to Lumo
-        </h1>
-        <p className="text-[13.5px] text-lumo-fg-mid mb-6">
-          One account. Every connected app.
-        </p>
+    <main className="min-h-dvh bg-lumo-bg text-lumo-fg">
+      <Header />
+      <div className="mx-auto max-w-6xl px-6 grid md:grid-cols-2 gap-10 md:gap-16 py-12 md:py-24">
+        <EditorialCopy />
 
-        <div className="mb-4">
-          <OAuthButtons next={next} disabled={busy} />
-        </div>
+        <div className="rounded-3xl border border-lumo-hair bg-lumo-surface p-7 md:p-8 shadow-card-lift">
+          <div className="mb-5">
+            <OAuthButtons next={next} disabled={busy} />
+          </div>
 
-        <form onSubmit={onSubmit} className="space-y-3">
-          <label className="block">
-            <span className="text-[11px] uppercase tracking-[0.12em] text-lumo-fg-low">
-              Email
+          <div className="relative my-6 flex items-center">
+            <div className="flex-1 border-t border-lumo-hair" />
+            <span className="px-3 text-[10.5px] uppercase tracking-[0.18em] text-lumo-fg-low font-mono">
+              or with email
             </span>
-            <input
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-lumo-hair bg-lumo-surface px-3 py-2 text-[14px] text-lumo-fg placeholder:text-lumo-fg-low focus:border-lumo-edge outline-none"
-              placeholder="you@example.com"
-            />
-          </label>
+            <div className="flex-1 border-t border-lumo-hair" />
+          </div>
 
-          <label className="block">
-            <span className="text-[11px] uppercase tracking-[0.12em] text-lumo-fg-low">
-              Password
-            </span>
-            <input
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-lumo-hair bg-lumo-surface px-3 py-2 text-[14px] text-lumo-fg placeholder:text-lumo-fg-low focus:border-lumo-edge outline-none"
-            />
-          </label>
+          <form onSubmit={onSubmit} className="space-y-4">
+            <label className="block">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-lumo-fg-mid font-mono">
+                Email
+              </span>
+              <input
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-2 block w-full rounded-2xl border border-lumo-hair bg-lumo-bg px-4 py-3 text-[15px] text-lumo-fg placeholder:text-lumo-fg-low focus:border-lumo-accent focus:ring-2 focus:ring-lumo-accent/20 outline-none transition-shadow"
+                placeholder="you@example.com"
+              />
+            </label>
 
-          {error ? (
-            <div className="text-[12.5px] text-red-500 border border-red-500/30 bg-red-500/5 rounded-md px-3 py-2">
-              {error}
-            </div>
-          ) : null}
+            <label className="block">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-lumo-fg-mid font-mono">
+                Password
+              </span>
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-2 block w-full rounded-2xl border border-lumo-hair bg-lumo-bg px-4 py-3 text-[15px] text-lumo-fg placeholder:text-lumo-fg-low focus:border-lumo-accent focus:ring-2 focus:ring-lumo-accent/20 outline-none transition-shadow"
+              />
+            </label>
 
-          <button
-            type="submit"
-            disabled={busy || !email || !password}
-            className="w-full h-9 rounded-md bg-lumo-fg text-lumo-bg text-[13.5px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low transition-colors"
-          >
-            {busy ? "Signing in…" : "Sign in"}
-          </button>
-        </form>
+            {error ? (
+              <div className="text-[13px] text-lumo-err border border-lumo-err/30 bg-lumo-err/5 rounded-2xl px-4 py-3">
+                {error}
+              </div>
+            ) : null}
 
-        <div className="mt-6 text-[12.5px] text-lumo-fg-mid text-center">
-          No account?{" "}
-          <Link href={`/signup${next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`} className="text-lumo-accent hover:underline">
-            Create one
-          </Link>
+            <button
+              type="submit"
+              disabled={busy || !email || !password}
+              className="w-full h-12 rounded-full bg-lumo-fg text-lumo-bg text-[14.5px] font-semibold hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:bg-lumo-elevated disabled:text-lumo-fg-low transition-colors shadow-card-lift"
+            >
+              {busy ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
+
+          <div className="mt-6 text-[13px] text-lumo-fg-mid text-center">
+            No account?{" "}
+            <Link
+              href={`/signup${next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`}
+              className="text-lumo-accent hover:underline underline-offset-4"
+            >
+              Create one
+            </Link>
+          </div>
         </div>
       </div>
     </main>

@@ -80,6 +80,15 @@
   /* Single shadow token. Anything deeper than this reads gratuitous. */
   --lumo-shadow:        0 1px 0 0 #00000066, 0 24px 48px -24px #00000099;
 
+  /* WEB-DESIGN-OVERHAUL-1 — additional depth tiers for the editorial
+     redesign. The original palette was deliberately flat; the new
+     direction reaches for tactile depth via solid drop shadows
+     (NOT multi-color fades). Use sparingly — most surfaces still
+     want `--lumo-shadow`. */
+  --lumo-shadow-card:   0 1px 0 0 #00000066, 0 8px 24px -12px #00000080;
+  --lumo-shadow-lift:   0 2px 0 0 #00000066, 0 24px 48px -16px #000000aa, 0 0 0 1px #ffffff05;
+  --lumo-shadow-hero:   0 4px 0 0 #00000066, 0 48px 96px -24px #000000bb, 0 0 0 1px #ffffff08;
+
   /* Multi-accent palette for things that benefit from being
      immediately distinguishable: brand mark, category badges,
      voice state dots, agent source chips, notification pills.
@@ -143,6 +152,11 @@
   --lumo-ring:          #1FB8E844;
 
   --lumo-shadow:        0 1px 0 0 #0B0E1408, 0 24px 48px -24px #0B0E1418;
+
+  /* WEB-DESIGN-OVERHAUL-1 — light-mode depth tiers. */
+  --lumo-shadow-card:   0 1px 0 0 #0B0E140C, 0 8px 24px -12px #0B0E1418;
+  --lumo-shadow-lift:   0 2px 0 0 #0B0E1410, 0 24px 48px -16px #0B0E1422, 0 0 0 1px #0B0E1408;
+  --lumo-shadow-hero:   0 4px 0 0 #0B0E1410, 0 48px 96px -24px #0B0E1430, 0 0 0 1px #0B0E140C;
 
   /* g-blue is the brand identity color (matches the wordmark body)
      and stays #1FB8E8 in both modes so the brand mark reads the
