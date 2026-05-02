@@ -102,6 +102,71 @@ export interface AdminIntelligenceStats {
   recent_missions: MissionRow[];
 }
 
+export interface PlanCompareStats {
+  total_turns: number;
+  agreement_rate_bucket: number;
+  agreement_rate_step: number;
+  py_p50_latency_ms: number;
+  py_p95_latency_ms: number;
+  py_error_rate: number;
+  py_stub_rate: number;
+}
+
+export function getPlanCompareStats(rows: unknown[]): PlanCompareStats {
+  const validRows = Array.isArray(rows)
+    ? rows.filter((row): row is Record<string, unknown> =>
+        typeof row === "object" && row !== null,
+      )
+    : [];
+  const total = validRows.length;
+  if (total === 0) {
+    return {
+      total_turns: 0,
+      agreement_rate_bucket: 0,
+      agreement_rate_step: 0,
+      py_p50_latency_ms: 0,
+      py_p95_latency_ms: 0,
+      py_error_rate: 0,
+      py_stub_rate: 0,
+    };
+  }
+
+  const pyLatencies: number[] = [];
+  let bucketComparable = 0;
+  let bucketAgreed = 0;
+  let stepComparable = 0;
+  let stepAgreed = 0;
+  let pyErrors = 0;
+  let pyStubs = 0;
+
+  for (const row of validRows) {
+    const latency = Number(row.py_latency_ms);
+    if (Number.isFinite(latency) && latency >= 0) pyLatencies.push(latency);
+    if (row.agreement_bucket === true || row.agreement_bucket === false) {
+      bucketComparable += 1;
+      if (row.agreement_bucket === true) bucketAgreed += 1;
+    }
+    if (row.agreement_step === true || row.agreement_step === false) {
+      stepComparable += 1;
+      if (row.agreement_step === true) stepAgreed += 1;
+    }
+    if (typeof row.py_error === "string" && row.py_error.length > 0) pyErrors += 1;
+    if (row.py_was_stub === true) pyStubs += 1;
+  }
+
+  return {
+    total_turns: total,
+    agreement_rate_bucket:
+      bucketComparable > 0 ? bucketAgreed / bucketComparable : 0,
+    agreement_rate_step:
+      stepComparable > 0 ? stepAgreed / stepComparable : 0,
+    py_p50_latency_ms: percentile(pyLatencies, 0.5) ?? 0,
+    py_p95_latency_ms: percentile(pyLatencies, 0.95) ?? 0,
+    py_error_rate: pyErrors / total,
+    py_stub_rate: pyStubs / total,
+  };
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Cron summarisation
 // ──────────────────────────────────────────────────────────────────────────

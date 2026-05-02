@@ -83,6 +83,7 @@ import {
   routeModelForIntent,
   toolsForModelRoute,
 } from "./perf/model-router.js";
+import { createPlanCompareRecorder } from "./lumo-ml/plan-compare.ts";
 import { attachDispatchPlan } from "./mesh/dispatch-planner.ts";
 import { createDefaultSubAgents } from "./mesh/default-subagents.ts";
 import { SupervisorOrchestrator } from "./mesh/supervisor.ts";
@@ -389,6 +390,10 @@ async function runTurnInner(
     loadedSessionApprovals,
     bootstrappedSessionApprovals,
   );
+  const planCompare = createPlanCompareRecorder({
+    input,
+    approvals: sessionApprovals,
+  });
   // Appstore (v0.4): filter the Claude tool bridge to agents the current
   // user has actually connected, plus public "connect.model === none"
   // agents. Prevents Claude from trying to use an app the user hasn't
@@ -427,6 +432,7 @@ async function runTurnInner(
       "I kicked off the Vegas weekend plan. I’ll track each leg here as the flight, hotel, and dinner agents move.";
     emit({ type: "text", value: assistantText });
     emit({ type: "assistant_compound_dispatch", value: demoCompoundDispatch });
+    planCompare.flush({ turnId: timing.requestId, planningStep: "selection" });
     return {
       assistant_text: assistantText,
       tool_calls: [],
@@ -484,6 +490,7 @@ async function runTurnInner(
     });
     const answer = formatArchiveRecallAnswer(lastUserForMission, recallResult);
     emit({ type: "text", value: answer });
+    planCompare.flush({ turnId: timing.requestId, planningStep: null });
     return {
       assistant_text: answer,
       tool_calls: [],
@@ -527,6 +534,7 @@ async function runTurnInner(
       },
     });
     emit({ type: "text", value: insight.answer });
+    planCompare.flush({ turnId: timing.requestId, planningStep: null });
     return {
       assistant_text: insight.answer,
       tool_calls: [],
@@ -658,6 +666,7 @@ async function runTurnInner(
         },
       },
     });
+    planCompare.flush({ turnId: timing.requestId, planningStep: "clarification" });
     return {
       assistant_text: missionPlanForTurn.message,
       tool_calls: [],
@@ -795,6 +804,10 @@ async function runTurnInner(
       latency_ms: result.latencyMs,
     }),
   );
+  planCompare.captureTsIntent(
+    intentClassification.bucket,
+    intentClassification.latencyMs,
+  );
   intentClassification = attachDispatchPlan(intentClassification, {
     userId: input.user_id,
     lastUserMessage: lastUser,
@@ -863,6 +876,7 @@ async function runTurnInner(
         detail: { env: "ANTHROPIC_API_KEY" },
       },
     });
+    planCompare.flush({ turnId: timing.requestId, planningStep: null });
     return {
       assistant_text: message,
       tool_calls: [],
@@ -1367,6 +1381,10 @@ async function runTurnInner(
     selection_count: selections.length,
     suggestion_planning_step: suggestionPlanningStep,
     suggestion_count: assistantSuggestions?.suggestions.length ?? 0,
+  });
+  planCompare.flush({
+    turnId: timing.requestId,
+    planningStep: suggestionPlanningStep,
   });
 
   return {

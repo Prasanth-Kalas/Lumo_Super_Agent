@@ -9,6 +9,7 @@ import {
   formatAnomalyFinding,
   formatMissionRow,
   formatProactiveMoment,
+  getPlanCompareStats,
   interpretBrainHealth,
   percentile,
   summarizeBrainToolUsage,
@@ -131,6 +132,39 @@ await t("summarizeBrainToolUsage filters non-lumo-ml rows out", () => {
   assert.equal(transcribe.call_count_24h, 2);
   assert.equal(transcribe.ok_rate_24h, 0.5);
   assert.ok(transcribe.latency_p95_ms >= 800);
+});
+
+await t("getPlanCompareStats computes agreement, latency, error, and stub rates", () => {
+  const stats = getPlanCompareStats([
+    {
+      agreement_bucket: true,
+      agreement_step: true,
+      py_latency_ms: 100,
+      py_error: null,
+      py_was_stub: true,
+    },
+    {
+      agreement_bucket: false,
+      agreement_step: true,
+      py_latency_ms: 300,
+      py_error: null,
+      py_was_stub: true,
+    },
+    {
+      agreement_bucket: null,
+      agreement_step: false,
+      py_latency_ms: 900,
+      py_error: "timeout",
+      py_was_stub: null,
+    },
+  ]);
+  assert.equal(stats.total_turns, 3);
+  assert.equal(stats.agreement_rate_bucket, 0.5);
+  assert.equal(stats.agreement_rate_step, 2 / 3);
+  assert.equal(stats.py_p50_latency_ms, 300);
+  assert.equal(stats.py_p95_latency_ms, 840);
+  assert.equal(stats.py_error_rate, 1 / 3);
+  assert.equal(stats.py_stub_rate, 2 / 3);
 });
 
 await t("formatProactiveMoment truncates body at 120 chars", () => {

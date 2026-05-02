@@ -3,6 +3,10 @@ import {
   type AgentTimingBucket,
   type AgentTimingPhase,
 } from "./timing-spans.ts";
+import {
+  getPlanCompareStats,
+  type PlanCompareStats,
+} from "../admin-stats-core.ts";
 
 export interface PerfStatRow {
   key: string;
@@ -37,6 +41,7 @@ export interface AdminPerfDashboard {
   bucketStats24h: PerfStatRow[];
   slowTurns: PerfSlowTurn[];
   totalTrend7d: PerfTrendPoint[];
+  planCompareStats: PlanCompareStats;
 }
 
 export interface TimingRow {
@@ -51,6 +56,7 @@ export interface TimingRow {
 export function buildAdminPerfDashboardFromRows(
   rawRows: TimingRow[],
   generatedAt = new Date().toISOString(),
+  rawPlanCompareRows: unknown[] = [],
 ): AdminPerfDashboard {
   const rows = rawRows.filter((row) => AGENT_TIMING_PHASES.includes(row.phase));
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -63,6 +69,7 @@ export function buildAdminPerfDashboardFromRows(
     bucketStats24h: buildBucketStats(totalRows24h),
     slowTurns: buildSlowTurns(rows24h),
     totalTrend7d: buildTrend(rows),
+    planCompareStats: getPlanCompareStats(rawPlanCompareRows),
   };
 }
 

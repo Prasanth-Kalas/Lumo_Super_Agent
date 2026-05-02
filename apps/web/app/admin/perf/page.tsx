@@ -49,6 +49,21 @@ export default async function AdminPerfPage() {
 
       <section className="rounded-xl border border-lumo-hair bg-lumo-surface p-5">
         <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-[15px] font-semibold">
+              Python planner shadow
+            </h2>
+            <p className="mt-1 text-[12px] text-lumo-fg-mid">
+              TypeScript remains authoritative; this tracks /plan agreement and latency.
+            </p>
+          </div>
+          <span className="text-[11.5px] text-lumo-fg-low">Last 24h</span>
+        </div>
+        <PlanCompareGrid dashboard={dashboard} />
+      </section>
+
+      <section className="rounded-xl border border-lumo-hair bg-lumo-surface p-5">
+        <div className="mb-4 flex items-center justify-between">
           <h2 className="text-[15px] font-semibold">
             Phase percentiles
           </h2>
@@ -70,6 +85,34 @@ export default async function AdminPerfPage() {
       </section>
 
       <SlowTurnTable rows={dashboard.slowTurns} />
+    </div>
+  );
+}
+
+function PlanCompareGrid({ dashboard }: { dashboard: AdminPerfDashboard }) {
+  const stats = dashboard.planCompareStats;
+  if (stats.total_turns === 0) {
+    return <EmptyState text="No Python planner comparison rows yet." />;
+  }
+  const cards = [
+    ["Bucket agreement", formatPercent(stats.agreement_rate_bucket)],
+    ["Step agreement", formatPercent(stats.agreement_rate_step)],
+    ["Python p50", formatMs(stats.py_p50_latency_ms)],
+    ["Python p95", formatMs(stats.py_p95_latency_ms)],
+    ["Python errors", formatPercent(stats.py_error_rate)],
+    ["Stub responses", formatPercent(stats.py_stub_rate)],
+  ] as const;
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+      {cards.map(([label, value]) => (
+        <div key={label} className="rounded-lg border border-lumo-hair bg-lumo-elevated p-3">
+          <div className="text-[10.5px] uppercase text-lumo-fg-low">{label}</div>
+          <div className="mt-1 text-[18px] font-semibold text-lumo-fg num">{value}</div>
+        </div>
+      ))}
+      <div className="col-span-2 text-[11.5px] text-lumo-fg-low lg:col-span-6">
+        {stats.total_turns.toLocaleString("en-US")} comparison rows
+      </div>
     </div>
   );
 }
@@ -218,6 +261,11 @@ function formatMs(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "0 ms";
   if (value < 1000) return `${Math.round(value)} ms`;
   return `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)} s`;
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0%";
+  return `${Math.round(value * 100)}%`;
 }
 
 function formatDate(value: string): string {
