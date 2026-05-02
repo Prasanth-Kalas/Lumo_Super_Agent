@@ -9,6 +9,7 @@ import { resolvePermissionGate } from "./mission-gate-resolution.ts";
 import {
   connectFirstPartySessionAppApproval,
   firstPartyConnectionProviderForApp,
+  SessionAppApprovalWriteError,
   upsertSessionAppApproval,
   type SessionAppApproval,
 } from "./session-app-approvals.js";
@@ -107,22 +108,49 @@ export async function commitMissionInstallApproval(
     install_source: "lumo",
   });
   const grantedScopes = grantedScopesForApproval(manifest, approvedFields);
-  const sessionApproval = session_id
-    ? firstPartyLumoApp
-      ? await connectFirstPartySessionAppApproval({
-          user_id,
-          session_id,
-          agent_id,
-          granted_scopes: grantedScopes,
-          connection_provider: firstPartyConnectionProvider,
-        })
-      : await upsertSessionAppApproval({
-          user_id,
-          session_id,
-          agent_id,
-          granted_scopes: grantedScopes,
-        })
-    : null;
+  let sessionApproval: SessionAppApproval | null = null;
+  if (session_id) {
+    try {
+      sessionApproval = firstPartyLumoApp
+        ? await connectFirstPartySessionAppApproval({
+            user_id,
+            session_id,
+            agent_id,
+            granted_scopes: grantedScopes,
+            connection_provider: firstPartyConnectionProvider,
+          })
+        : await upsertSessionAppApproval({
+            user_id,
+            session_id,
+            agent_id,
+            granted_scopes: grantedScopes,
+          });
+    } catch (err) {
+      throwApprovalWriteFailed({
+        user_id,
+        session_id,
+        agent_id,
+        source:
+          err instanceof SessionAppApprovalWriteError
+            ? err.context.source
+            : firstPartyLumoApp
+              ? "connect_first_party_session_app_approval"
+              : "upsert_session_app_approval",
+        error: err,
+      });
+    }
+    if (!sessionApproval) {
+      throwApprovalWriteFailed({
+        user_id,
+        session_id,
+        agent_id,
+        source: firstPartyLumoApp
+          ? "connect_first_party_session_app_approval_empty_result"
+          : "upsert_session_app_approval_empty_result",
+        error: new Error("approval write returned no row"),
+      });
+    }
+  }
 
   await resolvePermissionGate(user_id, agent_id).catch((gateErr) => {
     console.warn("[mission-install-approval] mission permission gate resolution failed", {
@@ -163,4 +191,27 @@ function approvedProfileFields(input: unknown, manifestFields: string[]): string
   return input.filter((field): field is string => {
     return typeof field === "string" && allowed.has(field);
   });
+}
+
+function throwApprovalWriteFailed(args: {
+  user_id: string;
+  session_id: string;
+  agent_id: string;
+  source: string;
+  error: unknown;
+}): never {
+  const errorMessage =
+    args.error instanceof Error ? args.error.message : String(args.error);
+  console.error("[mission-install-approval] approval_write_failed", {
+    user_id: args.user_id,
+    session_id: args.session_id,
+    app_id: args.agent_id,
+    source: args.source,
+    error: errorMessage,
+  });
+  throw new MissionInstallApprovalError(
+    "approval_write_failed",
+    503,
+    "I couldn't record that app approval. Please try again in a moment.",
+  );
 }

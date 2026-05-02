@@ -20,6 +20,24 @@ export {
 
 export type SessionConnectionProvider = FirstPartyConnectionProvider;
 
+export class SessionAppApprovalWriteError extends Error {
+  readonly code = "approval_write_failed";
+  readonly status = 503;
+
+  constructor(
+    message: string,
+    readonly context: {
+      user_id: string;
+      session_id: string;
+      agent_id: string;
+      source: string;
+    },
+  ) {
+    super(message);
+    this.name = "SessionAppApprovalWriteError";
+  }
+}
+
 export interface SessionAppApproval {
   user_id: string;
   session_id: string;
@@ -150,8 +168,12 @@ export async function connectFirstPartySessionAppApproval(args: {
     },
   );
   if (error) {
-    console.warn("[session-app-approvals] first-party connect failed:", error.message);
-    return null;
+    throw new SessionAppApprovalWriteError(error.message, {
+      user_id: args.user_id,
+      session_id: session,
+      agent_id: agent,
+      source: "connect_first_party_session_app_approval",
+    });
   }
   const row = Array.isArray(data) ? data[0] : data;
   return row ? toApproval(row as SessionAppApprovalRow) : null;

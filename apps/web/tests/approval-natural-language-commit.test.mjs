@@ -27,10 +27,15 @@ const t = (name, fn) => {
 
 const naturalLanguage = readFileSync("lib/mission-install-natural-language.ts", "utf8");
 const sharedApproval = readFileSync("lib/mission-install-approval.ts", "utf8");
+const sessionApprovals = readFileSync("lib/session-app-approvals.ts", "utf8");
 const installRoute = readFileSync("app/api/lumo/mission/install/route.ts", "utf8");
 const chatRoute = readFileSync("app/api/chat/route.ts", "utf8");
 const homePage = readFileSync("app/page.tsx", "utf8");
 const missionCard = readFileSync("components/LumoMissionCard.tsx", "utf8");
+const migration060 = readFileSync(
+  "../../db/migrations/060_fix_approval_rpc_ambiguous_user_id.sql",
+  "utf8",
+);
 
 console.log("\napproval natural-language commit");
 
@@ -148,6 +153,33 @@ t("repeated approval stays idempotent through the existing card key contract", (
   assert.match(sharedApproval, /connectFirstPartySessionAppApproval/);
   assert.match(installRoute, /approval_idempotency_key/);
   assert.match(naturalLanguage, /approval_idempotency_key/);
+});
+
+t("approval connection RPC qualifies columns that previously became ambiguous", () => {
+  assert.match(migration060, /Prior versions .* unqualified user_id\/id references/s);
+  assert.match(migration060, /from public\.agent_connections as ac/);
+  assert.match(migration060, /where ac\.user_id = p_user_id/);
+  assert.match(migration060, /and ac\.agent_id = normalized_agent_id/);
+  assert.match(migration060, /update public\.agent_connections as ac/);
+  assert.match(migration060, /coalesce\(ac\.provider_account_id, p_connection_provider\)/);
+  assert.match(migration060, /where ac\.id = active_connection_id/);
+  assert.match(migration060, /from public\.session_app_approvals as saa/);
+  assert.doesNotMatch(migration060, /\n\s*where user_id = p_user_id/);
+  assert.doesNotMatch(migration060, /\n\s*where id = active_connection_id/);
+});
+
+t("approval write failures are structured errors, not fake success text", () => {
+  assert.match(sessionApprovals, /class SessionAppApprovalWriteError extends Error/);
+  assert.match(sessionApprovals, /throw new SessionAppApprovalWriteError/);
+  assert.doesNotMatch(
+    sessionApprovals,
+    /first-party connect failed:[\s\S]{0,120}return null/,
+  );
+  assert.match(sharedApproval, /approval_write_failed/);
+  assert.match(sharedApproval, /console\.error\("\[mission-install-approval\] approval_write_failed"/);
+  assert.match(chatRoute, /MissionInstallApprovalError/);
+  assert.match(chatRoute, /code: err\.code/);
+  assert.match(homePage, /approval_write_failed/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

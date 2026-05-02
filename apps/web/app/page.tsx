@@ -596,16 +596,14 @@ export default function Home() {
           } else if (frame.type === "tool") {
             // Debug channel; not surfaced yet.
           } else if (frame.type === "error") {
+            const value = frame.value as
+              | { message?: unknown; code?: unknown }
+              | undefined;
+            const code = typeof value?.code === "string" ? value.code : "";
+            const message = String(value?.message ?? "stream_error");
             assistantText =
               assistantText ||
-              friendlyChatError(
-                new Error(
-                  String(
-                    (frame.value as { message?: unknown } | undefined)
-                      ?.message ?? "stream_error",
-                  ),
-                ),
-              );
+              friendlyChatError(new Error(code ? `${code}:${message}` : message));
           }
 
           setMessages((m) => {
@@ -673,6 +671,9 @@ export default function Home() {
     }
     if (lower.startsWith("chat_http_503")) {
       return "Authentication or persistence is not configured for this local server. Check the Super Agent environment variables, then try again.";
+    }
+    if (lower.includes("approval_write_failed")) {
+      return "I couldn't record that app approval. Please try again in a moment.";
     }
     return "Something broke on my end. Try again in a moment — I've logged it.";
   }

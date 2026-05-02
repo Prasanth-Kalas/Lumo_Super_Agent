@@ -11,7 +11,7 @@
  *   - { type: "assistant_compound_dispatch", value: { kind, compound_transaction_id, legs } }
  *   - { type: "summary",    value: ConfirmationSummary }     (money gate)
  *   - { type: "leg_status", value: { order, status } }       (compound trip)
- *   - { type: "error",      value: { message } }
+ *   - { type: "error",      value: { message, code? } }
  *   Terminates with { type: "done" }.
  *
  * Two turn shapes are handled here:
@@ -60,6 +60,7 @@ import {
   bookingProfileSnapshotToPii,
 } from "@/lib/booking-profile";
 import { commitPendingInstallDecisionFromText } from "@/lib/mission-install-natural-language";
+import { MissionInstallApprovalError } from "@/lib/mission-install-approval";
 
 export const runtime = "nodejs"; // orchestrator uses Anthropic SDK + node:crypto
 export const dynamic = "force-dynamic";
@@ -321,13 +322,13 @@ export async function POST(req: NextRequest): Promise<Response> {
         });
       } catch (err) {
         console.error("[/api/chat] error:", err);
-        const message = err instanceof Error ? err.message : String(err);
-        send({ type: "error", value: { message } });
+        const errorValue = chatErrorValue(err);
+        send({ type: "error", value: errorValue });
         void recordEvent({
           session_id: body.session_id,
           trip_id: activeTripId,
           frame_type: "error",
-          frame_value: { type: "error", value: { message } },
+          frame_value: { type: "error", value: errorValue },
         });
       } finally {
         closed = true;
@@ -347,6 +348,13 @@ export async function POST(req: NextRequest): Promise<Response> {
       connection: "keep-alive",
     },
   });
+}
+
+function chatErrorValue(err: unknown): { message: string; code?: string } {
+  if (err instanceof MissionInstallApprovalError) {
+    return { message: err.message, code: err.code };
+  }
+  return { message: err instanceof Error ? err.message : String(err) };
 }
 
 // Narrow `OrchestratorFrame` → "summary whose payload is a trip". The

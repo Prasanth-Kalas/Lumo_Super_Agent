@@ -80,13 +80,23 @@ export async function bootstrapUserAppApprovalsForSession(
         approval.connection_provider ??
         firstPartyConnectionProviderForAgentId(approval.agent_id);
       if (!provider) return null;
-      return connectFirstPartySessionAppApproval({
-        user_id,
-        session_id: session,
-        agent_id: approval.agent_id,
-        granted_scopes: approval.granted_scopes,
-        connection_provider: provider,
-      });
+      try {
+        return await connectFirstPartySessionAppApproval({
+          user_id,
+          session_id: session,
+          agent_id: approval.agent_id,
+          granted_scopes: approval.granted_scopes,
+          connection_provider: provider,
+        });
+      } catch (err) {
+        console.error("[user-app-approvals] bootstrap session approval failed", {
+          user_id,
+          session_id: session,
+          agent_id: approval.agent_id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      }
     }),
   );
 
