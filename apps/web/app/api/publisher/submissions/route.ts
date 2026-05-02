@@ -9,14 +9,14 @@
 import type { NextRequest } from "next/server";
 import { requireServerUser } from "@/lib/auth";
 import { getSupabase } from "@/lib/db";
-import { isPublisher } from "@/lib/publisher/access";
+import { isApprovedDeveloper } from "@/lib/publisher/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest): Promise<Response> {
   const user = await requireServerUser();
-  if (!isPublisher(user.email)) {
+  if (!(await isApprovedDeveloper(user.email))) {
     return json({ submissions: [] }); // empty, not 403, so page is easier
   }
   const sb = getSupabase();
@@ -24,7 +24,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
   const { data, error } = await sb
     .from("partner_agents")
     .select(
-      "id, publisher_email, manifest_url, version, is_published, status, certification_status, certification_report, certified_at, submitted_at, reviewed_at, reviewer_note, publisher_key",
+      "id, publisher_email, manifest_url, version, is_published, logo_url, status, certification_status, certification_report, certified_at, submitted_at, reviewed_at, reviewer_note, publisher_key",
     )
     .eq("publisher_email", user.email!.toLowerCase())
     .order("submitted_at", { ascending: false });

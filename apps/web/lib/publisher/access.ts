@@ -1,19 +1,36 @@
 /**
  * Publisher + admin access gates.
  *
- * Phase 3 only opens the publisher portal to an invited list —
- * vetted partners that the Lumo team has already talked to. This
- * module owns the allowlist checks so every route does the same
- * thing without drift.
+ * Two paths can grant publisher access:
  *
- * Two gates:
+ *   1. LUMO_PUBLISHER_EMAILS env (sync) — for Lumo's own team and
+ *      hand-onboarded design partners. Always wins.
+ *   2. partner_developers table (async) — self-serve signups.
+ *      A row with tier='approved' here counts the same as an env
+ *      entry. Migration 064 added this surface.
  *
- *   isPublisher(email)  → may submit agents via /publisher
- *   isAdmin(email)      → may approve/reject via /admin/review-queue
+ * Routes that need to gate access call `isApprovedDeveloper(email)`
+ * (async) so the DB-backed tier is honored. The legacy sync
+ * `isPublisher(email)` is kept for code paths that genuinely cannot
+ * await — but every route in this codebase should use the async one
+ * now that self-serve is live.
  *
- * Both read from environment variables so the allowlist is
- * deploy-config, not code. Comma-separated, lowercased on read.
+ *   isApprovedDeveloper(email) → may submit agents via /publisher
+ *   getDeveloperTier(email)    → null | 'waitlisted' | 'approved'
+ *                                 | 'rejected' | 'revoked' (the DB
+ *                                 row's tier; null means no row)
+ *   isAdmin(email)             → may approve/reject via /admin
+ *
+ * Admin gating stays env-only — admin is a Lumo-team-only role,
+ * never self-serve.
  */
+import { getSupabase } from "../db.js";
+
+export type DeveloperTier =
+  | "waitlisted"
+  | "approved"
+  | "rejected"
+  | "revoked";
 
 function parseEmailList(raw: string | undefined): Set<string> {
   if (!raw) return new Set();
@@ -50,4 +67,51 @@ export function isPublisher(email: string | null | undefined): boolean {
 export function isAdmin(email: string | null | undefined): boolean {
   if (!email) return false;
   return adminAllowlist().has(email.toLowerCase());
+}
+
+/**
+ * Read the partner_developers row for an email, returning the tier
+ * or null if no row exists. Lowercases the email to match the PK.
+ * Returns null on any DB error so callers can fail closed by ORing
+ * with the env allowlist.
+ */
+export async function getDeveloperTier(
+  email: string | null | undefined,
+): Promise<DeveloperTier | null> {
+  if (!email) return null;
+  const db = getSupabase();
+  if (!db) return null;
+  const { data, error } = await db
+    .from("partner_developers")
+    .select("tier")
+    .eq("email", email.toLowerCase())
+    .maybeSingle();
+  if (error) {
+    console.warn("[access] developer tier read failed:", error.message);
+    return null;
+  }
+  const t = (data as { tier?: string } | null)?.tier;
+  if (
+    t === "waitlisted" ||
+    t === "approved" ||
+    t === "rejected" ||
+    t === "revoked"
+  ) {
+    return t;
+  }
+  return null;
+}
+
+/**
+ * The async access gate routes should use. True if the email is on
+ * the env allowlist OR has an approved partner_developers row.
+ * Anything else (waitlisted, rejected, revoked, no row) → false.
+ */
+export async function isApprovedDeveloper(
+  email: string | null | undefined,
+): Promise<boolean> {
+  if (!email) return false;
+  if (isPublisher(email)) return true;
+  const tier = await getDeveloperTier(email);
+  return tier === "approved";
 }

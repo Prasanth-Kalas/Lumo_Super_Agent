@@ -24,6 +24,7 @@ interface Submission {
   manifest_url: string;
   version: string;
   is_published: boolean;
+  logo_url: string | null;
   parsed_manifest: Record<string, unknown> | null;
   status: "pending" | "certification_failed" | "approved" | "rejected" | "revoked";
   certification_status: "passed" | "needs_review" | "failed" | null;
@@ -33,6 +34,18 @@ interface Submission {
   reviewed_at: string | null;
   reviewed_by: string | null;
   reviewer_note: string | null;
+}
+
+interface DeveloperApplication {
+  email: string;
+  display_name: string | null;
+  company: string | null;
+  reason: string | null;
+  tier: "waitlisted" | "approved" | "rejected" | "revoked";
+  reviewer_note: string | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  created_at: string | null;
 }
 
 interface CertificationReport {
@@ -77,6 +90,7 @@ interface RuntimePolicyUpdate {
 export default function AdminReviewQueuePage() {
   const [subs, setSubs] = useState<Submission[] | null>(null);
   const [policies, setPolicies] = useState<RuntimeOverride[]>([]);
+  const [developers, setDevelopers] = useState<DeveloperApplication[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [note, setNote] = useState("");
@@ -84,9 +98,10 @@ export default function AdminReviewQueuePage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [res, policyRes] = await Promise.all([
+      const [res, policyRes, devsRes] = await Promise.all([
         fetch("/api/admin/review-queue", { cache: "no-store" }),
         fetch("/api/admin/agent-policy", { cache: "no-store" }),
+        fetch("/api/admin/developers", { cache: "no-store" }),
       ]);
       if (res.status === 403) {
         setErr(
@@ -107,11 +122,48 @@ export default function AdminReviewQueuePage() {
         const p = (await policyRes.json()) as { overrides?: RuntimeOverride[] };
         setPolicies(p.overrides ?? []);
       }
+      if (devsRes.ok) {
+        const d = (await devsRes.json()) as {
+          developers?: DeveloperApplication[];
+        };
+        setDevelopers(d.developers ?? []);
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setSubs([]);
     }
   }, []);
+
+  async function decideDeveloper(
+    email: string,
+    decision: DeveloperApplication["tier"],
+  ) {
+    if (busyId) return;
+    setBusyId(`dev:${email}`);
+    try {
+      const res = await fetch("/api/admin/developers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email,
+          decision,
+          note: note.trim() || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error(
+          (j?.error as string | undefined) ?? `HTTP ${res.status}`,
+        );
+      }
+      setNote("");
+      await refresh();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   useEffect(() => {
     void refresh();
@@ -231,6 +283,19 @@ export default function AdminReviewQueuePage() {
             {err}
           </div>
         ) : null}
+
+        <DeveloperApplicationsPanel
+          developers={developers}
+          busyId={busyId}
+          onDecide={(email, decision) => void decideDeveloper(email, decision)}
+        />
+
+        <div className="mb-3 mt-8 flex items-baseline justify-between">
+          <h2 className="text-[14px] font-semibold">Agent submissions</h2>
+          <span className="text-[11px] text-lumo-fg-low num">
+            {subs?.length ?? 0} total
+          </span>
+        </div>
 
         {!subs ? (
           <div className="text-[13px] text-lumo-fg-mid py-10">Loading…</div>
@@ -677,4 +742,148 @@ function formatShort(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+function DeveloperApplicationsPanel({
+  developers,
+  busyId,
+  onDecide,
+}: {
+  developers: DeveloperApplication[];
+  busyId: string | null;
+  onDecide: (email: string, decision: DeveloperApplication["tier"]) => void;
+}) {
+  // Default-collapsed when nothing is waiting; expand whenever any
+  // application is in `waitlisted` so the admin doesn't miss it.
+  const waitlistedCount = developers.filter(
+    (d) => d.tier === "waitlisted",
+  ).length;
+  const [open, setOpen] = useState(waitlistedCount > 0);
+
+  // Re-open whenever a fresh waitlisted item shows up after the
+  // admin had collapsed the panel (rare, but cheap).
+  useEffect(() => {
+    if (waitlistedCount > 0) setOpen(true);
+  }, [waitlistedCount]);
+
+  return (
+    <section className="rounded-xl border border-lumo-hair bg-lumo-surface">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full px-4 py-3 flex items-center justify-between"
+        aria-expanded={open}
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[14px] font-semibold">
+            Developer applications
+          </span>
+          {waitlistedCount > 0 ? (
+            <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">
+              {waitlistedCount} waiting
+            </span>
+          ) : null}
+        </div>
+        <span className="text-[11px] text-lumo-fg-low">
+          {developers.length} total · {open ? "hide" : "show"}
+        </span>
+      </button>
+      {open ? (
+        developers.length === 0 ? (
+          <div className="border-t border-lumo-hair px-4 py-4 text-[12.5px] text-lumo-fg-mid">
+            No applications yet.
+          </div>
+        ) : (
+          <ul className="border-t border-lumo-hair divide-y divide-lumo-hair">
+            {developers.map((d) => (
+              <li key={d.email} className="px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] text-lumo-fg flex items-center gap-2">
+                      <span className="truncate">
+                        {d.display_name || d.email}
+                      </span>
+                      {d.company ? (
+                        <span className="text-[11px] text-lumo-fg-low">
+                          · {d.company}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-0.5 text-[11.5px] text-lumo-fg-low num truncate">
+                      {d.email}
+                      {d.created_at ? ` · applied ${formatShort(d.created_at)}` : null}
+                    </div>
+                    {d.reason ? (
+                      <div className="mt-1 text-[12px] text-lumo-fg-mid">
+                        {d.reason}
+                      </div>
+                    ) : null}
+                    {d.reviewer_note ? (
+                      <div className="mt-1 text-[11.5px] text-lumo-fg-low">
+                        last note: {d.reviewer_note}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="shrink-0 flex flex-col items-end gap-2">
+                    <DeveloperTierPill tier={d.tier} />
+                    <div className="flex items-center gap-1.5">
+                      {d.tier !== "approved" ? (
+                        <button
+                          type="button"
+                          onClick={() => onDecide(d.email, "approved")}
+                          disabled={busyId === `dev:${d.email}`}
+                          className="h-7 px-2.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[12px] hover:bg-emerald-500/25 disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                      ) : null}
+                      {d.tier === "waitlisted" ? (
+                        <button
+                          type="button"
+                          onClick={() => onDecide(d.email, "rejected")}
+                          disabled={busyId === `dev:${d.email}`}
+                          className="h-7 px-2.5 rounded-md border border-red-500/30 text-red-400 text-[12px] hover:bg-red-500/10 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      ) : null}
+                      {d.tier === "approved" ? (
+                        <button
+                          type="button"
+                          onClick={() => onDecide(d.email, "revoked")}
+                          disabled={busyId === `dev:${d.email}`}
+                          className="h-7 px-2.5 rounded-md border border-red-500/30 text-red-400 text-[12px] hover:bg-red-500/10 disabled:opacity-50"
+                        >
+                          Revoke
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
+    </section>
+  );
+}
+
+function DeveloperTierPill({ tier }: { tier: DeveloperApplication["tier"] }) {
+  const tone =
+    tier === "approved"
+      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+      : tier === "waitlisted"
+        ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+        : "bg-red-500/10 text-red-400 border-red-500/20";
+  return (
+    <span
+      className={
+        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] border " +
+        tone
+      }
+    >
+      {tier}
+    </span>
+  );
 }

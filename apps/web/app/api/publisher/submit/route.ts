@@ -20,7 +20,7 @@
 import type { NextRequest } from "next/server";
 import { requireServerUser } from "@/lib/auth";
 import { getSupabase } from "@/lib/db";
-import { isPublisher } from "@/lib/publisher/access";
+import { isApprovedDeveloper } from "@/lib/publisher/access";
 import { certifyAgentManifestUrl } from "@/lib/agent-certification";
 
 export const runtime = "nodejs";
@@ -28,13 +28,26 @@ export const dynamic = "force-dynamic";
 
 interface Body {
   manifest_url?: unknown;
+  /**
+   * Optional logo URL for the agent's marketplace card. Must be
+   * https (or http for local dev). When omitted, the row's
+   * existing logo_url is preserved on resubmit; on first submit
+   * this defaults to whatever the manifest may declare in
+   * `logo_url` (forward-compat — manifest schema doesn't require
+   * it today).
+   */
+  logo_url?: unknown;
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
   const user = await requireServerUser();
-  if (!isPublisher(user.email)) {
+  if (!(await isApprovedDeveloper(user.email))) {
     return json(
-      { error: "not_invited", detail: "Your email isn't on the publisher allowlist." },
+      {
+        error: "not_invited",
+        detail:
+          "Your developer application isn't approved yet. Visit /publisher to check status or apply.",
+      },
       403,
     );
   }
@@ -75,29 +88,39 @@ export async function POST(req: NextRequest): Promise<Response> {
     (manifest && typeof manifest.version === "string" && manifest.version) ||
     "0.0.0-unparsed";
 
+  // Logo URL. Prefer the explicit body override, fall back to a
+  // manifest-declared logo_url (forward-compat — the SDK schema
+  // can add it without a route change). Bare validation: must be
+  // http(s); the DB CHECK constraint enforces the same shape.
+  const logo_url = pickLogoUrl(body.logo_url, manifest);
+
+  const upsertRow: Record<string, unknown> = {
+    publisher_email: user.email!.toLowerCase(),
+    manifest_url,
+    version: submitted_version,
+    parsed_manifest: manifest,
+    certification_status: report.status,
+    certification_report: report,
+    certified_at: report.checked_at,
+    status: nextStatus,
+    submitted_at: new Date().toISOString(),
+    // is_published is intentionally NOT set here. Even on a
+    // passing first submission, the row stays unpublished until
+    // an admin promotes it from /admin/review-queue. The App Store
+    // equivalent: passing review ≠ live on the store — the
+    // publisher (or in our v1, the Lumo admin) decides when to
+    // flip the switch.
+  };
+  // Only include logo_url in the payload when we have one, so a
+  // bare /api/publisher/submit (no body.logo_url, no manifest
+  // declaration) doesn't accidentally clear an existing logo on
+  // a re-submit of the same version.
+  if (logo_url !== undefined) upsertRow.logo_url = logo_url;
+
   const { data, error } = await sb
     .from("partner_agents")
-    .upsert(
-      {
-        publisher_email: user.email!.toLowerCase(),
-        manifest_url,
-        version: submitted_version,
-        parsed_manifest: manifest,
-        certification_status: report.status,
-        certification_report: report,
-        certified_at: report.checked_at,
-        status: nextStatus,
-        submitted_at: new Date().toISOString(),
-        // is_published is intentionally NOT set here. Even on a
-        // passing first submission, the row stays unpublished until
-        // an admin promotes it from /admin/review-queue. The
-        // App Store equivalent: passing review ≠ live on the store
-        // — the publisher (or in our v1, the Lumo admin) decides
-        // when to flip the switch.
-      },
-      { onConflict: "publisher_email,manifest_url,version" },
-    )
-    .select("id, publisher_email, manifest_url, version, is_published, status, certification_status, certification_report, submitted_at")
+    .upsert(upsertRow, { onConflict: "publisher_email,manifest_url,version" })
+    .select("id, publisher_email, manifest_url, version, is_published, logo_url, status, certification_status, certification_report, submitted_at")
     .single();
 
   if (error) return json({ error: error.message }, 500);
@@ -114,6 +137,36 @@ function isHttpsUrl(s: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Resolve the logo_url to write on this submit. Returns:
+ *   - undefined → no source available (don't touch DB column)
+ *   - null      → caller passed an empty string to clear the logo
+ *   - string    → a validated http(s) URL
+ *
+ * Body wins over manifest. Body string trimmed; if empty after
+ * trim, treats as an explicit clear. The manifest is typed as
+ * `unknown` because the SDK schema doesn't formally declare a
+ * logo_url field yet — we'll read it forward-compat style.
+ */
+function pickLogoUrl(
+  bodyValue: unknown,
+  manifest: unknown,
+): string | null | undefined {
+  if (typeof bodyValue === "string") {
+    const trimmed = bodyValue.trim();
+    if (!trimmed) return null;
+    return isHttpsUrl(trimmed) ? trimmed : undefined;
+  }
+  const manifestLogo =
+    manifest && typeof manifest === "object" && manifest !== null
+      ? (manifest as { logo_url?: unknown }).logo_url
+      : undefined;
+  const fromManifest =
+    typeof manifestLogo === "string" ? manifestLogo.trim() : "";
+  if (fromManifest && isHttpsUrl(fromManifest)) return fromManifest;
+  return undefined;
 }
 
 function json(body: unknown, status = 200): Response {

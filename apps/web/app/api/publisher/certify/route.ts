@@ -8,7 +8,7 @@
 import type { NextRequest } from "next/server";
 import { requireServerUser } from "@/lib/auth";
 import { certifyAgentManifestUrl } from "@/lib/agent-certification";
-import { isPublisher } from "@/lib/publisher/access";
+import { isApprovedDeveloper } from "@/lib/publisher/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +19,13 @@ interface Body {
 
 export async function POST(req: NextRequest): Promise<Response> {
   const user = await requireServerUser();
-  if (!isPublisher(user.email)) {
+  if (!(await isApprovedDeveloper(user.email))) {
     return json(
-      { error: "not_invited", detail: "Your email isn't on the publisher allowlist." },
+      {
+        error: "not_invited",
+        detail:
+          "Your developer application isn't approved yet. Visit /publisher to check status or apply.",
+      },
       403,
     );
   }
