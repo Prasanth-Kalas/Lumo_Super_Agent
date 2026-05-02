@@ -426,7 +426,33 @@ function createMseChunkPlayer(
     } catch {
       if (!endFired) endWith("error");
     }
-    return done;
+    // Chrome MSE quirk: after endOfStream(), the <audio> element's
+    // `ended` event sometimes doesn't fire — currentTime lands a
+    // hair short of duration and the natural end is never signalled.
+    // Without this fallback, `done` never resolves → the TTS worker
+    // hangs awaiting finish() → voice state machine stays stuck on
+    // "speaking" and the mic gate never reopens (no tap-to-talk
+    // button after the first turn).
+    //
+    // Primary recovery: detect "currentTime reached duration" via
+    // timeupdate (fires while playing, regardless of `ended`). The
+    // long-tail timeout is a backstop for the truly-paused case.
+    const onTimeUpdate = () => {
+      const dur = audio.duration;
+      if (Number.isFinite(dur) && dur > 0 && audio.currentTime >= dur - 0.05) {
+        if (!endFired) endWith("played");
+      }
+    };
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    const watchdog = setTimeout(() => {
+      if (!endFired) endWith("played");
+    }, 30_000);
+    try {
+      return await done;
+    } finally {
+      audio.removeEventListener("timeupdate", onTimeUpdate);
+      clearTimeout(watchdog);
+    }
   };
 
   return {
