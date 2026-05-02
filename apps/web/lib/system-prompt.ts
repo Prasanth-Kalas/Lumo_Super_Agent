@@ -54,15 +54,26 @@ export function buildSystemPrompt(opts: {
    */
   ambient?: AmbientContext;
   bookingProfile?: BookingProfileSnapshot | null;
+  /**
+   * Agent IDs the user already has live OAuth connections for. The
+   * orchestrator already loads this from `agent_connections`; we
+   * thread it into the prompt so Claude annotates each capability
+   * with its connection state and stops telling the user to "connect
+   * Google" when Google is already connected.
+   */
+  connectedAgentIds?: ReadonlySet<string>;
 }): string {
+  const connected = opts.connectedAgentIds ?? new Set<string>();
   const agentLines = opts.agents
-    .map(
-      (a) =>
-        `- ${a.manifest.display_name} (${a.manifest.agent_id}): ${a.manifest.one_liner}` +
+    .map((a) => {
+      const status = connectionStatusLabel(a, connected);
+      return (
+        `- ${a.manifest.display_name} (${a.manifest.agent_id})${status}: ${a.manifest.one_liner}` +
         (a.manifest.example_utterances.length
           ? `\n    examples: ${a.manifest.example_utterances.slice(0, 3).join(" · ")}`
-          : ""),
-    )
+          : "")
+      );
+    })
     .join("\n");
 
   const unavailableLines = opts.agents
@@ -93,6 +104,7 @@ ${agentLines || "  (none currently registered)"}
 ${unavailableLines ? `CURRENTLY UNAVAILABLE:\n${unavailableLines}\n` : ""}
 
 RULES:
+0. Connection state is annotated on each capability: \`[CONNECTED]\` means the user has already authorized that app — call its tools directly and never ask the user to "connect" or "head to the Marketplace." \`[NOT CONNECTED]\` means it's gated; only then direct the user to the Marketplace. No tag means it needs no user authorization (always available). Trust these tags over any earlier turn's text.
 1. Pick the correct tool for the user's intent. If the intent is ambiguous, ask ONE short clarifying question — do not ask multiple. Phrase it as a helpful planning prompt, not an interrogation: "I've got a few date windows that look good — pick one or tell me what works." The shell may render step-aware suggested-answer chips. Clarification chips are for gathering trip details (dates, airports, trip shape, travelers, budget). Selection chips are for choosing among options (cheapest, fastest, nonstop only). Confirmation chips are for booking actions (confirm booking, different traveler, change dates, cancel). Post-booking chips are for next actions (book hotel, add ground transport, send to calendar). If there are no plausible defaults or no decision is needed, do not imply chips; just answer plainly.
 2. Money-moving tools (booking a flight, placing an order, reserving a hotel) require a two-step flow:
    a. First call the corresponding PRICING / OFFER tool (e.g. flight_price_offer). The shell will render a structured confirmation card automatically — you do NOT need to emit any \`<summary>\` markup yourself. Reply with ONE short sentence that introduces the card (e.g. "Here's the final price — tap Confirm to book."). Do NOT recap fields the card shows (carrier, route, date, total, offer id). Do NOT ask the user for personal info (name, email, DOB, payment details) — the card is the consent gate and PII is supplied by the shell.
@@ -115,6 +127,26 @@ MEMORY HYGIENE:
 - Respect an explicit "forget that" immediately with \`memory_forget\` on the most recent relevant fact.
 
 ${opts.mode === "voice" ? `\nVOICE MODE:\n${VOICE_MODE_PROMPT}\n` : ""}`;
+}
+
+/**
+ * Annotate each agent in the CAPABILITIES list with its live connection
+ * state so Claude knows whether to call the tool or send the user to
+ * the Marketplace. System agents and `connect.model === "none"` agents
+ * don't need user authorization, so they get no tag (always available).
+ * OAuth agents get `[CONNECTED]` or `[NOT CONNECTED]` based on whether
+ * the user has a live row in `agent_connections`.
+ */
+function connectionStatusLabel(
+  entry: RegistryEntry,
+  connectedAgentIds: ReadonlySet<string>,
+): string {
+  if (entry.system === true) return "";
+  const model = entry.manifest.connect?.model;
+  if (model !== "oauth2") return "";
+  return connectedAgentIds.has(entry.manifest.agent_id)
+    ? " [CONNECTED]"
+    : " [NOT CONNECTED]";
 }
 
 /**

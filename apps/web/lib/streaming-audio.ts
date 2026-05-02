@@ -88,6 +88,8 @@ interface MediaSourceLike extends EventTarget {
 interface AudioLike extends EventTarget {
   preload: string;
   src: string;
+  duration: number;
+  currentTime: number;
   play(): Promise<void>;
   pause(): void;
 }

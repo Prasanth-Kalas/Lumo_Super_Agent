@@ -818,6 +818,7 @@ async function runTurnInner(
       },
       ambient: input.ambient,
       bookingProfile,
+      connectedAgentIds,
     });
     await systemPromptSpan.end({ status: "ok" });
   } catch (error) {
