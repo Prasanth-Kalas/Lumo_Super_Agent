@@ -51,7 +51,8 @@ struct SuggestionChips: View {
                     .disabled(isDisabled)
                     .opacity(isDisabled ? 0.5 : 1)
                     .accessibilityLabel(Text(suggestion.label))
-                    .accessibilityHint(Text("Sends \(suggestion.value)"))
+                    .accessibilityHint(Text("Sends as your reply"))
+                    .accessibilityAddTraits(.isButton)
                     .accessibilityIdentifier("chat.suggestion.\(suggestion.id)")
                 }
             }

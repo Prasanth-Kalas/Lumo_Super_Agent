@@ -53,6 +53,15 @@ struct RootView: View {
     @State private var drawerOpen: Bool = false
     @State private var showSignOutConfirm: Bool = false
 
+    /// Auto-open seam for the IOS-DRAWER-EDIT-DETAIL-CAPTURES-1
+    /// screenshots. DEBUG-only launch args
+    /// `-LumoOpenMemoryEdit <category>` and
+    /// `-LumoOpenMarketplaceDetail <agent_id>` set these so the
+    /// destination renders the requested edit form / detail view
+    /// without a scripted tap.
+    @State private var memoryAutoOpenCategory: MemoryCategory? = nil
+    @State private var marketplaceAutoOpenAgentID: String? = nil
+
     /// Injected by AppRootView when the user is signed in (see
     /// AppRootView.body). Drives the drawer's account-chip footer
     /// email + initial.
@@ -193,7 +202,10 @@ struct RootView: View {
                 }
             )
         case .memory:
-            MemoryView(viewModel: memoryViewModel)
+            MemoryView(
+                viewModel: memoryViewModel,
+                autoOpenCategory: $memoryAutoOpenCategory
+            )
         case .settings:
             SettingsView(
                 paymentService: paymentService,
@@ -202,7 +214,10 @@ struct RootView: View {
                 onSignOut: onSignOut
             )
         case .marketplace:
-            MarketplaceView(viewModel: marketplaceViewModel)
+            MarketplaceView(
+                viewModel: marketplaceViewModel,
+                autoOpenAgentID: $marketplaceAutoOpenAgentID
+            )
         case .profile:
             // Not in EXPLORE today; reachable programmatically (e.g.
             // future Settings → Profile link, deep link from web).
@@ -283,6 +298,26 @@ struct RootView: View {
             case "history":     path.append(DrawerDestination.history)
             default:         break
             }
+        }
+        // IOS-DRAWER-EDIT-DETAIL-CAPTURES-1 capture seams.
+        // `-LumoOpenMemoryEdit <category>` lands on Memory and auto-
+        // presents the edit sheet for that category; defaults to
+        // .preferences when the value is missing or unrecognised.
+        // The capture script pairs this with -LumoStartDestination
+        // memory so the destination push happens up-stack.
+        if let raw = defaults.string(forKey: "LumoOpenMemoryEdit"),
+           !raw.isEmpty
+        {
+            memoryAutoOpenCategory = MemoryCategory(rawValue: raw.lowercased()) ?? .preferences
+        }
+        // `-LumoOpenMarketplaceDetail <agent_id>` lands on Marketplace
+        // and renders that agent's detail panel in-place via
+        // MarketplaceView's autoOpenAgentID seam. Capture script
+        // pairs with -LumoStartDestination marketplace.
+        if let raw = defaults.string(forKey: "LumoOpenMarketplaceDetail"),
+           !raw.isEmpty
+        {
+            marketplaceAutoOpenAgentID = raw
         }
         // Seed assistant_suggestions chip-strip fixture (CHAT-SUGGESTED-CHIPS-1-IOS).
         // Renders a user → assistant clarification turn with three

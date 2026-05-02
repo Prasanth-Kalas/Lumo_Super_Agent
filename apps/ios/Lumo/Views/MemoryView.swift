@@ -17,9 +17,18 @@ import SwiftUI
 struct MemoryView: View {
     @StateObject private var viewModel: MemoryScreenViewModel
     @State private var editingCategory: MemoryCategory? = nil
+    /// DEBUG capture seam (IOS-DRAWER-EDIT-DETAIL-CAPTURES-1) — when
+    /// non-nil on first appear, auto-presents the edit sheet for that
+    /// category so the screenshot lands the form. Cleared after one
+    /// use so subsequent navigations behave normally.
+    @Binding private var autoOpenCategory: MemoryCategory?
 
-    init(viewModel: MemoryScreenViewModel) {
+    init(
+        viewModel: MemoryScreenViewModel,
+        autoOpenCategory: Binding<MemoryCategory?> = .constant(nil)
+    ) {
         self._viewModel = StateObject(wrappedValue: viewModel)
+        self._autoOpenCategory = autoOpenCategory
     }
 
     var body: some View {
@@ -39,6 +48,12 @@ struct MemoryView: View {
         .navigationBarTitleDisplayMode(.large)
         .task { await viewModel.load() }
         .refreshable { await viewModel.load() }
+        .onAppear {
+            if let cat = autoOpenCategory {
+                editingCategory = cat
+                autoOpenCategory = nil
+            }
+        }
         .sheet(item: $editingCategory) { category in
             NavigationStack {
                 MemoryEditForm(

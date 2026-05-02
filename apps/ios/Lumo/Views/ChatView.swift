@@ -317,6 +317,15 @@ struct ChatView: View {
                 )
                 .focused($inputFocused)
                 .frame(minHeight: 28)
+                // CHIP-A11Y-VOICEOVER-1 — explicit accessibility
+                // label that signals both reply paths (free-text +
+                // chip-tap). The default TextField a11y label is just
+                // the placeholder, which doesn't tell the user that
+                // tapping a chip above is a valid alternative.
+                .accessibilityLabel(
+                    Text("Ask Lumo to book a flight, order dinner, plan a trip. Or pick a suggestion above.")
+                )
+                .accessibilityIdentifier("chat.composer.input")
 
                 ChatComposerTrailingButton(
                     mode: ChatComposerTrailingButton.Mode.from(

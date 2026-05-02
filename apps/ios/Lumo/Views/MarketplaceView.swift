@@ -20,22 +20,44 @@ import SwiftUI
 
 struct MarketplaceView: View {
     @StateObject private var viewModel: MarketplaceScreenViewModel
+    /// DEBUG capture seam (IOS-DRAWER-EDIT-DETAIL-CAPTURES-1) — when
+    /// non-nil, the body renders `MarketplaceAgentDetailView` for the
+    /// matching agent in place of the list so the screenshot lands
+    /// the detail panel without a scripted tap. We render in-place
+    /// rather than auto-push to avoid plumbing a nav-path binding
+    /// through RootView's NavigationStack just for the capture.
+    @Binding private var autoOpenAgentID: String?
 
-    init(viewModel: MarketplaceScreenViewModel) {
+    init(
+        viewModel: MarketplaceScreenViewModel,
+        autoOpenAgentID: Binding<String?> = .constant(nil)
+    ) {
         self._viewModel = StateObject(wrappedValue: viewModel)
+        self._autoOpenAgentID = autoOpenAgentID
     }
 
     var body: some View {
         Group {
-            switch viewModel.state {
-            case .idle, .loading:
-                loadingSkeleton
-            case .loaded(let agents) where agents.isEmpty:
-                emptyState
-            case .loaded(let agents):
-                agentList(agents)
-            case .error(let message):
-                errorState(message)
+            // Capture-only short-circuit. If a target agent is set
+            // and we've loaded matching data, render its detail
+            // directly. Real navigation still flows through the
+            // NavigationLink in agentList(_:).
+            if let target = autoOpenAgentID,
+               case .loaded(let agents) = viewModel.state,
+               let agent = agents.first(where: { $0.agent_id == target })
+            {
+                MarketplaceAgentDetailView(agent: agent)
+            } else {
+                switch viewModel.state {
+                case .idle, .loading:
+                    loadingSkeleton
+                case .loaded(let agents) where agents.isEmpty:
+                    emptyState
+                case .loaded(let agents):
+                    agentList(agents)
+                case .error(let message):
+                    errorState(message)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
