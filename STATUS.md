@@ -4,6 +4,7 @@
 |---|---|---|---|---|
 | Codex | Lumo_Super_Agent_codex | codex/voice-mode-stt-gating-1 | 2026-05-02 | VOICE-MODE-STT-GATING-1 mute STT while web TTS is active, add post-speaking tail guard before hands-free resumes |
 | Kalas (human) | iPhone (TestFlight) | _device-only_ | 2026-05-02 | **IOS-DEEPGRAM-DEVICE-SMOKE-1 (BLOCKING)** end-to-end voice-mode validation on a real iPhone post-c438e81: build dev/TestFlight, voice-mode "describe the ocean in three short sentences" → all three sentences play with no truncation + no >200ms gap + Aura-2 Thalia voice correct; "tell me a fun fact" ×5 in a row → no provider-side regression; Bluetooth headphones if available (IOS-DEEPGRAM-BLUETOOTH-FALLBACK-1 risk). **Blocks all further iOS feature lanes.** On clean pass: STATUS → "device smoke clean on <device> on <date>"; iOS truly idle. On failure: file IOS-DEEPGRAM-MULTI-SENTENCE-TRUNCATION-1 with failure mode, claude-code's first commit on that lane is instrumentation-only at DeepgramTTSSession state transitions (mirroring codex's diagnostic-first discipline). |
+| Claude Code Python | Lumo_Super_Agent_python | claude-code-python/python-observability-1 | 2026-05-02 | PYTHON-OBSERVABILITY-1 (design-first, P1 platform foundation) — distributed tracing across Vercel↔Modal via W3C traceparent, structured logging with Pydantic-integrated PII redaction, cost telemetry for LLM tokens / embedding ops / GPU seconds. Every future Python lane builds on this. Design doc as first commit; stop for reviewer approval before implementation. |
 
 ## Closed lanes
 
