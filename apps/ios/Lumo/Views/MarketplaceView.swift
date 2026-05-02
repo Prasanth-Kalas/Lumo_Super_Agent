@@ -1,30 +1,27 @@
 import SwiftUI
 
-/// Marketplace destination — list of installable agents fetched from
-/// `GET /api/marketplace`. Tap a row → detail view with description +
-/// Install/Installed action.
+/// Marketplace destination — App Store-style browse surface for the
+/// agents the user can install or connect.
 ///
-/// IOS-COMPOSER-AND-DRAWER-SCREENS-1 Phase B2 wires the previously-
-/// stub view to real backend data. iOS-v1 scope per brief: simple
-/// row + detail flow with Install button. Web's richer surfaces
-/// (risk badges, OAuth `connect_model`, MCP connections,
-/// `coming_soon` placeholders) are filed deferred as
-/// IOS-MARKETPLACE-RICH-CARDS-1.
+/// Layout:
+///   • Featured hero card pinned to the top.
+///   • Per-category horizontal-scroll rails for the rest, grouped
+///     by `listing.category` (with a friendly fallback when listing
+///     is sparse: domain → category label).
 ///
-/// Install round-trips `POST /api/lumo/mission/install` — the same
+/// Install round-trips `POST /api/lumo/mission/install` (the same
 /// idempotent path the chat install-card uses, minus mission/session
-/// context (standalone catalog install). The 409 oauth_required
-/// path surfaces a "install via web for now" message until the iOS
-/// OAuth flow lands in IOS-MARKETPLACE-RICH-CARDS-1.
+/// context). MCP servers route through `McpConnectSheet`. OAuth
+/// agents surface a "Connect via web" hint until the iOS OAuth
+/// start flow lands in IOS-MARKETPLACE-OAUTH-START-1.
+///
+/// Risk badges are intentionally not rendered — the certified
+/// publish flow makes per-agent risk pills noisy for end users.
+/// `risk_badge` stays on the DTO for forward compat but the UI
+/// ignores it.
 
 struct MarketplaceView: View {
     @StateObject private var viewModel: MarketplaceScreenViewModel
-    /// DEBUG capture seam (IOS-DRAWER-EDIT-DETAIL-CAPTURES-1) — when
-    /// non-nil, the body renders `MarketplaceAgentDetailView` for the
-    /// matching agent in place of the list so the screenshot lands
-    /// the detail panel without a scripted tap. We render in-place
-    /// rather than auto-push to avoid plumbing a nav-path binding
-    /// through RootView's NavigationStack just for the capture.
     @Binding private var autoOpenAgentID: String?
 
     init(
@@ -37,10 +34,6 @@ struct MarketplaceView: View {
 
     var body: some View {
         Group {
-            // Capture-only short-circuit. If a target agent is set
-            // and we've loaded matching data, render its detail
-            // directly. Real navigation still flows through the
-            // NavigationLink in agentList(_:).
             if let target = autoOpenAgentID,
                case .loaded(let agents) = viewModel.state,
                let agent = agents.first(where: { $0.agent_id == target })
@@ -53,7 +46,7 @@ struct MarketplaceView: View {
                 case .loaded(let agents) where agents.isEmpty:
                     emptyState
                 case .loaded(let agents):
-                    agentList(agents)
+                    browseLayout(agents)
                 case .error(let message):
                     errorState(message)
                 }
@@ -70,11 +63,23 @@ struct MarketplaceView: View {
     // MARK: - States
 
     private var loadingSkeleton: some View {
-        VStack(spacing: LumoSpacing.sm) {
-            ForEach(0..<4, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: LumoRadius.md)
-                    .fill(LumoColors.surfaceElevated)
-                    .frame(height: 84)
+        VStack(spacing: LumoSpacing.lg) {
+            RoundedRectangle(cornerRadius: LumoRadius.lg)
+                .fill(LumoColors.surfaceElevated)
+                .frame(height: 200)
+            ForEach(0..<2, id: \.self) { _ in
+                VStack(alignment: .leading, spacing: LumoSpacing.sm) {
+                    RoundedRectangle(cornerRadius: LumoRadius.sm)
+                        .fill(LumoColors.surfaceElevated)
+                        .frame(width: 120, height: 18)
+                    HStack(spacing: LumoSpacing.md) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: LumoRadius.md)
+                                .fill(LumoColors.surfaceElevated)
+                                .frame(width: 240, height: 96)
+                        }
+                    }
+                }
             }
         }
         .padding(LumoSpacing.md)
@@ -97,24 +102,6 @@ struct MarketplaceView: View {
         .accessibilityIdentifier("marketplace.empty")
     }
 
-    private func agentList(_ agents: [MarketplaceAgentDTO]) -> some View {
-        ScrollView {
-            LazyVStack(spacing: LumoSpacing.sm) {
-                ForEach(agents) { agent in
-                    NavigationLink {
-                        MarketplaceAgentDetailView(agent: agent, viewModel: viewModel)
-                    } label: {
-                        MarketplaceAgentRow(agent: agent)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("marketplace.row.\(agent.agent_id)")
-                }
-            }
-            .padding(LumoSpacing.md)
-        }
-        .accessibilityIdentifier("marketplace.list")
-    }
-
     private func errorState(_ message: String) -> some View {
         VStack(spacing: LumoSpacing.md) {
             Image(systemName: "exclamationmark.triangle")
@@ -129,47 +116,162 @@ struct MarketplaceView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("marketplace.error")
     }
+
+    // MARK: - Browse layout
+
+    private func browseLayout(_ agents: [MarketplaceAgentDTO]) -> some View {
+        let featured = MarketplaceUI.featured(from: agents)
+        let groups = MarketplaceUI.groupByCategory(agents.filter { $0.agent_id != featured?.agent_id })
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: LumoSpacing.xl) {
+                if let featured {
+                    sectionHeader("FEATURED")
+                    NavigationLink {
+                        MarketplaceAgentDetailView(agent: featured, viewModel: viewModel)
+                    } label: {
+                        MarketplaceFeaturedCard(agent: featured)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("marketplace.featured.\(featured.agent_id)")
+                }
+                ForEach(groups, id: \.label) { group in
+                    rail(label: group.label, agents: group.agents)
+                }
+            }
+            .padding(.horizontal, LumoSpacing.md)
+            .padding(.vertical, LumoSpacing.lg)
+        }
+        .accessibilityIdentifier("marketplace.list")
+    }
+
+    private func rail(label: String, agents: [MarketplaceAgentDTO]) -> some View {
+        VStack(alignment: .leading, spacing: LumoSpacing.sm) {
+            sectionHeader(label.uppercased())
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: LumoSpacing.md) {
+                    ForEach(agents) { agent in
+                        NavigationLink {
+                            MarketplaceAgentDetailView(agent: agent, viewModel: viewModel)
+                        } label: {
+                            MarketplaceRailCard(agent: agent)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("marketplace.row.\(agent.agent_id)")
+                    }
+                }
+            }
+        }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(LumoFonts.caption.weight(.semibold))
+            .tracking(1.4)
+            .foregroundStyle(LumoColors.labelTertiary)
+    }
 }
 
-private struct MarketplaceAgentRow: View {
+// MARK: - Featured hero
+
+private struct MarketplaceFeaturedCard: View {
     let agent: MarketplaceAgentDTO
 
     var body: some View {
-        HStack(alignment: .top, spacing: LumoSpacing.md) {
-            ZStack {
-                RoundedRectangle(cornerRadius: LumoRadius.sm)
-                    .fill(LumoColors.cyan.opacity(0.15))
-                    .frame(width: 44, height: 44)
-                Image(systemName: agentGlyph(for: agent.domain))
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(LumoColors.cyan)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: LumoSpacing.xs) {
-                    Text(agent.display_name)
-                        .font(LumoFonts.bodyEmphasized)
-                        .foregroundStyle(LumoColors.label)
-                    if let badge = agent.risk_badge {
-                        MarketplaceRiskPill(badge: badge)
-                    }
-                    if agent.requiresOAuth {
-                        MarketplaceConnectModelPill(label: "OAuth")
-                    } else if agent.source == "mcp" {
-                        MarketplaceConnectModelPill(label: "MCP")
-                    }
+        let tint = MarketplaceUI.tint(for: agent.agent_id)
+        VStack(alignment: .leading, spacing: LumoSpacing.lg) {
+            HStack(alignment: .top) {
+                MarketplaceAgentIcon(agent: agent, size: 92, cornerRadius: 22)
+                Spacer()
+                if agent.isInstalled {
+                    Text("INSTALLED")
+                        .font(LumoFonts.caption.weight(.semibold))
+                        .tracking(1.2)
+                        .foregroundStyle(LumoColors.cyan)
                 }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(MarketplaceUI.categoryLabel(for: agent))
+                    .font(LumoFonts.caption.weight(.semibold))
+                    .tracking(1.4)
+                    .foregroundStyle(tint.opacity(0.9))
+                Text(agent.display_name)
+                    .font(LumoFonts.largeTitle)
+                    .foregroundStyle(LumoColors.label)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
                 Text(agent.one_liner)
-                    .font(LumoFonts.callout)
+                    .font(LumoFonts.body)
+                    .foregroundStyle(LumoColors.labelSecondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(LumoSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: LumoRadius.lg, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [tint.opacity(0.18), tint.opacity(0.05)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LumoRadius.lg, style: .continuous)
+                .stroke(LumoColors.separator, lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Rail card (horizontal scroll)
+
+private struct MarketplaceRailCard: View {
+    let agent: MarketplaceAgentDTO
+
+    var body: some View {
+        HStack(alignment: .center, spacing: LumoSpacing.md) {
+            MarketplaceAgentIcon(agent: agent, size: 56, cornerRadius: 14)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(agent.display_name)
+                    .font(LumoFonts.bodyEmphasized)
+                    .foregroundStyle(LumoColors.label)
+                    .lineLimit(1)
+                Text(agent.one_liner)
+                    .font(LumoFonts.caption)
                     .foregroundStyle(LumoColors.labelSecondary)
                     .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            Spacer(minLength: 0)
+            MarketplaceActionPill(agent: agent)
+        }
+        .padding(LumoSpacing.md)
+        .frame(width: 280, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: LumoRadius.md, style: .continuous)
+                .fill(LumoColors.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LumoRadius.md, style: .continuous)
+                .stroke(LumoColors.separator, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+    }
+}
 
-            Spacer()
+// MARK: - Compact action pill (used in rail cards)
 
+private struct MarketplaceActionPill: View {
+    let agent: MarketplaceAgentDTO
+
+    var body: some View {
+        Group {
             if agent.isComingSoon {
-                Text(agent.coming_soon_label ?? "Coming soon")
-                    .font(LumoFonts.caption.weight(.medium))
+                Text("SOON")
+                    .font(LumoFonts.caption.weight(.semibold))
+                    .tracking(1.2)
                     .foregroundStyle(LumoColors.labelTertiary)
                     .padding(.horizontal, LumoSpacing.sm)
                     .padding(.vertical, 4)
@@ -177,49 +279,57 @@ private struct MarketplaceAgentRow: View {
                         Capsule()
                             .strokeBorder(LumoColors.separator, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                     )
-                    .accessibilityLabel(Text(agent.coming_soon_rationale ?? agent.coming_soon_label ?? "Coming soon"))
             } else if agent.isInstalled {
-                Text("Installed")
-                    .font(LumoFonts.caption.weight(.medium))
+                Text("OPEN")
+                    .font(LumoFonts.caption.weight(.semibold))
+                    .tracking(1.2)
                     .foregroundStyle(LumoColors.cyan)
                     .padding(.horizontal, LumoSpacing.sm)
                     .padding(.vertical, 4)
-                    .background(
-                        Capsule().fill(LumoColors.cyan.opacity(0.12))
-                    )
+                    .background(Capsule().fill(LumoColors.cyan.opacity(0.12)))
             } else {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(LumoColors.labelTertiary)
+                Text("GET")
+                    .font(LumoFonts.caption.weight(.semibold))
+                    .tracking(1.2)
+                    .foregroundStyle(LumoColors.label)
+                    .padding(.horizontal, LumoSpacing.sm + 2)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(LumoColors.surfaceElevated))
             }
-        }
-        .padding(LumoSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: LumoRadius.md).fill(LumoColors.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: LumoRadius.md)
-                .stroke(LumoColors.separator, lineWidth: 1)
-        )
-        .contentShape(Rectangle())
-    }
-
-    private func agentGlyph(for domain: String) -> String {
-        switch domain.lowercased() {
-        case let d where d.contains("flight"): return "airplane"
-        case let d where d.contains("hotel") || d.contains("rental"): return "bed.double.fill"
-        case let d where d.contains("food") || d.contains("restaurant"): return "fork.knife"
-        case let d where d.contains("ride") || d.contains("ground"): return "car.fill"
-        default: return "square.grid.3x2.fill"
         }
     }
 }
 
+// MARK: - Shared icon component
+
+private struct MarketplaceAgentIcon: View {
+    let agent: MarketplaceAgentDTO
+    let size: CGFloat
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        let tint = MarketplaceUI.tint(for: agent.agent_id)
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [tint.opacity(0.85), tint.opacity(0.55)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            Image(systemName: MarketplaceUI.glyph(for: agent.domain))
+                .font(.system(size: size * 0.42, weight: .semibold))
+                .foregroundStyle(.white)
+        }
+        .frame(width: size, height: size)
+        .shadow(color: tint.opacity(0.25), radius: 6, x: 0, y: 4)
+    }
+}
+
+// MARK: - Detail
+
 struct MarketplaceAgentDetailView: View {
-    /// The agent as it was when the user navigated in. Used as
-    /// the fallback render before the VM publishes its first
-    /// post-install state, and after-install once the VM list is
-    /// the source of truth.
     let initialAgent: MarketplaceAgentDTO
     @ObservedObject var viewModel: MarketplaceScreenViewModel
     @State private var showMcpSheet: Bool = false
@@ -229,9 +339,6 @@ struct MarketplaceAgentDetailView: View {
         self.viewModel = viewModel
     }
 
-    /// Resolves to the freshest copy in the VM's loaded list, or
-    /// falls back to the initial DTO if the catalog has been
-    /// reloaded and the agent is no longer present.
     private var agent: MarketplaceAgentDTO {
         if case .loaded(let agents) = viewModel.state,
            let fresh = agents.first(where: { $0.agent_id == initialAgent.agent_id }) {
@@ -246,65 +353,38 @@ struct MarketplaceAgentDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LumoSpacing.lg) {
-                HStack(alignment: .center, spacing: LumoSpacing.md) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: LumoRadius.md)
-                            .fill(LumoColors.cyan.opacity(0.15))
-                            .frame(width: 64, height: 64)
-                        Image(systemName: "square.grid.3x2.fill")
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(LumoColors.cyan)
-                    }
+                // Hero header — large icon + name + category + small CTA.
+                HStack(alignment: .center, spacing: LumoSpacing.lg) {
+                    MarketplaceAgentIcon(agent: agent, size: 96, cornerRadius: 22)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(agent.display_name)
                             .font(LumoFonts.title)
                             .foregroundStyle(LumoColors.label)
-                        Text(agent.domain)
+                            .lineLimit(2)
+                        Text(MarketplaceUI.categoryLabel(for: agent))
                             .font(LumoFonts.caption)
                             .foregroundStyle(LumoColors.labelSecondary)
-                        HStack(spacing: LumoSpacing.xs) {
-                            if let badge = agent.risk_badge {
-                                MarketplaceRiskPill(badge: badge)
-                            }
-                            if agent.requiresOAuth {
-                                MarketplaceConnectModelPill(label: "OAuth")
-                            } else if agent.source == "mcp" {
-                                MarketplaceConnectModelPill(label: "MCP")
-                            }
-                        }
+                        primaryCta
+                            .padding(.top, LumoSpacing.xs)
                     }
+                    Spacer(minLength: 0)
                 }
 
-                if let badge = agent.risk_badge, !badge.reasons.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("RISK SIGNALS")
-                            .font(LumoFonts.caption.weight(.semibold))
-                            .tracking(1.2)
-                            .foregroundStyle(LumoColors.labelTertiary)
-                        ForEach(badge.reasons.prefix(4), id: \.self) { reason in
-                            HStack(alignment: .top, spacing: LumoSpacing.xs) {
-                                Text("•")
-                                    .foregroundStyle(LumoColors.labelTertiary)
-                                Text(reason)
-                                    .font(LumoFonts.caption)
-                                    .foregroundStyle(LumoColors.labelSecondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("marketplace.detail.riskReasons")
-                }
-
+                // Description block.
                 Text(agent.one_liner)
                     .font(LumoFonts.body)
-                    .foregroundStyle(LumoColors.labelSecondary)
+                    .foregroundStyle(LumoColors.label)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // Information section — App Store-style metadata grid.
+                infoSection
 
                 if !agent.intents.isEmpty {
                     VStack(alignment: .leading, spacing: LumoSpacing.sm) {
-                        Text("INTENTS")
+                        Text("WHAT IT DOES")
                             .font(LumoFonts.caption.weight(.semibold))
                             .foregroundStyle(LumoColors.labelTertiary)
-                            .tracking(1.2)
+                            .tracking(1.4)
                         FlowChips(items: agent.intents)
                     }
                 }
@@ -316,79 +396,11 @@ struct MarketplaceAgentDetailView: View {
                         .accessibilityIdentifier("marketplace.detail.installError")
                 }
 
-                if agent.isComingSoon {
-                    VStack(alignment: .leading, spacing: LumoSpacing.xs) {
-                        Text(agent.coming_soon_label ?? "Coming soon")
-                            .font(LumoFonts.bodyEmphasized)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .foregroundStyle(LumoColors.labelSecondary)
-                            .overlay(
-                                Capsule()
-                                    .strokeBorder(LumoColors.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                            )
-                            .accessibilityIdentifier("marketplace.detail.comingSoon")
-                        if let why = agent.coming_soon_rationale, !why.isEmpty {
-                            Text(why)
-                                .font(LumoFonts.caption)
-                                .foregroundStyle(LumoColors.labelTertiary)
-                        }
-                    }
-                } else if agent.requiresMcpToken {
-                    Button {
-                        showMcpSheet = true
-                    } label: {
-                        Text("Connect with token")
-                            .font(LumoFonts.bodyEmphasized)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .foregroundStyle(LumoColors.background)
-                            .background(Capsule().fill(LumoColors.cyan))
-                    }
-                    .accessibilityIdentifier("marketplace.detail.connectMcp")
-                    .disabled(viewModel.mcpConnectingAgentID == agent.agent_id)
-                    if let success = viewModel.mcpConnectSuccessAgentID,
-                       success == agent.agent_id {
-                        Text("Connected. Manage from Settings → Connections.")
-                            .font(LumoFonts.caption)
-                            .foregroundStyle(LumoColors.success)
-                            .accessibilityIdentifier("marketplace.detail.mcpSuccess")
-                    }
-                } else if agent.requiresOAuth && !agent.isInstalled {
-                    VStack(alignment: .leading, spacing: LumoSpacing.xs) {
-                        Text("Connect via web for now")
-                            .font(LumoFonts.bodyEmphasized)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 48)
-                            .foregroundStyle(LumoColors.warning)
-                            .overlay(
-                                Capsule().stroke(LumoColors.warning.opacity(0.45), lineWidth: 1)
-                            )
-                            .accessibilityIdentifier("marketplace.detail.oauthHint")
-                        Text("This app uses OAuth, which iOS hasn't wired yet. Connect it from the web app and it'll show up here.")
-                            .font(LumoFonts.caption)
-                            .foregroundStyle(LumoColors.labelTertiary)
-                    }
-                } else {
-                    Button(action: handleInstallTap) {
-                        HStack(spacing: LumoSpacing.xs) {
-                            if installInFlight {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(LumoColors.background)
-                            }
-                            Text(isInstalled ? "Installed" : "Install")
-                                .font(LumoFonts.bodyEmphasized)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .foregroundStyle(LumoColors.background)
-                        .background(
-                            Capsule().fill(isInstalled ? LumoColors.labelTertiary : LumoColors.cyan)
-                        )
-                    }
-                    .accessibilityIdentifier(isInstalled ? "marketplace.detail.installed" : "marketplace.detail.install")
-                    .disabled(installInFlight || isInstalled)
+                if let success = viewModel.mcpConnectSuccessAgentID, success == agent.agent_id {
+                    Text("Connected. Manage from Settings → Connections.")
+                        .font(LumoFonts.caption)
+                        .foregroundStyle(LumoColors.success)
+                        .accessibilityIdentifier("marketplace.detail.mcpSuccess")
                 }
             }
             .padding(LumoSpacing.lg)
@@ -405,8 +417,6 @@ struct MarketplaceAgentDetailView: View {
             )
         }
         .onChange(of: viewModel.mcpConnectSuccessAgentID) { _, newValue in
-            // Auto-clear the success banner after a short window
-            // so it doesn't loiter once the user has acknowledged.
             guard newValue == agent.agent_id else { return }
             Task {
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
@@ -415,6 +425,102 @@ struct MarketplaceAgentDetailView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var primaryCta: some View {
+        if agent.isComingSoon {
+            Text(agent.coming_soon_label ?? "Coming soon")
+                .font(LumoFonts.caption.weight(.semibold))
+                .tracking(1.2)
+                .foregroundStyle(LumoColors.labelTertiary)
+                .padding(.horizontal, LumoSpacing.md)
+                .padding(.vertical, 6)
+                .overlay(
+                    Capsule()
+                        .strokeBorder(LumoColors.separator, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                )
+                .accessibilityIdentifier("marketplace.detail.comingSoon")
+        } else if agent.requiresMcpToken {
+            Button {
+                showMcpSheet = true
+            } label: {
+                Text("CONNECT")
+                    .font(LumoFonts.caption.weight(.semibold))
+                    .tracking(1.2)
+                    .foregroundStyle(LumoColors.label)
+                    .padding(.horizontal, LumoSpacing.md)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(LumoColors.surfaceElevated))
+            }
+            .disabled(viewModel.mcpConnectingAgentID == agent.agent_id)
+            .accessibilityIdentifier("marketplace.detail.connectMcp")
+        } else if agent.requiresOAuth && !agent.isInstalled {
+            Text("OAUTH · WEB")
+                .font(LumoFonts.caption.weight(.semibold))
+                .tracking(1.2)
+                .foregroundStyle(LumoColors.warning)
+                .padding(.horizontal, LumoSpacing.md)
+                .padding(.vertical, 6)
+                .overlay(Capsule().stroke(LumoColors.warning.opacity(0.45), lineWidth: 1))
+                .accessibilityIdentifier("marketplace.detail.oauthHint")
+        } else {
+            Button(action: handleInstallTap) {
+                HStack(spacing: 6) {
+                    if installInFlight {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
+                    Text(isInstalled ? "OPEN" : "GET")
+                        .font(LumoFonts.caption.weight(.semibold))
+                        .tracking(1.2)
+                }
+                .foregroundStyle(isInstalled ? LumoColors.cyan : LumoColors.label)
+                .padding(.horizontal, LumoSpacing.md)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule().fill(isInstalled ? LumoColors.cyan.opacity(0.12) : LumoColors.surfaceElevated)
+                )
+            }
+            .accessibilityIdentifier(isInstalled ? "marketplace.detail.installed" : "marketplace.detail.install")
+            .disabled(installInFlight || isInstalled)
+        }
+    }
+
+    @ViewBuilder
+    private var infoSection: some View {
+        let rows: [(String, String)] = [
+            ("Category", MarketplaceUI.categoryLabel(for: agent)),
+            ("Connect", MarketplaceUI.connectLabel(for: agent)),
+            ("Status", isInstalled ? "Installed" : (agent.isComingSoon ? "Coming soon" : "Available")),
+        ]
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                HStack {
+                    Text(row.0)
+                        .font(LumoFonts.callout)
+                        .foregroundStyle(LumoColors.labelSecondary)
+                    Spacer()
+                    Text(row.1)
+                        .font(LumoFonts.callout)
+                        .foregroundStyle(LumoColors.label)
+                }
+                .padding(.vertical, LumoSpacing.sm)
+                .padding(.horizontal, LumoSpacing.md)
+                if index < rows.count - 1 {
+                    Divider().background(LumoColors.separator)
+                        .padding(.leading, LumoSpacing.md)
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: LumoRadius.md, style: .continuous)
+                .fill(LumoColors.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LumoRadius.md, style: .continuous)
+                .stroke(LumoColors.separator, lineWidth: 1)
+        )
     }
 
     private func handleInstallTap() {
@@ -428,6 +534,8 @@ struct MarketplaceAgentDetailView: View {
         }
     }
 }
+
+// MARK: - Intents flow chips (carried over from prior layout)
 
 private struct FlowChips: View {
     let items: [String]
@@ -453,25 +561,8 @@ private struct FlowChips: View {
     }
 }
 
-// MARK: - IOS-MARKETPLACE-RICH-CARDS-1 — risk + connect model pills
-
-struct MarketplaceRiskPill: View {
-    let badge: MarketplaceRiskBadgeDTO
-
-    var body: some View {
-        let style = MarketplaceUI.riskStyle(badge.level)
-        Text(style.label.uppercased())
-            .font(LumoFonts.caption.weight(.semibold))
-            .tracking(1.2)
-            .foregroundStyle(style.foreground)
-            .padding(.horizontal, LumoSpacing.xs)
-            .padding(.vertical, 2)
-            .background(Capsule().fill(style.background))
-            .overlay(Capsule().stroke(style.border, lineWidth: 1))
-            .accessibilityLabel(Text("\(style.label) risk"))
-            .accessibilityHint(Text(badge.reasons.joined(separator: "; ")))
-    }
-}
+// MARK: - IOS-MARKETPLACE-RICH-CARDS-1 — connect-model pill (kept for
+// detail header use elsewhere if needed; risk pill removed).
 
 struct MarketplaceConnectModelPill: View {
     let label: String
@@ -488,53 +579,110 @@ struct MarketplaceConnectModelPill: View {
     }
 }
 
-// MARK: - UI helpers (mirror of apps/web/components/AgentCard.tsx)
+// MARK: - UI helpers
 
 enum MarketplaceUI {
-    struct RiskStyle {
+    struct CategoryGroup: Equatable {
         let label: String
-        let foreground: Color
-        let background: Color
-        let border: Color
+        let agents: [MarketplaceAgentDTO]
     }
 
-    static func riskStyle(_ level: String) -> RiskStyle {
-        switch level {
-        case "low":
-            return RiskStyle(
-                label: "low risk",
-                foreground: LumoColors.success,
-                background: LumoColors.success.opacity(0.10),
-                border: LumoColors.success.opacity(0.30)
-            )
-        case "medium":
-            return RiskStyle(
-                label: "medium risk",
-                foreground: LumoColors.warning,
-                background: LumoColors.warning.opacity(0.10),
-                border: LumoColors.warning.opacity(0.35)
-            )
-        case "high":
-            return RiskStyle(
-                label: "high risk",
-                foreground: LumoColors.error,
-                background: LumoColors.error.opacity(0.10),
-                border: LumoColors.error.opacity(0.35)
-            )
-        case "review_required":
-            return RiskStyle(
-                label: "review",
-                foreground: LumoColors.labelTertiary,
-                background: LumoColors.surfaceElevated,
-                border: LumoColors.separator
-            )
-        default:
-            return RiskStyle(
-                label: level,
-                foreground: LumoColors.labelTertiary,
-                background: LumoColors.surfaceElevated,
-                border: LumoColors.separator
-            )
+    /// Picks the agent that should sit in the featured hero slot.
+    /// Prefers the first installed agent (so users see their own
+    /// space first); falls back to the first agent in the catalog.
+    static func featured(from agents: [MarketplaceAgentDTO]) -> MarketplaceAgentDTO? {
+        if let installed = agents.first(where: { $0.isInstalled }) { return installed }
+        return agents.first
+    }
+
+    /// Buckets agents by listing.category, falling back to a friendly
+    /// label derived from `domain` when `listing.category` is nil.
+    /// Bucket order is stable across renders (alphabetical labels).
+    static func groupByCategory(_ agents: [MarketplaceAgentDTO]) -> [CategoryGroup] {
+        var buckets: [String: [MarketplaceAgentDTO]] = [:]
+        for agent in agents {
+            let label = categoryLabel(for: agent)
+            buckets[label, default: []].append(agent)
         }
+        return buckets.keys.sorted().map { key in
+            CategoryGroup(label: key, agents: buckets[key] ?? [])
+        }
+    }
+
+    /// Friendly category label for an agent. Uses listing.category
+    /// when present; otherwise maps domain → human label.
+    static func categoryLabel(for agent: MarketplaceAgentDTO) -> String {
+        if let raw = agent.listing?.category, !raw.isEmpty {
+            return titleize(raw)
+        }
+        return categoryFromDomain(agent.domain)
+    }
+
+    static func categoryFromDomain(_ domain: String) -> String {
+        switch domain.lowercased() {
+        case let d where d.contains("flight"): return "Travel"
+        case let d where d.contains("hotel") || d.contains("rental") || d.contains("stay"): return "Travel"
+        case let d where d.contains("food") || d.contains("restaurant"): return "Food & Drink"
+        case let d where d.contains("ride") || d.contains("ground") || d.contains("car"): return "Travel"
+        case let d where d.contains("calendar") || d.contains("mail") || d.contains("messag"): return "Productivity"
+        case let d where d.contains("media") || d.contains("music") || d.contains("video"): return "Entertainment"
+        case let d where d.contains("finance") || d.contains("pay") || d.contains("bank"): return "Finance"
+        case let d where d.contains("shop") || d.contains("retail"): return "Shopping"
+        default: return "Lifestyle"
+        }
+    }
+
+    static func connectLabel(for agent: MarketplaceAgentDTO) -> String {
+        if agent.requiresOAuth { return "OAuth (web)" }
+        if agent.requiresMcpToken { return "MCP token" }
+        if agent.source == "mcp" { return "MCP" }
+        if agent.connect_model == "lumo_id" { return "Built-in" }
+        return "No setup"
+    }
+
+    /// SF Symbol glyph keyed off the agent's domain. The icon
+    /// renders white on a tinted background so the visual variety
+    /// comes from the domain → tint mapping rather than the glyph
+    /// alone.
+    static func glyph(for domain: String) -> String {
+        switch domain.lowercased() {
+        case let d where d.contains("flight"): return "airplane"
+        case let d where d.contains("hotel") || d.contains("rental") || d.contains("stay"): return "bed.double.fill"
+        case let d where d.contains("food") || d.contains("restaurant"): return "fork.knife"
+        case let d where d.contains("ride") || d.contains("ground") || d.contains("car"): return "car.fill"
+        case let d where d.contains("calendar"): return "calendar"
+        case let d where d.contains("mail"): return "envelope.fill"
+        case let d where d.contains("messag") || d.contains("chat"): return "bubble.left.and.bubble.right.fill"
+        case let d where d.contains("music"): return "music.note"
+        case let d where d.contains("video"): return "play.rectangle.fill"
+        case let d where d.contains("finance") || d.contains("pay") || d.contains("bank"): return "creditcard.fill"
+        case let d where d.contains("shop") || d.contains("retail"): return "bag.fill"
+        default: return "square.grid.3x2.fill"
+        }
+    }
+
+    /// Deterministic per-agent tint from a small brand-aligned
+    /// palette. Hashed off agent_id so the same agent always lands
+    /// on the same tile color across renders.
+    static func tint(for agentID: String) -> Color {
+        let palette: [Color] = [
+            LumoColors.cyan,
+            LumoColors.cyanDeep,
+            Color(red: 0.40, green: 0.62, blue: 0.95),
+            Color(red: 0.55, green: 0.45, blue: 0.95),
+            Color(red: 0.95, green: 0.55, blue: 0.40),
+            Color(red: 0.30, green: 0.75, blue: 0.55),
+        ]
+        let hash = agentID.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
+        return palette[abs(hash) % palette.count]
+    }
+
+    private static func titleize(_ s: String) -> String {
+        let cleaned = s.replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+        return cleaned
+            .split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
     }
 }

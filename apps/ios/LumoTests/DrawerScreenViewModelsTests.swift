@@ -273,13 +273,51 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         XCTAssertEqual(airbnb.coming_soon_label, "In review")
     }
 
-    func test_marketplaceUI_riskStyle_branchesMatchWeb() {
-        XCTAssertEqual(MarketplaceUI.riskStyle("low").label, "low risk")
-        XCTAssertEqual(MarketplaceUI.riskStyle("medium").label, "medium risk")
-        XCTAssertEqual(MarketplaceUI.riskStyle("high").label, "high risk")
-        XCTAssertEqual(MarketplaceUI.riskStyle("review_required").label, "review")
-        XCTAssertEqual(MarketplaceUI.riskStyle("custom").label, "custom",
-                       "unknown levels surface raw label, matching web fallback")
+    func test_marketplaceUI_categoryLabel_usesListingCategoryWhenPresent() {
+        let agent = MarketplaceAgentDTO(
+            agent_id: "x", display_name: "X", one_liner: "x", domain: "flights",
+            listing: MarketplaceListingDTO(category: "travel_pro", pricing_note: nil)
+        )
+        XCTAssertEqual(MarketplaceUI.categoryLabel(for: agent), "Travel Pro")
+    }
+
+    func test_marketplaceUI_categoryLabel_fallsBackToDomainMapping() {
+        let agent = MarketplaceAgentDTO(
+            agent_id: "x", display_name: "X", one_liner: "x", domain: "flights"
+        )
+        XCTAssertEqual(MarketplaceUI.categoryLabel(for: agent), "Travel")
+    }
+
+    func test_marketplaceUI_groupByCategory_isStable_andSortsAlphabetically() {
+        let a = MarketplaceAgentDTO(agent_id: "a", display_name: "A", one_liner: "x", domain: "food")
+        let b = MarketplaceAgentDTO(agent_id: "b", display_name: "B", one_liner: "x", domain: "flights")
+        let c = MarketplaceAgentDTO(agent_id: "c", display_name: "C", one_liner: "x", domain: "food")
+        let groups = MarketplaceUI.groupByCategory([a, b, c])
+        XCTAssertEqual(groups.map(\.label), ["Food & Drink", "Travel"])
+        XCTAssertEqual(groups[0].agents.map(\.agent_id), ["a", "c"])
+        XCTAssertEqual(groups[1].agents.map(\.agent_id), ["b"])
+    }
+
+    func test_marketplaceUI_featured_prefersInstalledAgent() {
+        let a = MarketplaceAgentDTO(agent_id: "a", display_name: "A", one_liner: "x", domain: "flights")
+        let installed = MarketplaceAgentDTO(
+            agent_id: "b", display_name: "B", one_liner: "x", domain: "food",
+            install: MarketplaceInstallStateDTO(status: "installed", installed_at: "2026-04-01T00:00:00Z")
+        )
+        XCTAssertEqual(MarketplaceUI.featured(from: [a, installed])?.agent_id, "b")
+    }
+
+    func test_marketplaceUI_featured_fallsBackToFirstAgent() {
+        let a = MarketplaceAgentDTO(agent_id: "a", display_name: "A", one_liner: "x", domain: "flights")
+        let b = MarketplaceAgentDTO(agent_id: "b", display_name: "B", one_liner: "x", domain: "food")
+        XCTAssertEqual(MarketplaceUI.featured(from: [a, b])?.agent_id, "a")
+    }
+
+    func test_marketplaceUI_tint_isStableForAgentID() {
+        // Same id → same color (so the tile doesn't flicker between renders).
+        let c1 = MarketplaceUI.tint(for: "lumo-flights")
+        let c2 = MarketplaceUI.tint(for: "lumo-flights")
+        XCTAssertEqual(c1, c2)
     }
 
     func test_marketplaceAgent_oldSnapshotDecodes_withoutNewFields() throws {
