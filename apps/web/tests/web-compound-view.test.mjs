@@ -36,7 +36,6 @@ const chatRoute = readFileSync("app/api/chat/route.ts", "utf8");
 const page = readFileSync("app/page.tsx", "utf8");
 const historyReplay = readFileSync("lib/history-replay.ts", "utf8");
 const component = readFileSync("components/CompoundLegStrip.tsx", "utf8");
-const demoDispatch = readFileSync("lib/compound/demo-dispatch.ts", "utf8");
 const streamRoute = readFileSync(
   "app/api/compound/transactions/[id]/stream/route.ts",
   "utf8",
@@ -157,13 +156,13 @@ t("compound stream replays ordered events and closes on terminal compound state"
   assert.match(streamRoute, /isTerminalCompoundStatus/);
 });
 
-t("demo path creates a real compound transaction before emitting dispatch", () => {
-  assert.match(demoDispatch, /createCompoundTransaction/);
-  assert.match(demoDispatch, /loadCompoundSnapshotForUser/);
-  assert.match(demoDispatch, /buildAssistantCompoundDispatchFrame/);
-  assert.match(demoDispatch, /demo:vegas-weekend:\$\{sessionId\}/);
-  assert.match(orchestrator, /maybeCreateVegasWeekendCompoundDispatch/);
+t("mission dispatch path persists a mission and emits compound progress", () => {
+  assert.match(orchestrator, /buildCompoundMissionPlan/);
+  assert.match(orchestrator, /persistCompoundMissionPlan/);
+  assert.match(orchestrator, /runCompoundMissionInline/);
   assert.match(orchestrator, /type: "assistant_compound_dispatch"/);
+  assert.match(orchestrator, /type: "assistant_compound_step_update"/);
+  assert.doesNotMatch(orchestrator, /maybeCreateVegasWeekendCompoundDispatch/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -2,13 +2,14 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent | codex/approval-connection-rpc-strict-1 | 2026-05-02 | APPROVAL-CONNECTION-RPC-STRICT-1 fix ambiguous first-party approval RPC and stop fake success on failed approval writes; Vercel 7-day log scan found 33 silent-failure hits, so BACKFILL-FAILED-APPROVALS-1 is filed deferred |
+| Codex | Lumo_Super_Agent | codex/orchestrator-compound-dispatch-wire-1 | 2026-05-02 | ORCHESTRATOR-COMPOUND-DISPATCH-WIRE-1 classifier-driven compound trip dispatch wiring: durable mission DAGs, real mission-step tool calls, inline progress frames, and no more no-op "let's go" acknowledgments |
 | Kalas (human) | iPhone (TestFlight) | _device-only_ | 2026-05-02 | **IOS-DEEPGRAM-DEVICE-SMOKE-1 (BLOCKING)** end-to-end voice-mode validation on a real iPhone post-c438e81: build dev/TestFlight, voice-mode "describe the ocean in three short sentences" → all three sentences play with no truncation + no >200ms gap + Aura-2 Thalia voice correct; "tell me a fun fact" ×5 in a row → no provider-side regression; Bluetooth headphones if available (IOS-DEEPGRAM-BLUETOOTH-FALLBACK-1 risk). **Blocks all further iOS feature lanes.** On clean pass: STATUS → "device smoke clean on <device> on <date>"; iOS truly idle. On failure: file IOS-DEEPGRAM-MULTI-SENTENCE-TRUNCATION-1 with failure mode, claude-code's first commit on that lane is instrumentation-only at DeepgramTTSSession state transitions (mirroring codex's diagnostic-first discipline). |
 
 ## Closed lanes
 
 | Lane | Worktree | Branch | Started | Closed | Sprint |
 |---|---|---|---|---|---|
+| Codex | Lumo_Super_Agent | codex/approval-connection-rpc-strict-1 | 2026-05-02 | 2026-05-02 | APPROVAL-CONNECTION-RPC-STRICT-1 fix ambiguous first-party approval RPC and stop fake success on failed approval writes; migration 060 applied to linked Supabase project; Vercel 7-day log scan found 33 silent-failure hits, so BACKFILL-FAILED-APPROVALS-1 is filed deferred |
 | Codex | Lumo_Super_Agent | codex/sample-agents-1 | 2026-04-28 | 2026-04-29 | SAMPLE-AGENTS sprint |
 | Codex | Lumo_Super_Agent | codex/adr-017-draft | 2026-04-29 | 2026-04-29 | ADR-017 merchant-of-record agent track |
 | Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-bootstrap | 2026-04-29 | 2026-04-29 | iOS bootstrap (monorepo + hello iOS) |

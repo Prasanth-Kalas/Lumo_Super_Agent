@@ -7,6 +7,7 @@ import {
   type LegStatusV2Status,
 } from "../sse/leg-status.ts";
 import { coerceCompoundEvidence } from "../compound-leg-detail.ts";
+import type { CompoundMissionPlan } from "./mission-planner.ts";
 
 export interface CompoundDispatchLeg {
   leg_id: string;
@@ -58,6 +59,29 @@ export function buildAssistantCompoundDispatchFrame(
           "evidence" in leg ? (leg as { evidence?: unknown }).evidence : null,
         ),
       })),
+  };
+}
+
+export function buildAssistantCompoundDispatchFrameFromMissionPlan(
+  plan: CompoundMissionPlan,
+  dispatchId: string,
+): AssistantCompoundDispatchFrameValue {
+  return {
+    kind: "assistant_compound_dispatch",
+    compound_transaction_id: dispatchId,
+    legs: plan.legs.map((leg) => ({
+      leg_id: leg.client_step_id,
+      agent_id: leg.agent_id,
+      agent_display_name: displayNameForAgent(leg.agent_id),
+      description: leg.description,
+      status: "pending",
+      depends_on: plan.dependencies
+        .filter((edge) => edge.dependent_step_id === leg.client_step_id)
+        .map((edge) => edge.dependency_step_id)
+        .sort(),
+      provider_reference: null,
+      evidence: null,
+    })),
   };
 }
 

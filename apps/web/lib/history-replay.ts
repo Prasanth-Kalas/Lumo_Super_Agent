@@ -152,6 +152,13 @@ export function replayEventsToMessages(
       continue;
     }
 
+    if (event.frame_type === "assistant_compound_step_update") {
+      const draft = ensureAssistant(event);
+      draft.compoundDispatch = applyCompoundStepUpdate(draft.compoundDispatch, value);
+      draft.hasFrame = true;
+      continue;
+    }
+
     if (event.frame_type === "error") {
       const error = asRecord(value);
       const message =
@@ -178,6 +185,31 @@ function appendChunk(existing: string, chunk: string): string {
   if (!existing) return chunk;
   const needsSpace = /[.!?](["')\]]*)$/.test(existing) && /^[A-Z]/.test(chunk);
   return existing + (needsSpace ? " " : "") + chunk;
+}
+
+function applyCompoundStepUpdate(compoundDispatch: unknown, value: unknown): unknown {
+  const dispatch = asRecord(compoundDispatch);
+  const update = asRecord(value);
+  const legId = typeof update?.["leg_id"] === "string" ? update["leg_id"] : "";
+  const status = typeof update?.["status"] === "string" ? update["status"] : "";
+  const legs = Array.isArray(dispatch?.["legs"]) ? dispatch["legs"] : null;
+  if (!dispatch || !update || !legs || !legId || !status) return compoundDispatch;
+  const updateRecord = update;
+  return {
+    ...dispatch,
+    legs: legs.map((leg) => {
+      const row = asRecord(leg);
+      if (!row || row["leg_id"] !== legId) return leg;
+      return {
+        ...row,
+        status,
+        timestamp: updateRecord["timestamp"] ?? row["timestamp"] ?? null,
+        provider_reference:
+          updateRecord["provider_reference"] ?? row["provider_reference"] ?? null,
+        evidence: updateRecord["evidence"] ?? row["evidence"] ?? null,
+      };
+    }),
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

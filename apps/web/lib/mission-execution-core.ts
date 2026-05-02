@@ -46,6 +46,11 @@ export interface MissionStepInsertRow {
   inputs: Record<string, unknown>;
   outputs: Record<string, unknown>;
   confirmation_card_id: string | null;
+  client_step_id?: string | null;
+  dependency_mode?: "step_order" | "explicit";
+  depends_on_step_orders?: number[];
+  dispatch_tool_name?: string | null;
+  output_summary?: string | null;
 }
 
 export interface MissionRows {

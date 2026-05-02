@@ -65,6 +65,7 @@ import { optimizeMissionTrip } from "./trip-optimization.js";
 import {
   linkConfirmationCardForLatestMissionStep,
   linkConfirmationCardForLatestMissionSteps,
+  persistCompoundMissionPlan,
 } from "./mission-execution.ts";
 import { dispatchToolCall, type DispatchContext } from "./router.js";
 import { estimateModelTokenCost, recordInvocationCost } from "./cost.js";
@@ -118,12 +119,19 @@ import {
   IntentError,
 } from "./standing-intents.js";
 import { assembleTripSummary, TripAssemblyError, type PricedLeg } from "./trip-planner.js";
-import {
-  maybeCreateVegasWeekendCompoundDispatch,
-} from "./compound/demo-dispatch.ts";
 import type {
   AssistantCompoundDispatchFrameValue,
 } from "./compound/dispatch-frame.ts";
+import {
+  buildAssistantCompoundDispatchFrameFromMissionPlan,
+} from "./compound/dispatch-frame.ts";
+import {
+  buildCompoundMissionPlanWithConfirmation,
+} from "./compound/mission-planner.ts";
+import {
+  runCompoundMissionInline,
+  type AssistantCompoundStepUpdateFrameValue,
+} from "./compound/mission-runner.ts";
 import {
   flightOffersSelectionPayload,
   isFlightOfferDiscoveryTool,
@@ -257,6 +265,7 @@ export type OrchestratorFrame =
   | { type: "selection"; value: InteractiveSelection }
   | { type: "assistant_suggestions"; value: AssistantSuggestionsFrameValue }
   | { type: "assistant_compound_dispatch"; value: AssistantCompoundDispatchFrameValue }
+  | { type: "assistant_compound_step_update"; value: AssistantCompoundStepUpdateFrameValue }
   | { type: "summary"; value: ConfirmationSummary }
   | {
       type: "leg_status";
@@ -422,30 +431,106 @@ async function runTurnInner(
     ...bookingProfileSnapshotToPii(bookingProfile),
   };
 
-  const demoCompoundDispatch = await maybeCreateVegasWeekendCompoundDispatch({
-    userId: input.user_id,
-    sessionId: input.session_id,
-    messages: input.messages,
-  });
-  if (demoCompoundDispatch) {
-    const assistantText =
-      "I kicked off the Vegas weekend plan. I’ll track each leg here as the flight, hotel, and dinner agents move.";
-    emit({ type: "text", value: assistantText });
-    emit({ type: "assistant_compound_dispatch", value: demoCompoundDispatch });
-    planCompare.flush({ turnId: timing.requestId, planningStep: "selection" });
-    return {
-      assistant_text: assistantText,
-      tool_calls: [],
-      summary: null,
-      selections: [],
-      suggestions: null,
-    };
-  }
-
   const lastUserForMission =
     input.messages.findLast((m) => m.role === "user")?.content ?? "";
   const missionRequest = selectMissionPlanningRequest(input.messages);
   const missionContinueApproved = isMissionContinueApproval(lastUserForMission);
+
+  const compoundRoutingEnabled = process.env.LUMO_COMPOUND_MISSION_ROUTING !== "false";
+  const compoundPlan = compoundRoutingEnabled
+    ? await withAgentTimingSpan(
+        timing,
+        "intelligence_pass",
+        { pass: "compound_mission_detection" },
+        () =>
+          buildCompoundMissionPlanWithConfirmation({
+            message: missionRequest,
+            userRegion: input.user_region,
+          }),
+        (result) => ({
+          status: result ? "compound" : "not_compound",
+          source: result?.source,
+          leg_count: result?.legs.length ?? 0,
+          graph_hash: result?.graph_hash,
+        }),
+      )
+    : null;
+  if (
+    compoundPlan &&
+    input.user_id !== "anon" &&
+    compoundPlan.legs.every((leg) =>
+      isCompoundMissionAgentReady(leg.agent_id, dispatchReadyAgentIds, connectedAgentIds),
+    )
+  ) {
+    const persisted = await withAgentTimingSpan(
+      timing,
+      "post_processing",
+      {
+        pass: "compound_mission_persist",
+        leg_count: compoundPlan.legs.length,
+        graph_hash: compoundPlan.graph_hash,
+      },
+      () =>
+        persistCompoundMissionPlan(
+          compoundPlan,
+          input.user_id,
+          input.session_id,
+          missionRequest,
+        ),
+      (result) => ({
+        status: result.persisted ? "persisted" : "ephemeral",
+        step_count: result.step_count,
+      }),
+    );
+    const dispatchId = persisted.dispatch_id ?? `mission:${compoundPlan.graph_hash}`;
+    const dispatchFrame = buildAssistantCompoundDispatchFrameFromMissionPlan(
+      compoundPlan,
+      dispatchId,
+    );
+    let assistantText = `${compoundPlan.announcement} `;
+    emit({ type: "text", value: assistantText });
+    emit({ type: "assistant_compound_dispatch", value: dispatchFrame });
+
+    const run = await withAgentTimingSpan(
+      timing,
+      "tool_dispatch",
+      {
+        tool_kind: "compound_mission",
+        leg_count: compoundPlan.legs.length,
+        graph_hash: compoundPlan.graph_hash,
+      },
+      () =>
+        runCompoundMissionInline({
+          plan: compoundPlan,
+          persisted,
+          user_id: input.user_id,
+          session_id: input.session_id,
+          user_region: input.user_region,
+          device_kind: input.device_kind,
+          user_pii: userPiiForDispatch,
+          emitStepUpdate: (value) =>
+            emit({ type: "assistant_compound_step_update", value }),
+          emitTool: (value) => emit({ type: "tool", value }),
+          emitSelection: (value) => emit({ type: "selection", value }),
+        }),
+      (result) => ({
+        status: "ok",
+        tool_call_count: result.tool_calls.length,
+        selection_count: result.selections.length,
+        failed_count: result.outputs.filter((output) => !output.ok).length,
+      }),
+    );
+    assistantText += run.final_text;
+    emit({ type: "text", value: run.final_text });
+    planCompare.flush({ turnId: timing.requestId, planningStep: "selection" });
+    return {
+      assistant_text: assistantText,
+      tool_calls: run.tool_calls,
+      summary: null,
+      selections: run.selections,
+      suggestions: null,
+    };
+  }
   if (
     input.user_id !== "anon" &&
     shouldRunArchiveRecall(lastUserForMission)
@@ -2109,6 +2194,24 @@ function selectionKindForTool(
 
 function selectionPayloadForTool(toolName: string, result: unknown): unknown {
   return flightOffersSelectionPayload(toolName, result);
+}
+
+function isCompoundMissionAgentReady(
+  agentId: string,
+  dispatchReadyAgentIds: ReadonlySet<string>,
+  connectedAgentIds: ReadonlySet<string>,
+): boolean {
+  return compoundAgentAliases(agentId).some(
+    (id) => dispatchReadyAgentIds.has(id) || connectedAgentIds.has(id),
+  );
+}
+
+function compoundAgentAliases(agentId: string): string[] {
+  if (agentId === "lumo-flights") return ["lumo-flights", "flight"];
+  if (agentId === "lumo-hotels") return ["lumo-hotels", "hotel"];
+  if (agentId === "lumo-restaurants") return ["lumo-restaurants", "restaurant"];
+  if (agentId === "lumo-food") return ["lumo-food", "food"];
+  return [agentId];
 }
 
 function inferAssistantSuggestionPlanningStep(input: {
