@@ -143,7 +143,7 @@ _ROUTE_RE = re.compile(
 )
 
 
-def looks_like_flight_offer_request(message: str) -> bool:
+def looks_like_flight_offer_request(message: str) -> bool:  # noqa: TRC001 — pure regex predicate called from inside @traced classify(); a child span here is redundant noise (sub-microsecond op).
     """Port of ``looksLikeFlightOfferRequest`` from
     ``apps/web/lib/perf/intent-classifier.ts``. Returns True iff the
     message has a flight word, a search/booking verb, AND a route hint
@@ -204,7 +204,7 @@ class IntentClassifier:
         self._load_lock = threading.Lock()
 
     @classmethod
-    def get_instance(cls) -> "IntentClassifier":
+    def get_instance(cls) -> "IntentClassifier":  # noqa: TRC001 — singleton accessor; tracing the cache-lookup wraps every classify() in a redundant span.
         if cls._instance is None:
             with cls._instance_lock:
                 if cls._instance is None:
@@ -233,7 +233,7 @@ class IntentClassifier:
             self._model = model
             self._anchor_embeddings = anchor_embeddings
 
-    def warmup(self) -> None:
+    def warmup(self) -> None:  # noqa: TRC001 — startup priming hook; runs at container start before any request context exists.
         """Force-load the model + anchors. Useful at container start so
         the first real classify() call doesn't pay the load cost."""
         self._ensure_loaded()

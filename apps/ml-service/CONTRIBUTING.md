@@ -20,7 +20,27 @@ Naming convention for `operation.name`:
 - Second segment is the **operation**: `classify`, `build`, `embed`, `optimize`.
 - Optional third+ for the variant: `embedding.bge_large.batch`.
 
-Why mandatory: lanes that ship without `@traced` create dark code paths in production. Decorator omission is a build break, not a code-review concern. CI's lint step will catch it (filed as `OBSERVABILITY-LINT-COVERAGE-1`).
+Why mandatory: lanes that ship without `@traced` create dark code paths in production. Decorator omission is a build break, not a code-review concern. CI enforces this via `scripts/lint-traced-coverage.py` — the lint runs alongside `ruff` / `mypy` / `pytest` on every PR and fails the build if a public function in scope is missing `@traced` (or a documented opt-out).
+
+### 1.1 Scope ratchet
+
+The lint walks `lumo_ml/plan/` by default — the surface PYTHON-OBSERVABILITY-1 wired tracing across. New surfaces join lane-by-lane: when a lane wires `@traced` into a previously-untraced module (e.g. `lumo_ml/embedding/`), the same lane appends that path to `DEFAULT_TARGETS` in `scripts/lint-traced-coverage.py` so the discipline ratchets *up* but never down.
+
+`lumo_ml/core/` is permanently out of scope — that module *is* the tracing infrastructure (`@traced`, `record_cost`, `Secret`); tracing the tracer is circular noise.
+
+### 1.2 Opt-out: `# noqa: TRC001`
+
+A handful of public functions are intentionally not operations — singleton accessors, startup priming hooks, pure-data helpers called inside an already-traced parent span. Opt out with a same-line comment that includes a reason:
+
+```python
+@classmethod
+def get_instance(cls) -> "IntentClassifier":  # noqa: TRC001 — singleton accessor; tracing the cache-lookup wraps every classify() in a redundant span.
+    ...
+```
+
+Bare `# noqa: TRC001` (no reason) is rejected with a distinct error message. The reason requirement is what makes the opt-out auditable: a reviewer scanning a diff can judge whether the call is legitimate without spelunking through call sites.
+
+The lint accepts both decorator shapes — `@traced` and `@traced("op.name", ...)` — and recognizes the qualified form (`@core.traced`, `@lumo_ml.core.traced`). Aliased imports (`from lumo_ml.core import traced as t`; `@t`) are intentionally rejected; the canonical name should appear in source so the discipline reads at a glance.
 
 ## 2 · Cost — `record_cost` on every billable call
 

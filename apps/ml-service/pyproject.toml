@@ -49,6 +49,11 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
+# TRC001 is the custom code emitted by scripts/lint-traced-coverage.py
+# (the @traced enforcement lint). Declaring it as external silences
+# ruff's "invalid noqa" warnings on the documentation comments and on
+# legitimate `# noqa: TRC001 — <reason>` opt-outs.
+external = ["TRC"]
 
 [tool.mypy]
 python_version = "3.11"

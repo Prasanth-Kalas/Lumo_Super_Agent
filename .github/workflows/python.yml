@@ -44,6 +44,13 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
+      - name: Lint (traced-coverage)
+        # Fails the build if a public function in scope ships without
+        # @traced (or a documented `# noqa: TRC001 — <reason>` opt-out).
+        # Scope ratchets up lane-by-lane via DEFAULT_TARGETS in
+        # scripts/lint-traced-coverage.py.
+        run: python scripts/lint-traced-coverage.py
+
       - name: Type-check (mypy)
         run: mypy lumo_ml/
 
