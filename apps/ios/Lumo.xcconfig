@@ -14,12 +14,12 @@ LUMO_SUPABASE_URL_SCHEME =
 LUMO_SUPABASE_URL_HOST =
 LUMO_SUPABASE_ANON_KEY =
 
-// ElevenLabs Turbo TTS — populated from ~/.config/lumo/.env. When
-// empty the app falls through the TTS chain (ElevenLabs → OpenAI →
-// AVSpeechSynthesizer) and surfaces a "configure ElevenLabs" hint
-// in Settings rather than crashing.
-LUMO_ELEVENLABS_API_KEY =
-LUMO_ELEVENLABS_VOICE_ID =
+// Voice provider: Deepgram. The long-lived LUMO_DEEPGRAM_API_KEY
+// lives only on the server — iOS calls POST /api/audio/deepgram-token
+// to mint a 60s short-lived bearer token. NO Deepgram key in the
+// iOS bundle (privacy contract, docs/contracts/deepgram-token.md).
+// Voice picker preference (Thalia / Orpheus) lives in
+// VoiceSettings.voiceId UserDefault on-device.
 
 // Stripe — populated from ~/.config/lumo/.env. The publishable key is
 // test-mode-only for now (`pk_test_...`); real-money execution waits

@@ -3,10 +3,10 @@ import Foundation
 
 /// Streaming text-to-speech via Deepgram Aura-2 over WebSocket.
 ///
-/// **DEEPGRAM-IOS-IMPL-1 Phase 3.** Replaces the previous ElevenLabs
-/// Turbo + AVSpeechSynthesizer fallback chain with a single Deepgram
-/// path. The `TextToSpeechServicing` protocol surface is preserved
-/// so `ChatViewModel`'s streaming-reply hookup
+/// **DEEPGRAM-IOS-IMPL-1 Phase 3.** Replaces the previous third-
+/// party-TTS-plus-AVSpeechSynthesizer fallback chain with a single
+/// Deepgram path. The `TextToSpeechServicing` protocol surface is
+/// preserved so `ChatViewModel`'s streaming-reply hookup
 /// (`beginStreaming` / `appendToken(_:)` / `finishStreaming`) works
 /// unchanged.
 ///
@@ -75,7 +75,7 @@ enum TTSState: Equatable {
 }
 
 /// Provider tag preserved for API stability with `TextToSpeechStub`
-/// + `lastUsedFallback`. With the ElevenLabs purge in Phase 5 the
+/// + `lastUsedFallback`. With the legacy-provider purge in Phase 5 the
 /// `.systemSynthesizer` case stays only as the test-stub default;
 /// `.disabled` covers the "no provider configured" surface.
 enum TTSProvider: String, Equatable {

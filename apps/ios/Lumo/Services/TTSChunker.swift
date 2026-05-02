@@ -2,12 +2,14 @@ import Foundation
 
 /// Splits a stream of LLM text tokens into TTS-friendly chunks.
 ///
-/// Why this exists: ElevenLabs Turbo will happily synthesize per-token
-/// input but the resulting audio sounds choppy because the engine
-/// re-prosodies on every push. Aggregating tokens into sentence-shaped
-/// chunks (with a hard size ceiling so we don't wait forever for the
-/// terminal punctuation in a long bullet point) gives natural-sounding
-/// speech with minimal latency.
+/// Why this exists: streaming TTS providers (Deepgram Aura-2 today)
+/// will happily synthesize per-token input but the resulting audio
+/// sounds choppy because the engine re-prosodies on every push.
+/// Aggregating tokens into sentence-shaped chunks (with a hard size
+/// ceiling so we don't wait forever for the terminal punctuation in
+/// a long bullet point) gives natural-sounding speech with minimal
+/// latency. The strategy is provider-agnostic — it survived the
+/// provider swap to Deepgram unchanged (DEEPGRAM-IOS-IMPL-1).
 ///
 /// Strategy:
 ///   * Append every incoming chunk to a rolling buffer.

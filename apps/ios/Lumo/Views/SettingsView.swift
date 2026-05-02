@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var biometricAvailable: Bool = BiometricUnlockService().isBiometryAvailable()
     @State private var speakResponses: Bool = VoiceSettings.speakResponses
     @State private var hasUsedVoice: Bool = VoiceSettings.hasUsedVoice
+    @State private var voiceId: String = VoiceSettings.voiceId
     @State private var showSignOutConfirm = false
     @State private var showTestPaymentSheet = false
 
@@ -204,6 +205,30 @@ struct SettingsView: View {
                     }
                 }
                 .accessibilityIdentifier("settings.speakResponses")
+
+                // Deepgram Aura-2 voice picker (DEEPGRAM-IOS-IMPL-1
+                // Phase 4). Two voices today (Thalia / Orpheus) —
+                // mirror of web's apps/web/lib/voice-catalog.ts.
+                // Cross-device sync via Lumo Memory facts is filed
+                // as IOS-VOICE-PICKER-SYNC-1.
+                Picker(selection: Binding(
+                    get: { voiceId },
+                    set: { newValue in
+                        voiceId = newValue
+                        VoiceSettings.voiceId = newValue
+                    }
+                )) {
+                    Text("Thalia").tag("aura-2-thalia-en")
+                    Text("Orpheus").tag("aura-2-orpheus-en")
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Voice")
+                        Text("How Lumo sounds when reading replies.")
+                            .font(LumoFonts.footnote)
+                            .foregroundStyle(LumoColors.labelSecondary)
+                    }
+                }
+                .accessibilityIdentifier("settings.voicePicker")
 
                 Button {
                     if let url = URL(string: UIApplication.openSettingsURLString) {

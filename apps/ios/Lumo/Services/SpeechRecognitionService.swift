@@ -4,7 +4,7 @@ import Foundation
 /// Streaming speech-to-text via Deepgram Nova-3 over WebSocket.
 ///
 /// **DEEPGRAM-IOS-IMPL-1 Phase 2.** Replaces the previous
-/// SFSpeechRecognizer + on-device-recognition path. The
+/// Apple-Speech + on-device-recognition path. The
 /// `SpeechRecognitionServicing` protocol surface is preserved so
 /// `VoiceComposerViewModel` and the chat composer's PTT mode-pick
 /// rule (mic-vs-send-button doctrine) keep working unchanged. Only
@@ -63,7 +63,7 @@ enum SpeechRecognitionState: Equatable {
 }
 
 /// Result of the microphone permission dance. With Deepgram replacing
-/// SFSpeechRecognizer, only microphone access is now strictly needed —
+/// the legacy recognizer, only microphone access is now strictly needed —
 /// `.speechRecognitionDenied` and `.restrictedByDevice` cases stay in
 /// the enum for API stability with VoiceComposerViewModel but are
 /// unreachable from the Deepgram path.
@@ -179,7 +179,7 @@ final class SpeechRecognitionService: SpeechRecognitionServicing {
     }
 
     func stop() {
-        // Mirrors the original SFSpeech path: `stop()` is a graceful
+        // Mirrors the original recognizer path: `stop()` is a graceful
         // wrap-up. The audio tap closes, the WS closes, the silence
         // timer cancels, and the accumulated final transcript (if
         // any) commits as the canonical text.
@@ -549,7 +549,7 @@ final class URLSessionDeepgramSTTWebSocket: NSObject, DeepgramSTTWebSocket {
 
 /// Test fake — drives downstream view-models without any
 /// AVAudioEngine / Deepgram WebSocket instantiation. Preserved
-/// across the SFSpeech → Deepgram swap so the existing
+/// across the recognizer → Deepgram swap so the existing
 /// VoiceStateMachineTests run unchanged.
 @MainActor
 final class SpeechRecognitionStub: SpeechRecognitionServicing {

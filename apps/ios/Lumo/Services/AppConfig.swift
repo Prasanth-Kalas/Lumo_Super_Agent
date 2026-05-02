@@ -4,16 +4,21 @@ import Foundation
 /// bundle's Info.plist by xcconfig substitution. The xcconfig values
 /// come from `~/.config/lumo/.env` via `scripts/ios-write-xcconfig.sh`;
 /// missing values resolve to empty strings and surface as
-/// `isAuthConfigured` / `isElevenLabsConfigured` / `isStripeConfigured`
-/// flags so callers can render an explicit "configuration missing" UX
-/// instead of crashing.
+/// `isAuthConfigured` / `isStripeConfigured` flags so callers can
+/// render an explicit "configuration missing" UX instead of
+/// crashing.
+///
+/// **Voice provider**: Deepgram. The long-lived
+/// `LUMO_DEEPGRAM_API_KEY` lives only on the server — iOS calls
+/// `POST /api/audio/deepgram-token` to mint a 60s bearer token. No
+/// Deepgram key in this struct (privacy contract,
+/// `docs/contracts/deepgram-token.md`). Voice picker preference
+/// lives in `VoiceSettings.voiceId`.
 
 struct AppConfig {
     let apiBaseURL: URL
     let supabaseURL: URL?
     let supabaseAnonKey: String
-    let elevenLabsAPIKey: String
-    let elevenLabsVoiceID: String
     let stripePublishableKey: String
     let stripeMerchantID: String
     /// True when the iOS client is targeting the APNs sandbox (the
@@ -26,13 +31,6 @@ struct AppConfig {
 
     var isAuthConfigured: Bool {
         supabaseURL != nil && !supabaseAnonKey.isEmpty
-    }
-
-    /// True when ElevenLabs Turbo TTS can be used as the primary voice.
-    /// Without it, TextToSpeechService falls through the chain to
-    /// AVSpeechSynthesizer.
-    var isElevenLabsConfigured: Bool {
-        !elevenLabsAPIKey.isEmpty
     }
 
     /// True when Stripe is configured. Test-mode publishable keys start
@@ -48,17 +46,6 @@ struct AppConfig {
         stripePublishableKey.hasPrefix("pk_live_")
     }
 
-    /// Default voice — Rachel (`21m00Tcm4TlvDq8ikWAM`). Pinned so
-    /// missing-config still produces speech identity instead of
-    /// rejecting the call. See progress note for rationale.
-    static let defaultElevenLabsVoiceID = "21m00Tcm4TlvDq8ikWAM"
-
-    /// Resolved voice ID — falls back to the default if the developer
-    /// didn't set `LUMO_ELEVENLABS_VOICE_ID` in env.
-    var resolvedVoiceID: String {
-        elevenLabsVoiceID.isEmpty ? Self.defaultElevenLabsVoiceID : elevenLabsVoiceID
-    }
-
     static func fromBundle(_ bundle: Bundle = .main) -> AppConfig {
         let apiRaw = bundle.object(forInfoDictionaryKey: "LumoAPIBase") as? String ?? "http://localhost:3000"
         let apiURL = URL(string: apiRaw) ?? URL(string: "http://localhost:3000")!
@@ -72,8 +59,6 @@ struct AppConfig {
             : nil
 
         let anonKey = (bundle.object(forInfoDictionaryKey: "LumoSupabaseAnonKey") as? String) ?? ""
-        let elevenKey = (bundle.object(forInfoDictionaryKey: "LumoElevenLabsAPIKey") as? String) ?? ""
-        let elevenVoice = (bundle.object(forInfoDictionaryKey: "LumoElevenLabsVoiceID") as? String) ?? ""
         let stripeKey = (bundle.object(forInfoDictionaryKey: "LumoStripePublishableKey") as? String) ?? ""
         let stripeMerchant = (bundle.object(forInfoDictionaryKey: "LumoStripeMerchantID") as? String) ?? ""
         let apnsSandboxRaw = (bundle.object(forInfoDictionaryKey: "LumoAPNsUseSandbox") as? String) ?? "true"
@@ -86,8 +71,6 @@ struct AppConfig {
             apiBaseURL: apiURL,
             supabaseURL: supabaseURL,
             supabaseAnonKey: anonKey,
-            elevenLabsAPIKey: elevenKey,
-            elevenLabsVoiceID: elevenVoice,
             stripePublishableKey: stripeKey,
             stripeMerchantID: stripeMerchant,
             apnsUseSandbox: apnsSandbox

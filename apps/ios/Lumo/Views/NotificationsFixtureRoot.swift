@@ -39,8 +39,6 @@ struct NotificationsFixtureRoot: View {
             apiBaseURL: URL(string: "http://localhost:0")!,
             supabaseURL: nil,
             supabaseAnonKey: "",
-            elevenLabsAPIKey: "",
-            elevenLabsVoiceID: "",
             stripePublishableKey: "pk_test_fixture",
             stripeMerchantID: "merchant.com.lumo.rentals.ios",
             apnsUseSandbox: true

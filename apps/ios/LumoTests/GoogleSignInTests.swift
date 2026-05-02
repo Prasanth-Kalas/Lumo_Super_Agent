@@ -114,8 +114,6 @@ final class GoogleSignInTests: XCTestCase {
             apiBaseURL: URL(string: "http://localhost:3000")!,
             supabaseURL: nil,
             supabaseAnonKey: "",
-            elevenLabsAPIKey: "",
-            elevenLabsVoiceID: "",
             stripePublishableKey: "",
             stripeMerchantID: "",
             apnsUseSandbox: true

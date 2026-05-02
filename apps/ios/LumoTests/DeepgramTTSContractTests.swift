@@ -15,7 +15,7 @@ import XCTest
 ///   3. Flushed-message parser — server's `{"type":"Flushed"}`
 ///      decodes to the `.flushed` sentinel; everything else
 ///      falls through.
-///   4. TTSProvider tag preserved across the ElevenLabs swap so
+///   4. TTSProvider tag preserved across the legacy-provider swap so
 ///      callers like `lastUsedFallback` keep typing.
 @MainActor
 final class DeepgramTTSContractTests: XCTestCase {
@@ -97,17 +97,17 @@ final class DeepgramTTSContractTests: XCTestCase {
         XCTAssertFalse(URLSessionDeepgramTTSWebSocket.isFlushedMessage(text: "not json"))
     }
 
-    // MARK: - 4. Provider tag preserved across the ElevenLabs swap
+    // MARK: - 4. Provider tag preserved across the legacy-provider swap
 
-    func test_ttsProvider_deepgramReplacesElevenLabs() {
+    func test_ttsProvider_deepgramIsCanonical() {
         // The .deepgram case is what production paths emit;
         // .systemSynthesizer stays for the test stub; .disabled
-        // covers the no-provider-configured surface. There is no
-        // .elevenLabs case (acceptance gate: "Zero ElevenLabs
-        // references in apps/ios/").
+        // covers the no-provider-configured surface. The legacy
+        // third-party case has been removed (acceptance gate:
+        // "Zero legacy-provider references in apps/ios/").
         let cases: [TTSProvider] = [.deepgram, .systemSynthesizer, .disabled]
         XCTAssertEqual(cases.count, 3,
-                       "TTSProvider exposes exactly three cases post-ElevenLabs purge")
+                       "TTSProvider exposes exactly three cases post-purge")
     }
 
     func test_ttsState_speakingDeepgramRoundtrips() {

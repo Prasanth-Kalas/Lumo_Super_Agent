@@ -42,9 +42,10 @@ final class AudioSessionManager {
         try? session.setActive(false, options: [.notifyOthersOnDeactivation])
     }
 
-    /// True if the user has granted microphone permission. Distinct
-    /// from speech-recognition permission (which `SFSpeechRecognizer`
-    /// owns separately).
+    /// True if the user has granted microphone permission. With
+    /// Deepgram replacing the old recognizer, only microphone access
+    /// is strictly needed; the separate speech-recognition permission
+    /// has been removed.
     var hasMicrophonePermission: Bool {
         AVAudioApplication.shared.recordPermission == .granted
     }
