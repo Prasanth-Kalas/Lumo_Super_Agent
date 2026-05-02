@@ -112,23 +112,37 @@ final class ChatService {
             // apps/web/lib/orchestrator.ts InteractiveSelection):
             //   { kind: "flight_offers" | "food_menu" | "time_slots",
             //     payload: <kind-specific> }
-            // Only flight_offers decodes to a typed payload today;
-            // unknown kinds round-trip via .unsupported so future
-            // surfaces (food, time slots) can land without re-routing
-            // the SSE plumbing.
+            // Three known kinds decode to typed payloads. Future
+            // kinds round-trip via `.unsupported(kind:)` (forward-
+            // compat). A known kind whose payload fails decoding
+            // returns `.malformed(kind:reason:)` so callers can
+            // distinguish "we don't know this kind yet" from "we
+            // recognised the kind but the data was bad".
             guard
                 let value = json["value"] as? [String: Any],
                 let kind = value["kind"] as? String
             else {
                 return .other(type: type)
             }
-            if kind == "flight_offers" {
+            switch kind {
+            case "flight_offers":
                 guard let payload = decodeFlightOffersPayload(value["payload"]) else {
-                    return .other(type: type)
+                    return .selection(.malformed(kind: kind, reason: "flight_offers payload missing required fields"))
                 }
                 return .selection(.flightOffers(payload))
+            case "food_menu":
+                guard let payload = decodeFoodMenuPayload(value["payload"]) else {
+                    return .selection(.malformed(kind: kind, reason: "food_menu payload missing required fields (restaurant_id, restaurant_name, menu)"))
+                }
+                return .selection(.foodMenu(payload))
+            case "time_slots":
+                guard let payload = decodeTimeSlotsPayload(value["payload"]) else {
+                    return .selection(.malformed(kind: kind, reason: "time_slots payload missing required fields (restaurant_id, slots)"))
+                }
+                return .selection(.timeSlots(payload))
+            default:
+                return .selection(.unsupported(kind: kind))
             }
-            return .selection(.unsupported(kind: kind))
         case "summary":
             // Frame value shape (canonical contract — see
             // node_modules/@lumo/agent-sdk/src/confirmation.ts):
@@ -239,6 +253,93 @@ final class ChatService {
         }
         guard !offers.isEmpty else { return nil }
         return FlightOffersPayload(offers: offers)
+    }
+
+    /// Pure decoder for an `InteractiveSelection.foodMenu` payload.
+    /// Mirrors `apps/web/components/FoodMenuSelectCard.tsx::FoodMenuSelection`
+    /// (the wire shape from `food_get_restaurant_menu`).
+    ///
+    /// Tolerance rules:
+    /// - Required: `restaurant_id`, `restaurant_name`, `menu` (array, may be empty).
+    /// - Drops menu items missing `item_id`, `name`, or `unit_price_cents`
+    ///   (rather than failing the whole payload — matches the web card's
+    ///   `payload.menu ?? []` posture).
+    /// - Returns nil only when the envelope itself is unusable.
+    static func decodeFoodMenuPayload(_ raw: Any?) -> FoodMenuPayload? {
+        guard
+            let dict = raw as? [String: Any],
+            let restaurantID = dict["restaurant_id"] as? String,
+            let restaurantName = dict["restaurant_name"] as? String,
+            let menuArray = dict["menu"] as? [[String: Any]]
+        else {
+            return nil
+        }
+        let isOpen = dict["is_open"] as? Bool
+        let items: [FoodMenuItem] = menuArray.compactMap { row in
+            guard
+                let itemID = row["item_id"] as? String, !itemID.isEmpty,
+                let name = row["name"] as? String, !name.isEmpty,
+                let priceCents = row["unit_price_cents"] as? Int
+            else {
+                return nil
+            }
+            return FoodMenuItem(
+                item_id: itemID,
+                name: name,
+                description: row["description"] as? String,
+                unit_price_cents: priceCents,
+                category: row["category"] as? String
+            )
+        }
+        return FoodMenuPayload(
+            restaurant_id: restaurantID,
+            restaurant_name: restaurantName,
+            is_open: isOpen,
+            menu: items
+        )
+    }
+
+    /// Pure decoder for an `InteractiveSelection.timeSlots` payload.
+    /// Mirrors `apps/web/components/TimeSlotsSelectCard.tsx::TimeSlotsSelection`
+    /// (the wire shape from `restaurant_check_availability`).
+    ///
+    /// Tolerance rules:
+    /// - Required: `restaurant_id`, `slots` (array; may be empty).
+    /// - Drops slot rows missing `slot_id`, `starts_at`, or `party_size`.
+    /// - Returns nil when the envelope itself is unusable.
+    static func decodeTimeSlotsPayload(_ raw: Any?) -> TimeSlotsPayload? {
+        guard
+            let dict = raw as? [String: Any],
+            let restaurantID = dict["restaurant_id"] as? String,
+            let slotsArray = dict["slots"] as? [[String: Any]]
+        else {
+            return nil
+        }
+        let slots: [TimeSlotOption] = slotsArray.compactMap { row in
+            guard
+                let slotID = row["slot_id"] as? String, !slotID.isEmpty,
+                let startsAt = row["starts_at"] as? String, !startsAt.isEmpty,
+                let partySize = row["party_size"] as? Int
+            else {
+                return nil
+            }
+            return TimeSlotOption(
+                slot_id: slotID,
+                starts_at: startsAt,
+                party_size: partySize,
+                table_type: row["table_type"] as? String,
+                deposit_amount: row["deposit_amount"] as? String,
+                deposit_currency: row["deposit_currency"] as? String,
+                expires_at: row["expires_at"] as? String
+            )
+        }
+        return TimeSlotsPayload(
+            restaurant_id: restaurantID,
+            restaurant_name: dict["restaurant_name"] as? String,
+            date: dict["date"] as? String,
+            party_size: dict["party_size"] as? Int,
+            slots: slots
+        )
     }
 
     /// Pure decoder for a `structured-itinerary` summary payload.

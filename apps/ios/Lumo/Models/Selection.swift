@@ -5,14 +5,28 @@ import Foundation
 /// alongside text frames when a tool result should render as a
 /// pickable card rather than as plain prose.
 ///
-/// Only the `flight_offers` kind is surfaced on iOS today
-/// (CHAT-FLIGHT-SELECT-CLICKABLE-1). The other kinds (`food_menu`,
-/// `time_slots`) decode but render as nothing yet — when their
-/// SwiftUI counterparts ship, the `kind` enum gains the matching
-/// associated payload + ChatView mounts the card.
+/// Three known kinds today — flight_offers (FlightOffersPayload),
+/// food_menu (FoodMenuPayload), time_slots (TimeSlotsPayload). Only
+/// flight_offers has its SwiftUI card mounted in ChatView; the food
+/// and time-slots cards land when web's parallel lanes ship
+/// (IOS-SELECT-CLICKABLE-FOOD-1 / -RESTAURANT-1). Until then the
+/// parser still produces typed payloads so the wiring is ready.
+///
+/// Two non-rendering cases:
+///   • `.unsupported(kind:)` — known frame envelope, kind we don't
+///     handle yet. Forward-compat when web ships a new kind before
+///     iOS catches up.
+///   • `.malformed(kind:reason:)` — known kind, payload failed
+///     decoding. Distinct from `.unsupported` so callers can log the
+///     decode failure separately and surface a "couldn't read this"
+///     surface; today no card consumes this case but the contract is
+///     reserved for it.
 enum InteractiveSelection: Equatable {
     case flightOffers(FlightOffersPayload)
+    case foodMenu(FoodMenuPayload)
+    case timeSlots(TimeSlotsPayload)
     case unsupported(kind: String)
+    case malformed(kind: String, reason: String)
 
     /// Latest-wins dedupe key — when a turn re-emits a selection of
     /// the same kind, the new one replaces the old. Mirrors web's
@@ -20,7 +34,10 @@ enum InteractiveSelection: Equatable {
     func sameKind(as other: InteractiveSelection) -> Bool {
         switch (self, other) {
         case (.flightOffers, .flightOffers): return true
+        case (.foodMenu, .foodMenu): return true
+        case (.timeSlots, .timeSlots): return true
         case let (.unsupported(a), .unsupported(b)): return a == b
+        case let (.malformed(a, _), .malformed(b, _)): return a == b
         default: return false
         }
     }
@@ -129,4 +146,62 @@ enum FlightOffersSubmit {
         }
         return out.isEmpty ? iso : out
     }
+}
+
+// MARK: - Food menu
+
+/// Mirror of `apps/web/components/FoodMenuSelectCard.tsx::FoodMenuSelection`.
+/// Wire shape uses `menu` (canonical from `food_get_restaurant_menu`);
+/// we keep that field name here so JSON decode is straight-through.
+///
+/// IOS-FOOD-MENU-TIME-SLOTS-PARSE-1 introduces the typed payload at
+/// the parser boundary; the SwiftUI card lands in
+/// IOS-SELECT-CLICKABLE-FOOD-1.
+struct FoodMenuPayload: Equatable {
+    let restaurant_id: String
+    let restaurant_name: String
+    let is_open: Bool?
+    let menu: [FoodMenuItem]
+}
+
+struct FoodMenuItem: Identifiable, Equatable {
+    let item_id: String
+    let name: String
+    let description: String?
+    let unit_price_cents: Int
+    let category: String?
+
+    var id: String { item_id }
+}
+
+// MARK: - Time slots
+
+/// Mirror of `apps/web/components/TimeSlotsSelectCard.tsx::TimeSlotsSelection`.
+/// Wire shape from `restaurant_check_availability` — single-select
+/// list of slot rows, each with starts_at + party_size + optional
+/// deposit details.
+///
+/// IOS-FOOD-MENU-TIME-SLOTS-PARSE-1 introduces the typed payload at
+/// the parser boundary; the SwiftUI card lands in
+/// IOS-SELECT-CLICKABLE-RESTAURANT-1.
+struct TimeSlotsPayload: Equatable {
+    let restaurant_id: String
+    let restaurant_name: String?
+    let date: String?
+    let party_size: Int?
+    let slots: [TimeSlotOption]
+}
+
+struct TimeSlotOption: Identifiable, Equatable {
+    let slot_id: String
+    /// Local wall-clock ISO, e.g. "2026-05-15T19:30:00-07:00".
+    let starts_at: String
+    let party_size: Int
+    let table_type: String?
+    /// Deposit the venue holds at booking. "0" when free.
+    let deposit_amount: String?
+    let deposit_currency: String?
+    let expires_at: String?
+
+    var id: String { slot_id }
 }

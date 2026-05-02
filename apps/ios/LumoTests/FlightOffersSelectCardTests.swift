@@ -40,10 +40,14 @@ final class FlightOffersSelectCardTests: XCTestCase {
     }
 
     func test_parseFrame_selection_unknownKind_passesThroughAsUnsupported() {
-        let line = #"data: {"type":"selection","value":{"kind":"food_menu","payload":{"items":[]}}}"#
+        // IOS-FOOD-MENU-TIME-SLOTS-PARSE-1 made `food_menu` a known
+        // kind. A genuinely-unknown future kind still round-trips
+        // via `.unsupported(kind:)` so iOS doesn't lose the frame
+        // when web ships ahead.
+        let line = #"data: {"type":"selection","value":{"kind":"future_kind_we_dont_know","payload":{"anything":"goes"}}}"#
         XCTAssertEqual(
             ChatService.parseFrame(line: line),
-            .selection(.unsupported(kind: "food_menu"))
+            .selection(.unsupported(kind: "future_kind_we_dont_know"))
         )
     }
 
@@ -52,9 +56,20 @@ final class FlightOffersSelectCardTests: XCTestCase {
         XCTAssertEqual(ChatService.parseFrame(line: line), .other(type: "selection"))
     }
 
-    func test_parseFrame_selection_flightOffers_emptyOffers_fallsThrough() {
-        let line = #"data: {"type":"selection","value":{"kind":"flight_offers","payload":{"offers":[]}}}"#
-        XCTAssertEqual(ChatService.parseFrame(line: line), .other(type: "selection"))
+    func test_parseFrame_selection_flightOffers_emptyOffers_isMalformed() {
+        // IOS-FOOD-MENU-TIME-SLOTS-PARSE-1 introduces the
+        // `.malformed(kind:reason:)` case to distinguish bad-payload-
+        // for-known-kind from unknown-kind. An empty offers array
+        // fails the flight_offers decoder, which now surfaces as
+        // .malformed rather than .other(type:) — callers that want
+        // to log "we got a flight_offers frame but couldn't read it"
+        // get the kind context preserved.
+        guard case let .selection(.malformed(kind, _)) = ChatService.parseFrame(
+            line: #"data: {"type":"selection","value":{"kind":"flight_offers","payload":{"offers":[]}}}"#
+        ) else {
+            return XCTFail("expected .selection(.malformed(...))")
+        }
+        XCTAssertEqual(kind, "flight_offers")
     }
 
     func test_parseFrame_selection_flightOffers_malformedOffer_isDropped() {
