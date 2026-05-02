@@ -141,14 +141,14 @@ def health() -> dict:
                 **({} if auth_configured else {"last_error": "LUMO_ML_SERVICE_JWT_SECRET is not set"}),
             },
             "sandbox": sandbox_upstream_health(),
-            "modal_whisper": {
+            "deepgram_transcription": {
                 "status": "ok"
-                if _modal_credentials_configured()
+                if _deepgram_configured()
                 else "degraded",
                 **(
                     {}
-                    if _modal_credentials_configured()
-                    else {"last_error": "MODAL_TOKEN_ID and MODAL_TOKEN_SECRET are not set"}
+                    if _deepgram_configured()
+                    else {"last_error": "LUMO_DEEPGRAM_API_KEY is not set"}
                 ),
             },
             "pdf_extraction": {
@@ -369,6 +369,12 @@ def _modal_credentials_configured() -> bool:
     import os
 
     return bool(os.getenv("MODAL_TOKEN_ID") and os.getenv("MODAL_TOKEN_SECRET"))
+
+
+def _deepgram_configured() -> bool:
+    import os
+
+    return bool(os.getenv("LUMO_DEEPGRAM_API_KEY"))
 
 
 def _pdf_extraction_available() -> bool:

@@ -5,8 +5,9 @@
 #   LUMO_ML_SERVICE_JWT_SECRET — required. Long random hex; Vercel must hold
 #                                the same value or service-to-service JWTs
 #                                won't validate.
+#   LUMO_DEEPGRAM_API_KEY      — optional. Enables Nova-3 transcription.
 #   HF_TOKEN                   — optional. HuggingFace token for downloading
-#                                modal_clip / modal_whisper model weights.
+#                                modal_clip model weights.
 #   ANTHROPIC_API_KEY          — optional. Reserved for future LLM-backed
 #                                tools; current tools don't use it.
 #
@@ -23,6 +24,9 @@ fi
 ARGS=("LUMO_ML_SERVICE_JWT_SECRET=${LUMO_ML_SERVICE_JWT_SECRET}")
 if [[ -n "${HF_TOKEN:-}" ]]; then
   ARGS+=("HF_TOKEN=${HF_TOKEN}")
+fi
+if [[ -n "${LUMO_DEEPGRAM_API_KEY:-}" ]]; then
+  ARGS+=("LUMO_DEEPGRAM_API_KEY=${LUMO_DEEPGRAM_API_KEY}")
 fi
 if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
   ARGS+=("ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")

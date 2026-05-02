@@ -66,15 +66,13 @@ The Super Agent sends sanitized mission-derived stops and leg estimates, not raw
 user prompt text, so optimization stays a computation step rather than a
 reasoning or account-action step.
 
-`lumo_transcribe` is the Sprint-0 Whisper hook. It calls a Modal GPU job running
-Whisper large-v3 when `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` are present.
-Until Modal is configured the route returns `status: "not_configured"` with the
-same response shape, allowing Lumo Core to mark the audio upload failed without
-crashing recall or chat flows. When `speaker_diarization=true`, the same Modal
-job uses pyannote speaker diarization if `PYANNOTE_AUTH_TOKEN`,
-`HUGGINGFACE_TOKEN`, or `HF_TOKEN` is present. If pyannote or the model weights
-are unavailable, the transcript still succeeds with `speaker: null` and
-`diarization: "not_configured"`.
+`lumo_transcribe` uses Deepgram Nova-3 when `LUMO_DEEPGRAM_API_KEY` is present.
+Until Deepgram is configured the route returns `status: "not_configured"` with
+the same response shape, allowing Lumo Core to mark the audio upload failed
+without crashing recall or chat flows. When `speaker_diarization=true`, the
+Deepgram request asks for diarization and returns `speaker` labels when the
+provider includes them; otherwise the transcript still succeeds with
+`speaker: null` and `diarization: "not_configured"`.
 
 `lumo_embed_image` is the Sprint-1 CLIP hook. It calls a Modal GPU job running
 `openai/clip-vit-base-patch32`, returning a 512-dim image vector plus bounded

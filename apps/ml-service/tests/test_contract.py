@@ -238,7 +238,7 @@ def test_transcribe_contract_degrades_until_modal_is_configured() -> None:
     assert body["status"] in {"not_configured", "error", "ok"}
     assert isinstance(body["transcript"], str)
     assert isinstance(body["segments"], list)
-    assert body["model"] == "whisper-large-v3"
+    assert body["model"] == "nova-3"
     assert body["diarization"] in {"not_requested", "ok", "not_configured", "error"}
 
 
