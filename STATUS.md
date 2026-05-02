@@ -3,6 +3,7 @@
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
 | Codex | Lumo_Super_Agent_codex | codex/deepgram-web-audio-hotfix-2 | 2026-05-02 | DEEPGRAM-WEB-AUDIO-HOTFIX-2 Deepgram TTS diagnostics, 3-attempt retry, slower Aura speed |
+| Claude Code Python | Lumo_Super_Agent_python | claude-code-python/system-prompt-migrate-python-1 | 2026-05-02 | SYSTEM-PROMPT-MIGRATE-PYTHON-1 (recon-first) — port the assistant system-prompt builder from TS to Python under the same parallel-write pattern; recon TS canonical function + inputs + branch points, then stop for reviewer approval before scope work |
 
 ## Closed lanes
 
