@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/plan-client-ts-parallel-write-1 | 2026-05-02 | PLAN-CLIENT-TS-PARALLEL-WRITE-1 typed Python `/plan` client + TS/Python planning comparison telemetry |
 ## Closed lanes
 
 | Lane | Worktree | Branch | Started | Closed | Sprint |
