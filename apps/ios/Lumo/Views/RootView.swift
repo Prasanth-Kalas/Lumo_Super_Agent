@@ -162,6 +162,13 @@ struct RootView: View {
             handleNotificationRoute(route)
         }
         .task { await applyDebugLaunchArgs() }
+        .task {
+            // IOS-VOICE-MODE-STT-GATING-1 — wire the TTS observer
+            // so VoiceComposerViewModel.phase tracks
+            // speaking/guard/listening transitions and the mic
+            // gate kicks in while the agent owns the speaker.
+            voiceComposer.observe(tts: tts)
+        }
     }
 
     // MARK: - Chat root

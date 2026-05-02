@@ -62,16 +62,63 @@ final class VoiceComposerViewModel: ObservableObject {
 
     @Published private(set) var state: State = .idle
 
+    /// IOS-VOICE-MODE-STT-GATING-1 — parallel phase track for the
+    /// TTS-driven mic gate. Mirrors codex's
+    /// `voiceMachinePhase` from web's VoiceMode.tsx. State and
+    /// phase are orthogonal: state tracks what the USER is doing
+    /// (listening / ready / idle); phase tracks what the AGENT
+    /// VOICE subsystem is doing (thinking / speaking / guarding /
+    /// listening-allowed). The mic gate is derived from phase via
+    /// `SpeechModeGating.isMicPaused(phase:)`.
+    @Published private(set) var phase: VoiceModeMachinePhase = .listening
+
+    /// True while the TTS mic gate is held. Derived from phase;
+    /// exposed for view-layer convenience (e.g., showing a
+    /// "speaking…" hint on the mic affordance during the gate
+    /// window).
+    var isMicPausedForTts: Bool {
+        SpeechModeGating.isMicPaused(phase: phase)
+    }
+
     private let speech: SpeechRecognitionServicing
+    private let tailGuardMs: Int
+    private var ttsObserveTask: Task<Void, Never>?
+    private var tailGuardTask: Task<Void, Never>?
     /// Bumped every time the user finishes a successful voice turn.
     /// `SettingsView` reads this to decide whether to show the voice
     /// section (default OFF until first use).
     static let voiceUsageDefaultsKey = "lumo.voice.lastUsedAt"
 
-    init(speech: SpeechRecognitionServicing) {
+    init(
+        speech: SpeechRecognitionServicing,
+        tailGuardMs: Int = LumoVoiceConfig.ttsTailGuardMs
+    ) {
         self.speech = speech
+        self.tailGuardMs = tailGuardMs
         Task { await observeSpeech() }
         applyDebugFixtureIfPresent()
+    }
+
+    /// Subscribe to a TextToSpeechServicing's stateChange stream so
+    /// the phase machine tracks TTS lifecycle. Called by RootView
+    /// after both view-models exist. Idempotent — multiple calls
+    /// replace the prior observer.
+    ///
+    /// Phase transitions on TTS state:
+    /// - `.speaking` → `.agentSpeaking` (gate ON)
+    /// - `.finished` → `.postSpeakingGuard`, then after
+    ///   `tailGuardMs` → `.listening` (gate OFF)
+    /// - `.error` / `.idle` (after speaking) → `.listening`
+    ///   IMMEDIATELY (defensive: dropped TTS clears the gate so
+    ///   tap-to-talk can't get stuck blocked — the edge codex
+    ///   caught during their review).
+    func observe(tts: TextToSpeechServicing) {
+        ttsObserveTask?.cancel()
+        ttsObserveTask = Task { [weak self] in
+            for await ttsState in tts.stateChange {
+                await MainActor.run { self?.applyTTS(state: ttsState) }
+            }
+        }
     }
 
     /// DEBUG-only path that pre-seeds the composer state from a launch
@@ -104,13 +151,19 @@ final class VoiceComposerViewModel: ObservableObject {
 
     // MARK: - Public actions
 
-    /// Begin a tap-to-talk turn. Auto-stops on silence.
+    /// Begin a tap-to-talk turn. Auto-stops on silence. Gated by
+    /// the TTS mic-pause: while the agent is speaking or the post-
+    /// speaking guard is active, the tap is dropped (no-op) so the
+    /// user's voice doesn't bleed into Lumo's own audio playback.
     func tapToTalk() async {
+        if SpeechModeGating.isMicPaused(phase: phase) { return }
         await ensureAndStart()
     }
 
-    /// Hold-to-talk press began. Mic stays open until `release()`.
+    /// Hold-to-talk press began. Same gate as tapToTalk — a press
+    /// during AGENT_SPEAKING / POST_SPEAKING_GUARD is dropped.
     func pressBegan() async {
+        if SpeechModeGating.isMicPaused(phase: phase) { return }
         await ensureAndStart()
     }
 
@@ -183,6 +236,69 @@ final class VoiceComposerViewModel: ObservableObject {
         case .ready, .error: return true
         default: return false
         }
+    }
+
+    // MARK: - TTS phase tracking (IOS-VOICE-MODE-STT-GATING-1)
+
+    /// Maps TTSState transitions onto the four phase values.
+    /// The `agentThinking` phase isn't used today (TTS service
+    /// doesn't surface a separate "thinking" tier), so we move
+    /// straight `listening → agentSpeaking` on the first
+    /// `.speaking` event and back via `postSpeakingGuard` on
+    /// `.finished`. Defensive transitions — `.error`, dropped
+    /// `.idle` while we were speaking — clear the gate
+    /// immediately so the user isn't stuck unable to tap-to-talk
+    /// after a TTS hiccup.
+    private func applyTTS(state ttsState: TTSState) {
+        switch ttsState {
+        case .speaking:
+            cancelTailGuard()
+            phase = .agentSpeaking
+        case .finished:
+            phase = .postSpeakingGuard
+            scheduleTailGuardClear()
+        case .error, .fallback:
+            // Defensive: TTS errored or fell back mid-stream. The
+            // gate clears immediately so the user can tap to talk.
+            // (Codex caught this edge during their review — without
+            // this branch a dropped TTS connection would leave the
+            // gate stuck on AGENT_SPEAKING forever.)
+            cancelTailGuard()
+            phase = .listening
+        case .idle:
+            // Cancel/teardown of the TTS session. If we were in
+            // speaking or guard, clear the gate; if we were
+            // already listening, no-op.
+            if SpeechModeGating.isMicPaused(phase: phase) {
+                cancelTailGuard()
+                phase = .listening
+            }
+        }
+    }
+
+    private func scheduleTailGuardClear() {
+        cancelTailGuard()
+        let delay = max(0, tailGuardMs)
+        tailGuardTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+            if Task.isCancelled { return }
+            await MainActor.run {
+                guard let self = self else { return }
+                if self.phase == .postSpeakingGuard {
+                    self.phase = .listening
+                }
+            }
+        }
+    }
+
+    private func cancelTailGuard() {
+        tailGuardTask?.cancel()
+        tailGuardTask = nil
+    }
+
+    deinit {
+        ttsObserveTask?.cancel()
+        tailGuardTask?.cancel()
     }
 }
 
