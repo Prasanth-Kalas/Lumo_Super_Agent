@@ -87,10 +87,20 @@ await t("VoiceMode gates startListening and barge-in while TTS owns the mic", ()
   assert.match(source, /if \(ttsMicPausedRef\.current\) return;\s*const Ctor/);
   assert.match(source, /if \(ttsMicPausedRef\.current\) return;\s*let cancelled = false/);
   assert.match(source, /ttsAbortControllerRef\.current\?\.abort\(\)/);
-  assert.match(source, /setState\("post_speaking_guard"\)/);
+  assert.match(source, /transitionVoiceState\("post_speaking_guard"/);
   assert.match(source, /TTS_TAIL_GUARD_MS/);
   assert.match(source, /NEXT_PUBLIC_LUMO_VOICE_TTS_TAIL_GUARD_MS/);
-  assert.match(source, /setVoiceMachinePhase\("LISTENING"\);\s*setState\("idle"\)/);
+  assert.match(source, /setVoiceMachinePhase\("LISTENING"\);\s*transitionVoiceState\("idle"/);
+});
+
+await t("VoiceMode logs every state transition through one wrapper", () => {
+  const source = readFileSync("components/VoiceMode.tsx", "utf8");
+  assert.match(source, /console\.log\("\[lumo-voice\]"/);
+  assert.match(source, /event: "state_transition"/);
+  assert.match(source, /from,\s*to,\s*trigger,/);
+  assert.match(source, /ts: new Date\(\)\.toISOString\(\)/);
+  assert.doesNotMatch(source, /\n\s+setState\("[a-z_]+"/);
+  assert.doesNotMatch(source, /\n\s+setState\(\(prev\)/);
 });
 
 await t("five speakable sentences stay eligible for five TTS appends", () => {

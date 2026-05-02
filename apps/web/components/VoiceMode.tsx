@@ -132,6 +132,8 @@ export type VoiceState =
   | "unsupported"// browser doesn't expose Web Speech
   | "error";     // transient error; auto-recovers on next action
 
+type VoiceStateUpdate = VoiceState | ((prev: VoiceState) => VoiceState);
+
 export interface VoiceModeProps {
   /** Master on/off from the shell. Shell persists across sessions. */
   enabled: boolean;
@@ -268,6 +270,26 @@ export default function VoiceMode(props: VoiceModeProps) {
   const [interim, setInterim] = useState<string>(""); // what user is currently saying
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [currentEmotion, setCurrentEmotion] = useState<VoiceEmotion>("warm");
+
+  const transitionVoiceState = useCallback(
+    (nextState: VoiceStateUpdate, trigger: string) => {
+      setState((from) => {
+        const to =
+          typeof nextState === "function" ? nextState(from) : nextState;
+        if (from !== to) {
+          console.log("[lumo-voice]", {
+            event: "state_transition",
+            from,
+            to,
+            trigger,
+            ts: new Date().toISOString(),
+          });
+        }
+        return to;
+      });
+    },
+    [],
+  );
 
   // Mirror every transition to the shell-provided callback so the
   // right-rail HUD can render a matching dot. Ref-latched so a
@@ -448,9 +470,9 @@ export default function VoiceMode(props: VoiceModeProps) {
     supportedRef.current =
       "speechSynthesis" in window && (Boolean(Ctor) || canRecordFallback());
     if (!supportedRef.current) {
-      setState("unsupported");
+      transitionVoiceState("unsupported", "capability_detection_unsupported");
     }
-  }, []);
+  }, [transitionVoiceState]);
 
   // ─── Voice catalog ready ─────────────────────────────────────
   useEffect(() => {
@@ -773,7 +795,9 @@ export default function VoiceMode(props: VoiceModeProps) {
           // cancelled mid-fetch. Without this, a cancelled chunk
           // whose fetch finally returned would flip state back to
           // "speaking" and the user would see a frozen pill.
-          if (myTurn === ttsTurnIdRef.current) setState("speaking");
+          if (myTurn === ttsTurnIdRef.current) {
+            transitionVoiceState("speaking", "tts_chunk_started");
+          }
         });
 
         // Fire this chunk's onEnd only if it was the last one in
@@ -795,7 +819,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     } finally {
       ttsWorkerRunningRef.current = false;
     }
-  }, [beginTtsMicGate, playOneChunk]);
+  }, [beginTtsMicGate, playOneChunk, transitionVoiceState]);
 
   const enqueueTts = useCallback(
     (text: string, onEnd?: () => void, final = false) => {
@@ -885,10 +909,10 @@ export default function VoiceMode(props: VoiceModeProps) {
     async (blob: Blob) => {
       if (!blob.size) {
         setInterim("");
-        setState("idle");
+        transitionVoiceState("idle", "recorded_stt_empty_blob");
         return;
       }
-      setState("thinking");
+      transitionVoiceState("thinking", "recorded_stt_submit");
       setInterim("Transcribing your voice…");
       const form = new FormData();
       form.set(
@@ -924,7 +948,7 @@ export default function VoiceMode(props: VoiceModeProps) {
           return;
         }
         setErrorMessage("I didn't catch enough audio to transcribe");
-        setState("idle");
+        transitionVoiceState("idle", "recorded_stt_empty_transcript");
       } catch (err) {
         console.warn("[voice] recorded STT failed:", err);
         setInterim("");
@@ -933,17 +957,17 @@ export default function VoiceMode(props: VoiceModeProps) {
             ? "recorded speech fallback is not configured"
             : "recorded speech transcription failed",
         );
-        setState("error");
+        transitionVoiceState("error", "recorded_stt_error");
       }
     },
-    [onUserUtterance],
+    [onUserUtterance, transitionVoiceState],
   );
 
   const startRecordedFallback = useCallback(
     async (reason?: string) => {
       if (!canRecordFallback()) {
         setErrorMessage("speech input is unavailable in this browser session");
-        setState("error");
+        transitionVoiceState("error", "recorded_stt_unavailable");
         return;
       }
       if (recorderRef.current) return;
@@ -977,7 +1001,7 @@ export default function VoiceMode(props: VoiceModeProps) {
           stopRecorderStream();
           setInterim("");
           setErrorMessage("microphone recording failed");
-          setState("error");
+          transitionVoiceState("error", "recorded_stt_recorder_error");
         };
         recorder.onstop = () => {
           clearRecorderStopTimer();
@@ -988,7 +1012,9 @@ export default function VoiceMode(props: VoiceModeProps) {
           if (!recorderSubmitRef.current) {
             recorderSubmitRef.current = true;
             setInterim("");
-            if (!ttsMicPausedRef.current) setState("idle");
+            if (!ttsMicPausedRef.current) {
+              transitionVoiceState("idle", "recorded_stt_stop_without_submit");
+            }
             return;
           }
           const blob = new Blob(chunks, {
@@ -1000,7 +1026,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         if (reason) console.info("[voice] using recorded STT fallback:", reason);
         setErrorMessage(null);
         setInterim("Recording through Lumo STT…");
-        setState("listening");
+        transitionVoiceState("listening", "recorded_stt_started");
         recorderStopTimerRef.current = setTimeout(() => {
           if (recorderRef.current?.state === "recording") {
             try {
@@ -1020,7 +1046,7 @@ export default function VoiceMode(props: VoiceModeProps) {
             ? friendlySpeechError(err.name)
             : "microphone recording could not start";
         setErrorMessage(message);
-        setState("error");
+        transitionVoiceState("error", "recorded_stt_start_error");
       }
     },
     [
@@ -1029,6 +1055,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       clearSilenceTimer,
       stopRecorderStream,
       transcribeRecordedAudio,
+      transitionVoiceState,
     ],
   );
 
@@ -1152,7 +1179,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       autoListenUnlockedRef.current = true;
       userStoppedListeningRef.current = false;
       setErrorMessage(null);
-      setState("listening");
+      transitionVoiceState("listening", "speech_recognition_started");
       setInterim("");
     };
     rec.onresult = (e) => {
@@ -1205,7 +1232,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         }
         if (ttsMicPausedRef.current) return;
         if (buffered) onUserUtterance(buffered);
-        setState("idle");
+        transitionVoiceState("idle", `speech_recognition_${code}`);
         return;
       }
       if (code === "network") {
@@ -1244,7 +1271,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         }
       }
       setErrorMessage(friendlySpeechError(code));
-      setState("error");
+      transitionVoiceState("error", `speech_recognition_${code}`);
     };
     rec.onend = () => {
       clearSilenceTimer();
@@ -1263,7 +1290,10 @@ export default function VoiceMode(props: VoiceModeProps) {
       if (recognitionRef.current === rec) {
         recognitionRef.current = null;
       }
-      setState((prev) => (prev === "listening" ? "idle" : prev));
+      transitionVoiceState(
+        (prev) => (prev === "listening" ? "idle" : prev),
+        "speech_recognition_end",
+      );
       if (
         !pending &&
         canResumeListeningAfterTts({
@@ -1308,10 +1338,16 @@ export default function VoiceMode(props: VoiceModeProps) {
             ? friendlySpeechError(err.message)
             : "Voice could not start. Tap to try again.";
       setErrorMessage(message);
-      setState("error");
+      transitionVoiceState("error", "speech_recognition_start_error");
       console.warn("[voice] start failed:", err);
     }
-  }, [onUserUtterance, cancelTts, clearSilenceTimer, startRecordedFallback]);
+  }, [
+    onUserUtterance,
+    cancelTts,
+    clearSilenceTimer,
+    startRecordedFallback,
+    transitionVoiceState,
+  ]);
 
   const scheduleHandsFreeListening = useCallback(
     (delayMs = 200) => {
@@ -1349,14 +1385,19 @@ export default function VoiceMode(props: VoiceModeProps) {
   const completeTtsWithTailGuard = useCallback(() => {
     clearTtsTailGuard();
     setVoiceMachinePhase("POST_SPEAKING_GUARD");
-    setState("post_speaking_guard");
+    transitionVoiceState("post_speaking_guard", "tts_playback_finished");
     ttsTailGuardTimerRef.current = setTimeout(() => {
       ttsTailGuardTimerRef.current = null;
       setVoiceMachinePhase("LISTENING");
-      setState("idle");
+      transitionVoiceState("idle", "tts_tail_guard_elapsed");
       scheduleHandsFreeListening(0);
     }, TTS_TAIL_GUARD_MS);
-  }, [clearTtsTailGuard, scheduleHandsFreeListening, setVoiceMachinePhase]);
+  }, [
+    clearTtsTailGuard,
+    scheduleHandsFreeListening,
+    setVoiceMachinePhase,
+    transitionVoiceState,
+  ]);
 
   const stopListening = useCallback(() => {
     if (recorderRef.current) {
@@ -1388,8 +1429,13 @@ export default function VoiceMode(props: VoiceModeProps) {
     } catch {
       // ignore
     }
-    setState("idle");
-  }, [clearSilenceTimer, onUserUtterance, stopRecordedFallback]);
+    transitionVoiceState("idle", "manual_stop_listening");
+  }, [
+    clearSilenceTimer,
+    onUserUtterance,
+    stopRecordedFallback,
+    transitionVoiceState,
+  ]);
 
   // Muting mid-speech should kill in-flight audio immediately,
   // drain the queue so nothing resumes on un-mute, and bump the
@@ -1478,10 +1524,10 @@ export default function VoiceMode(props: VoiceModeProps) {
 
     if (muted) {
       if (wantHandsFreeRef.current && enabled) {
-        setState("idle");
+        transitionVoiceState("idle", "tts_muted_tail_flush");
         scheduleHandsFreeListening();
       } else {
-        setState("idle");
+        transitionVoiceState("idle", "tts_muted_tail_flush");
       }
       return;
     }
@@ -1503,6 +1549,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     enqueueTts,
     completeTtsWithTailGuard,
     scheduleHandsFreeListening,
+    transitionVoiceState,
   ]);
 
   // Belt-and-suspenders safety net: if we're idle by intent (no
@@ -1524,7 +1571,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     if (noQueue && noWorker && noPremiumAudio && noRec && noRecorded) {
       clearTtsTailGuard();
       setVoiceMachinePhase("LISTENING");
-      setState("idle");
+      transitionVoiceState("idle", "voice_state_safety_net");
       if (wantHandsFreeRef.current) {
         scheduleHandsFreeListening();
       }
@@ -1537,6 +1584,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     scheduleHandsFreeListening,
     setVoiceMachinePhase,
     spokenText,
+    transitionVoiceState,
   ]);
 
   // While the network is busy, reflect "thinking" if we're not mid-TTS.
@@ -1548,9 +1596,9 @@ export default function VoiceMode(props: VoiceModeProps) {
       !activeStreamRef.current &&
       !window.speechSynthesis?.speaking
     ) {
-      setState("thinking");
+      transitionVoiceState("thinking", "chat_request_busy");
     }
-  }, [busy, enabled]);
+  }, [busy, enabled, transitionVoiceState]);
 
   // ─── J5 — barge-in lifecycle ─────────────────────────────────
   // Legacy barge-in scaffold. Voice-mode STT is explicitly muted while TTS
@@ -1670,13 +1718,17 @@ export default function VoiceMode(props: VoiceModeProps) {
       }
       wakeWordRef.current = null;
       cancelTts();
-      setState("off");
+      transitionVoiceState("off", "voice_mode_disabled");
       setInterim("");
       return;
     }
-    if (state === "off" && supportedRef.current) setState("idle");
-    if (state === "off" && !supportedRef.current) setState("unsupported");
-  }, [enabled, state, cancelTts, stopRecordedFallback]);
+    if (state === "off" && supportedRef.current) {
+      transitionVoiceState("idle", "voice_mode_enabled");
+    }
+    if (state === "off" && !supportedRef.current) {
+      transitionVoiceState("unsupported", "voice_mode_enabled_unsupported");
+    }
+  }, [enabled, state, cancelTts, stopRecordedFallback, transitionVoiceState]);
 
   // ─── Presentation ────────────────────────────────────────────
   if (state === "unsupported" && enabled) {
@@ -1791,7 +1843,7 @@ export default function VoiceMode(props: VoiceModeProps) {
             type="button"
             onClick={() => {
               cancelTts();
-              setState("idle");
+              transitionVoiceState("idle", "manual_stop_speaking");
               if (wantHandsFreeRef.current) {
                 userStoppedListeningRef.current = false;
                 startListening();
