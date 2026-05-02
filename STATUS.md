@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-chat-web-viewport-compare-1 | 2026-05-02 | IOS-CHAT-WEB-VIEWPORT-COMPARE-1 (Lane 6 of 7) re-capture chat-empty + chat-with-text on iPhone SE 3rd-gen sim (375pt ≈ web's 380px reference) so the side-by-side parity pairs are pixel-aligned with web's `web-redesign-1-screenshots/`; capture-script variant + 4 PNGs (light + dark) + side-by-side comparison page in progress doc |
 
 ## Closed lanes
 
