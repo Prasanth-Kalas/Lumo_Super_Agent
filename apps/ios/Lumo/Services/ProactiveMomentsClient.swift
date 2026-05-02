@@ -60,15 +60,18 @@ final class ProactiveMomentsClient: ProactiveMomentsFetching {
     private let baseURL: URL
     private let session: URLSession
     private let userIDProvider: () -> String?
+    private let accessTokenProvider: () -> String?
 
     init(
         baseURL: URL,
         userIDProvider: @escaping () -> String?,
+        accessTokenProvider: @escaping () -> String? = { nil },
         session: URLSession = .shared
     ) {
         self.baseURL = baseURL
         self.session = session
         self.userIDProvider = userIDProvider
+        self.accessTokenProvider = accessTokenProvider
     }
 
     func fetchRecent() async throws -> ProactiveMomentsResponse {
@@ -78,6 +81,9 @@ final class ProactiveMomentsClient: ProactiveMomentsFetching {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if let userID = userIDProvider(), !userID.isEmpty {
             req.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

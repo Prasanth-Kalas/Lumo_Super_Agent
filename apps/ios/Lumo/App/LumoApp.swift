@@ -29,44 +29,58 @@ struct LumoApp: App {
     init() {
         let config = AppConfig.fromBundle()
         self.appConfig = config
-        self.chatService = ChatService(baseURL: config.apiBaseURL)
         let auth = AuthService(config: config)
         self.authService = auth
+        // Closure capture so each client reads the live signed-in
+        // user/token (handles sign-in/sign-out transitions without
+        // reconstructing services). Bearer maps to the same Supabase
+        // session web uses via cookies; iOS routes are now reachable.
+        let userID: () -> String? = { [weak auth] in auth?.state.userID }
+        let token: () -> String? = { [weak auth] in auth?.currentAccessToken() }
+
+        self.chatService = ChatService(
+            baseURL: config.apiBaseURL,
+            userIDProvider: userID,
+            accessTokenProvider: token
+        )
         // Deepgram token cache — created early so both STT
         // (SpeechRecognitionService) and TTS (TextToSpeechService)
         // can share the same cached short-lived token. Memory-only.
-        let dgToken = DeepgramTokenService(baseURL: config.apiBaseURL)
+        let dgToken = DeepgramTokenService(
+            baseURL: config.apiBaseURL,
+            userIDProvider: userID,
+            accessTokenProvider: token
+        )
         self.deepgramTokenService = dgToken
         self.tts = TextToSpeechService(tokenService: dgToken)
-        // PaymentService reads the current user id from AuthService each
-        // call (closure capture so the value reflects sign-in/sign-out
-        // transitions without re-instantiating the service).
         self.paymentService = PaymentService.make(
             config: config,
-            userIDProvider: { [weak auth] in auth?.state.userID }
+            userIDProvider: userID,
+            accessTokenProvider: token
         )
         self.receiptStore = ReceiptStore.makeDefault()
-        // Notification stack — same userID-provider closure capture.
         let notif = NotificationService.make(
             config: config,
-            userIDProvider: { [weak auth] in auth?.state.userID }
+            userIDProvider: userID,
+            accessTokenProvider: token
         )
         self.notificationService = notif
         let cache = ProactiveMomentsCache()
         self.proactiveCache = cache
         let client = ProactiveMomentsClient(
             baseURL: config.apiBaseURL,
-            userIDProvider: { [weak auth] in auth?.state.userID }
+            userIDProvider: userID,
+            accessTokenProvider: token
         )
         self.proactiveClient = client
         self.backgroundFetch = BackgroundFetchService(
             cache: cache,
             fetcher: client
         )
-        // Wire NotificationActionHandler's snooze client.
         let snoozer = NotificationSnoozeClient(
             baseURL: config.apiBaseURL,
-            userIDProvider: { [weak auth] in auth?.state.userID }
+            userIDProvider: userID,
+            accessTokenProvider: token
         )
         NotificationActionHandler.shared.install(snoozer: snoozer)
 
@@ -76,7 +90,8 @@ struct LumoApp: App {
         // client hits `/api/{memory,marketplace,history}`.
         let realDrawerClient = DrawerScreensClient(
             baseURL: config.apiBaseURL,
-            userIDProvider: { [weak auth] in auth?.state.userID }
+            userIDProvider: userID,
+            accessTokenProvider: token
         )
         #if DEBUG
         if let fakeMode = ProcessInfo.processInfo

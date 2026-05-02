@@ -31,9 +31,18 @@ enum ChatServiceError: Error, LocalizedError {
 final class ChatService {
     private let baseURL: URL
     private let session: URLSession
+    private let userIDProvider: () -> String?
+    private let accessTokenProvider: () -> String?
 
-    init(baseURL: URL, session: URLSession = .shared) {
+    init(
+        baseURL: URL,
+        userIDProvider: @escaping () -> String? = { nil },
+        accessTokenProvider: @escaping () -> String? = { nil },
+        session: URLSession = .shared
+    ) {
         self.baseURL = baseURL
+        self.userIDProvider = userIDProvider
+        self.accessTokenProvider = accessTokenProvider
         self.session = session
     }
 
@@ -73,6 +82,12 @@ final class ChatService {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        if let userID = userIDProvider(), !userID.isEmpty {
+            request.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         let body = ChatRequest(
             session_id: sessionID,
             messages: [ChatRequestMessage(role: "user", content: message)],

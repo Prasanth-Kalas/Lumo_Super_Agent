@@ -102,6 +102,72 @@ When Claude emits a `tool_use` block:
 7. The response is validated against the tool's OpenAPI schema and returned to Claude as a `tool_result` block.
 8. An event row is written via `lib/events.ts` — tool name, agent, duration, outcome.
 
+## Compound mission dispatch (May 2026)
+
+Lane `ORCHESTRATOR-COMPOUND-DISPATCH-WIRE-1` replaced the prior hardcoded-regex compound trigger (`plan ... vegas ... weekend`) with a real classifier-driven planner.
+
+### What was broken before
+
+User asks: "plan a trip from chicago to vegas next entire week including hotels"
+- Old behavior: orchestrator emitted "Approved Lumo Flights — let's go" (hardcoded text) and returned. No actual sub-agent execution. `mission.*` steps were treated as no-op acknowledgments. User saw fake confirmations for work that never happened.
+- Root cause: three stacked failures — silent approval-write failure (fixed in lane `APPROVAL-CONNECTION-RPC-STRICT-1` migration 060), compound trigger was a literal regex match, mission executor never converted ready steps into real tool calls.
+
+### What ships now
+
+```
+[user message]
+   │
+   ▼
+[Compound detection]   ←── heuristic shortlist + LLM tiebreaker
+   │   if compound:
+   ▼
+[DAG construction]
+   │   nodes: mission.flight_search, mission.hotel_search, mission.restaurant_search, mission.compose_reply
+   │   edges: hotel_search depends on flight_search, etc.
+   ▼
+[Persist to missions / mission_steps]    ←── migration 061 fields:
+   │                                          missions.compound_dispatch_id
+   │                                          missions.compound_graph_hash
+   │                                          missions.compound_domains
+   │                                          mission_steps.client_step_id
+   │                                          mission_steps.dependency_mode (step_order | explicit)
+   │                                          mission_steps.depends_on_step_orders
+   │                                          mission_steps.dispatch_tool_name
+   │                                          mission_steps.output_summary
+   ▼
+[Mission executor: next_mission_step_for_execution()]
+   │   claims runnable steps respecting DAG dependencies
+   ▼
+[Real MCP tool dispatch]
+   │   mission.flight_search → duffel_search_flights
+   │   mission.hotel_search  → (preview stub if no registered tool)
+   │   mission.restaurant_search → (preview stub)
+   ▼
+[assistant_compound_step_update events stream to chat UI]
+   │   progressive disclosure: "Searching flights..." → "Found 12 flights, checking hotels..."
+   ▼
+[mission.compose_reply waits for all leaf nodes, integrates outputs into final reply]
+```
+
+### Key implementation details
+
+- **Compound detection**: heuristic catches the obvious 80% (trip + city + duration + lodging-hint patterns); LLM tiebreaker resolves ambiguous cases. Cheap fast-path, smart fallback. Replaces the brittle regex.
+- **DAG persistence**: `assistant_compound_dispatch` events carry the full DAG payload. `compound_dispatch_id = mission:<mission_id>` is the stable identifier surfaced to the chat UI.
+- **Honest preview stubs**: hotel/restaurant search return clearly-labeled "preview only" placeholders if no registered tool is available. Prevents the prior "fake success" pattern where users saw confirmations for work that didn't happen.
+- **Graceful partial completion**: if `mission.flight_search` succeeds but `mission.hotel_search` finds nothing for those dates, the compose-reply step acknowledges the gap rather than aborting entirely.
+- **Streaming UX**: every mission step transition (queued → running → succeeded/failed) emits an `assistant_compound_step_update` event consumed by the chat UI for progressive disclosure.
+
+### Files of interest
+
+- `apps/web/lib/orchestrator/compound/` — compound detection + DAG construction + mission persistence
+- `apps/web/lib/orchestrator/mission-runner.ts` — claims and executes ready steps
+- `apps/web/components/chat/CompoundProgress.tsx` — progressive UI consumption of step updates
+- `db/migrations/061_compound_mission_dispatch.sql` — mission DAG schema + `next_mission_step_for_execution` RPC
+
+### Future Python layer
+
+`COMPOUND-MISSION-ROUTING-PYTHON-1` (Phase 2 follow-up) will layer OR-Tools constraint solving on top: optimize across timing, budget, traveler preferences. The TS dispatch lane provides the working baseline; Python adds the smarter optimization. Doesn't replace the TS layer.
+
 ## Meta-tools
 
 A few tools don't dispatch to external agents — they act on Lumo's own state. Defined in `lib/meta-tools.ts`:

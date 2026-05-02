@@ -20,7 +20,8 @@
  */
 
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { createClient } from "@supabase/supabase-js";
+import { cookies, headers } from "next/headers";
 import type { NextRequest, NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 
@@ -104,6 +105,27 @@ export function getSupabaseServerClient() {
  */
 export async function getServerUser(): Promise<User | null> {
   if (!isAuthConfigured()) return null;
+
+  // iOS clients send the Supabase session JWT as a Bearer header (no
+  // browser cookie path on a native app). Honor it before falling
+  // through to the cookie-based check the web uses.
+  const env = getPublicEnv();
+  if (env) {
+    const headerStore = headers();
+    const authHeader =
+      headerStore.get("authorization") ?? headerStore.get("Authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.slice("Bearer ".length).trim();
+      if (token.length > 0) {
+        const stateless = createClient(env.url, env.anonKey);
+        const { data, error } = await stateless.auth.getUser(token);
+        if (!error && data.user) return data.user;
+        // Fall through on validation failure — bad token shouldn't
+        // suppress an otherwise-valid cookie session.
+      }
+    }
+  }
+
   const supabase = getSupabaseServerClient();
   const { data, error } = await supabase.auth.getUser();
   if (error) {

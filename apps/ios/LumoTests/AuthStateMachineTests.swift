@@ -179,6 +179,9 @@ final class FakeAuthService: AuthServicing {
         self.stateContinuation = c
     }
 
+    var scriptedAccessToken: String?
+    func currentAccessToken() -> String? { scriptedAccessToken }
+
     func restoreSession() async {
         state = scriptedRestore
     }
