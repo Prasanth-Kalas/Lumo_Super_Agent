@@ -845,20 +845,31 @@ async function runTurnInner(
   // the registry bridge so Claude sees them alongside agent tools. MCP
   // tools tack on after — they share the same tool_use protocol and
   // dispatch is intercepted below based on name prefix.
+  //
+  // Anthropic's native web_search server tool gets appended last. It's
+  // executed inside Anthropic's infrastructure (no handler required on
+  // our side), bounded by max_uses per turn so a runaway loop can't
+  // burn cost. Lets Lumo answer "today's weather", "latest news",
+  // anything time-sensitive without us shipping our own search agent.
+  // The cast through `unknown` is the same TS-appeasement story as
+  // MCP tools — Anthropic.Tool unions the function-tool shape with
+  // server-tool literals, but at the call site we need a narrow array
+  // type. Runtime shape is what Anthropic's SDK expects.
   const toolsForClaude = [
     ...bridge.tools,
     ...META_TOOLS,
-    // MCP tool schemas arrive as opaque JSON Schema from third-party
-    // servers. Anthropic.Tool expects a more specific type-literal
-    // for `input_schema.type`, but the runtime shape is identical —
-    // so a cast is safer than trying to narrow every sub-field of
-    // an untrusted schema. Sanitization already happened in
-    // sanitizeTool(); this is purely a TS appeasement.
     ...(mcpBridge.tools.map((t) => ({
       name: t.name,
       description: t.description,
       input_schema: t.input_schema,
     })) as unknown as typeof META_TOOLS),
+    ...([
+      {
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 5,
+      },
+    ] as unknown as typeof META_TOOLS),
   ];
 
   const priorSummary = findPriorSummary(input.messages);
