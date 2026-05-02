@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/chip-a11y-voiceover-1 | 2026-05-02 | CHIP-A11Y-VOICEOVER-1 (Lane 4) verify + fix VoiceOver on suggestion chips (button trait + label/hint), composer accessibility label both-paths phrasing, scroll-element-order — bundled with IOS-DRAWER-EDIT-DETAIL-CAPTURES-1 (memory-edit + marketplace-detail PNGs via auto-open seam) and IOS-DRAWER-SCREENS-DARK-MODE-1 (4 dark counterparts) per user direction |
 
 ## Closed lanes
 
