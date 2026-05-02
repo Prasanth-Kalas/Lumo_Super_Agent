@@ -261,7 +261,7 @@ export default function MobileNav({ open, onClose, onNewChat }: MobileNavProps) 
               <MobileNavLink href="/marketplace" label="Marketplace" onNavigate={onClose} />
               <MobileNavLink href="/connections" label="Connections" onNavigate={onClose} />
               <MobileNavLink
-                href="/publisher"
+                href="/developer"
                 label="For developers"
                 onNavigate={onClose}
               />

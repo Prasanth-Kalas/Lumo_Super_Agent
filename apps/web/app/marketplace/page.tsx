@@ -270,7 +270,7 @@ export default function MarketplacePage() {
               My connections
             </Link>
             <Link
-              href="/publisher"
+              href="/developer"
               className="h-7 px-2.5 rounded-md inline-flex items-center text-[12px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
             >
               For developers
@@ -453,7 +453,7 @@ export default function MarketplacePage() {
             </div>
           </div>
           <Link
-            href="/publisher"
+            href="/developer"
             className="shrink-0 h-8 px-3 rounded-md inline-flex items-center text-[12.5px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors"
           >
             Open developer portal →
