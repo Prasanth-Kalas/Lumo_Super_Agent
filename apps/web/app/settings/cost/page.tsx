@@ -39,7 +39,7 @@ export default async function CostSettingsPage() {
       <div className="mx-auto w-full max-w-5xl px-5 py-8 space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-1">
-            <h1 className="text-[26px] sm:text-[28px] font-semibold tracking-[-0.022em] text-lumo-fg leading-[1.15]">
+            <h1 className="font-display text-[44px] md:text-[60px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
               Cost
             </h1>
             <p className="text-[13.5px] text-lumo-fg-mid leading-relaxed max-w-2xl">

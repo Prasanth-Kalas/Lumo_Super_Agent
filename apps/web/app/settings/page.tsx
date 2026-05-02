@@ -25,25 +25,25 @@ export default function SettingsIndexPage() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-3xl px-5 py-8 space-y-6">
-        <div className="space-y-2">
-          <h1 className="text-[26px] sm:text-[28px] font-semibold tracking-[-0.022em] text-lumo-fg leading-[1.15]">
-            Settings
+      <div className="mx-auto w-full max-w-4xl px-6 py-12 space-y-10">
+        <div className="space-y-3">
+          <h1 className="font-display text-[44px] md:text-[64px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
+            <span className="italic text-lumo-accent">Settings.</span>
           </h1>
-          <p className="text-[13.5px] text-lumo-fg-mid leading-relaxed max-w-2xl">
+          <p className="text-[15px] text-lumo-fg-mid leading-[1.65] max-w-xl">
             Configure how Lumo works for you.
           </p>
         </div>
 
-        <ul className="space-y-2.5">
+        <ul className="space-y-3">
           {SETTINGS_INDEX_ITEMS.map((it) => (
             <li key={it.href}>
               <Link
                 href={it.href}
-                className="block rounded-xl border border-lumo-hair bg-lumo-surface px-4 py-3.5 hover:bg-lumo-elevated transition-colors"
+                className="block rounded-2xl border border-lumo-hair bg-lumo-surface px-5 py-4 hover:border-lumo-edge hover:shadow-card-lift transition-all"
               >
-                <div className="text-[14.5px] font-medium text-lumo-fg-high">{it.label}</div>
-                <p className="text-[12.5px] text-lumo-fg-mid mt-0.5">{it.description}</p>
+                <div className="text-[15px] font-medium text-lumo-fg">{it.label}</div>
+                <p className="text-[13px] text-lumo-fg-mid mt-1 leading-relaxed">{it.description}</p>
               </Link>
             </li>
           ))}

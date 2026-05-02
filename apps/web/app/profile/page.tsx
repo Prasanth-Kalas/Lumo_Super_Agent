@@ -133,12 +133,12 @@ export default function ProfilePage() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-3xl px-5 py-8 space-y-6">
-        <div className="space-y-2">
-          <h1 className="text-[26px] sm:text-[28px] font-semibold tracking-[-0.022em] text-lumo-fg leading-[1.15]">
-            Profile
+      <div className="mx-auto w-full max-w-4xl px-6 py-12 space-y-10">
+        <div className="space-y-3">
+          <h1 className="font-display text-[44px] md:text-[64px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
+            Your <span className="italic text-lumo-accent">profile.</span>
           </h1>
-          <p className="text-[13.5px] text-lumo-fg-mid leading-relaxed max-w-2xl">
+          <p className="text-[15px] text-lumo-fg-mid leading-[1.65] max-w-xl">
             Preferences Lumo uses when planning trips, booking food, and
             making proactive suggestions. Everything is optional — fill in
             what you want assistance on. Lists accept comma-separated
@@ -260,9 +260,9 @@ export default function ProfilePage() {
 
 function Section(props: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-lumo-hair bg-lumo-surface p-5 sm:p-6 space-y-3">
-      <h2 className="text-[16px] font-semibold tracking-[-0.02em] text-lumo-fg">
-        {props.title}
+    <section className="rounded-2xl border border-lumo-hair bg-lumo-surface p-5 sm:p-6 space-y-4">
+      <h2 className="font-display text-[24px] tracking-[-0.01em] text-lumo-fg">
+        {props.title}.
       </h2>
       <div className="space-y-3">{props.children}</div>
     </section>

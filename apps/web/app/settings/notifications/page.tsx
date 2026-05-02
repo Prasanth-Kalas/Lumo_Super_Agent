@@ -129,9 +129,9 @@ export default function NotificationsSettingsPage() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-3xl px-5 py-8 space-y-6">
+      <div className="mx-auto w-full max-w-4xl px-6 py-12 space-y-10">
         <div className="space-y-2">
-          <h1 className="text-[26px] sm:text-[28px] font-semibold tracking-[-0.022em] text-lumo-fg leading-[1.15]">
+          <h1 className="font-display text-[44px] md:text-[60px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
             Notifications
           </h1>
           <p className="text-[13.5px] text-lumo-fg-mid leading-relaxed max-w-2xl">

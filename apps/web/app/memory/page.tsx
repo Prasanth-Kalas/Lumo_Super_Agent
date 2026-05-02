@@ -220,12 +220,12 @@ export default function MemoryPage() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-3xl px-5 py-8 space-y-8">
-        <div className="space-y-2">
-          <h1 className="text-[26px] font-semibold tracking-[-0.022em] text-lumo-fg">
-            What Lumo knows about you
+      <div className="mx-auto w-full max-w-4xl px-6 py-12 space-y-10">
+        <div className="space-y-3">
+          <h1 className="font-display text-[44px] md:text-[64px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
+            What Lumo <span className="italic text-lumo-accent">knows about you.</span>
           </h1>
-          <p className="text-[13.5px] text-lumo-fg-mid">
+          <p className="text-[15px] text-lumo-fg-mid leading-[1.65] max-w-xl">
             Lumo learns as you chat so it doesn&apos;t have to ask the same questions twice.
             You control all of it — edit, forget, or wipe.
           </p>
@@ -238,20 +238,20 @@ export default function MemoryPage() {
           <MemoryStat label="Patterns" value={patterns.length} />
         </section>
 
-        <section className="rounded-xl border border-lumo-hair bg-lumo-surface px-4 py-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <section className="rounded-2xl border border-lumo-hair bg-lumo-surface px-5 py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="text-[13px] font-medium text-lumo-fg">
+              <div className="text-[13.5px] font-medium text-lumo-fg">
                 {memoryStats.summary}
               </div>
-              <p className="mt-0.5 text-[12.5px] leading-relaxed text-lumo-fg-mid">
+              <p className="mt-1 text-[13px] leading-relaxed text-lumo-fg-mid">
                 Lumo uses high-confidence memories to personalize chat. Anything inferred
                 stays visible here so you can correct or forget it.
               </p>
             </div>
             <Link
               href="/history"
-              className="shrink-0 rounded-md border border-lumo-hair px-3 py-1.5 text-[12px] text-lumo-fg-mid hover:border-lumo-edge hover:text-lumo-fg"
+              className="shrink-0 rounded-full border border-lumo-hair px-4 py-2 text-[12.5px] font-medium text-lumo-fg-mid hover:border-lumo-edge hover:text-lumo-fg transition-colors"
             >
               View chat history
             </Link>
@@ -270,26 +270,28 @@ export default function MemoryPage() {
           <>
             {/* ─── Account — read-only auth identity ─────────────── */}
             {me ? (
-              <section className="space-y-3">
-                <h2 className="text-[16px] font-semibold text-lumo-fg">Account</h2>
-                <div className="rounded-xl border border-lumo-hair bg-lumo-surface p-4">
+              <section className="space-y-4">
+                <h2 className="font-display text-[28px] tracking-[-0.01em] text-lumo-fg">
+                  Account.
+                </h2>
+                <div className="rounded-2xl border border-lumo-hair bg-lumo-surface p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-[15px] text-lumo-fg">
+                      <div className="text-[15.5px] text-lumo-fg">
                         {me.full_name ?? (
                           <em className="text-lumo-fg-low">Name not set</em>
                         )}
                       </div>
-                      <div className="mt-0.5 text-[12.5px] text-lumo-fg-low truncate">
+                      <div className="mt-1 text-[13px] text-lumo-fg-low truncate">
                         {me.email ?? ""}
                       </div>
                     </div>
-                    <span className="shrink-0 inline-flex items-center gap-1 text-[11px] uppercase tracking-wider text-lumo-accent">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-lumo-accent shadow-[0_0_6px_rgba(94,234,172,0.6)]" />
+                    <span className="shrink-0 inline-flex items-center gap-1.5 text-[12px] font-medium text-lumo-accent">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-lumo-accent" />
                       Signed in
                     </span>
                   </div>
-                  <p className="mt-2 text-[11.5px] text-lumo-fg-low">
+                  <p className="mt-3 text-[12.5px] text-lumo-fg-low leading-relaxed">
                     Your name is set from your account. Tell Lumo &ldquo;call
                     me Alex&rdquo; in chat to override for voice.
                   </p>
@@ -298,16 +300,20 @@ export default function MemoryPage() {
             ) : null}
 
             {/* ─── Profile ────────────────────────────────────────────── */}
-            <section className="space-y-3">
-              <h2 className="text-[16px] font-semibold text-lumo-fg">Profile</h2>
+            <section className="space-y-4">
+              <h2 className="font-display text-[28px] tracking-[-0.01em] text-lumo-fg">
+                Profile.
+              </h2>
               <ProfileEditor profile={profile} onChange={updateProfile} />
             </section>
 
             {/* ─── Voice ──────────────────────────────────────────────── */}
-            <section className="space-y-3">
-              <div className="space-y-1">
-                <h2 className="text-[16px] font-semibold text-lumo-fg">Voice</h2>
-                <p className="text-[13px] text-lumo-fg-low leading-relaxed">
+            <section className="space-y-4">
+              <div className="space-y-2">
+                <h2 className="font-display text-[28px] tracking-[-0.01em] text-lumo-fg">
+                  Voice.
+                </h2>
+                <p className="text-[13.5px] text-lumo-fg-mid leading-relaxed max-w-xl">
                   How Lumo sounds when it speaks to you. Preview each
                   voice and pick the one that feels right.
                 </p>
@@ -316,27 +322,29 @@ export default function MemoryPage() {
             </section>
 
             {/* ─── Facts ──────────────────────────────────────────────── */}
-            <section className="space-y-4">
-              <div className="flex items-baseline justify-between">
-                <h2 className="text-[16px] font-semibold text-lumo-fg">What Lumo remembers</h2>
-                <span className="text-[11.5px] text-lumo-fg-low">
+            <section className="space-y-5">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="font-display text-[28px] tracking-[-0.01em] text-lumo-fg">
+                  What Lumo <span className="italic text-lumo-accent">remembers.</span>
+                </h2>
+                <span className="text-[12.5px] text-lumo-fg-low shrink-0">
                   {facts.length} fact{facts.length === 1 ? "" : "s"}
                 </span>
               </div>
 
               {facts.length === 0 ? (
-                <p className="text-[12.5px] text-lumo-fg-mid">
+                <p className="text-[13.5px] text-lumo-fg-mid leading-relaxed">
                   Nothing yet. As you chat, Lumo will save the things worth remembering and show them here.
                 </p>
               ) : (
                 Object.entries(factsByCategory)
                   .sort(([a], [b]) => a.localeCompare(b))
                   .map(([cat, catFacts]) => (
-                    <div key={cat} className="space-y-1.5">
-                      <div className="text-[11px] uppercase tracking-[0.12em] text-lumo-fg-low">
-                        {CATEGORY_LABELS[cat] ?? cat}
+                    <div key={cat} className="space-y-2">
+                      <div className="font-display italic text-[18px] tracking-[-0.005em] text-lumo-fg-mid">
+                        {CATEGORY_LABELS[cat] ?? cat}.
                       </div>
-                      <ul className="divide-y divide-lumo-hair border-y border-lumo-hair">
+                      <ul className="rounded-2xl border border-lumo-hair bg-lumo-surface divide-y divide-lumo-hair overflow-hidden">
                         {catFacts.map((f) => (
                           <MemoryFactRow
                             key={f.id}
@@ -353,9 +361,11 @@ export default function MemoryPage() {
 
             {/* ─── Patterns ───────────────────────────────────────────── */}
             {patterns.length > 0 ? (
-              <section className="space-y-3">
-                <h2 className="text-[16px] font-semibold text-lumo-fg">Observed patterns</h2>
-                <ul className="space-y-2">
+              <section className="space-y-4">
+                <h2 className="font-display text-[28px] tracking-[-0.01em] text-lumo-fg">
+                  Observed <span className="italic text-lumo-accent">patterns.</span>
+                </h2>
+                <ul className="space-y-2.5">
                   {patterns.map((p) => (
                     <MemoryPatternRow key={p.id} pattern={p} />
                   ))}
@@ -363,7 +373,7 @@ export default function MemoryPage() {
               </section>
             ) : null}
 
-            <div className="pt-4 border-t border-lumo-hair text-[11.5px] text-lumo-fg-low">
+            <div className="pt-6 border-t border-lumo-hair text-[12.5px] text-lumo-fg-low leading-relaxed">
               Soft-deleted facts are recoverable for 30 days. To permanently erase
               everything Lumo knows about you, email support.
             </div>
@@ -376,11 +386,11 @@ export default function MemoryPage() {
 
 function MemoryStat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-lumo-hair bg-lumo-surface px-3 py-2.5">
-      <div className="text-[20px] font-semibold tracking-[-0.02em] text-lumo-fg">
+    <div className="rounded-2xl border border-lumo-hair bg-lumo-surface px-4 py-3">
+      <div className="font-display text-[28px] leading-none tracking-[-0.02em] text-lumo-fg">
         {value}
       </div>
-      <div className="mt-0.5 text-[10.5px] uppercase tracking-[0.12em] text-lumo-fg-low">
+      <div className="mt-1.5 text-[12px] text-lumo-fg-mid">
         {label}
       </div>
     </div>
@@ -400,13 +410,13 @@ function MemoryFactRow({
   const sourceDescription = memorySourceDescription(fact.source);
   const tone = confidenceTone(fact.confidence);
   return (
-    <li className="py-3">
+    <li className="px-4 py-3.5">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[13.5px] leading-relaxed text-lumo-fg-high">
+          <p className="text-[14px] leading-relaxed text-lumo-fg-high">
             {fact.fact}
           </p>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <MemoryPill label={source} title={sourceDescription} />
             <MemoryPill
               label={confidenceLabel(fact.confidence)}
@@ -423,7 +433,7 @@ function MemoryFactRow({
           type="button"
           onClick={onForget}
           disabled={forgetting}
-          className="shrink-0 h-7 px-2.5 rounded-md border border-lumo-hair text-[11.5px] text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge transition-colors disabled:opacity-50"
+          className="shrink-0 h-8 px-3 rounded-full border border-lumo-hair text-[12px] font-medium text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge transition-colors disabled:opacity-50"
           aria-label={`Forget memory: ${fact.fact}`}
         >
           {forgetting ? "Forgetting" : "Forget"}
@@ -436,13 +446,13 @@ function MemoryFactRow({
 function MemoryPatternRow({ pattern }: { pattern: BehaviorPattern }) {
   const tone = confidenceTone(pattern.confidence);
   return (
-    <li className="rounded-lg border border-lumo-hair bg-lumo-surface px-3 py-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+    <li className="rounded-2xl border border-lumo-hair bg-lumo-surface px-4 py-3.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <p className="text-[13.5px] leading-relaxed text-lumo-fg-high">
+          <p className="text-[14px] leading-relaxed text-lumo-fg-high">
             {pattern.description}
           </p>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <MemoryPill label={pattern.pattern_kind.replace(/_/g, " ")} />
             <MemoryPill label={`seen ${pattern.evidence_count}x`} />
             <MemoryPill label={`observed ${formatMemoryRelative(pattern.last_observed_at)}`} />

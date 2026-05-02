@@ -57,12 +57,12 @@ export default function TripsPage() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-3xl px-5 py-8 space-y-6">
-        <div className="space-y-2">
-          <h1 className="text-[26px] sm:text-[28px] font-semibold tracking-[-0.022em] text-lumo-fg leading-[1.15]">
-            Your trips
+      <div className="mx-auto w-full max-w-4xl px-6 py-12 space-y-10">
+        <div className="space-y-3">
+          <h1 className="font-display text-[44px] md:text-[64px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
+            Your <span className="italic text-lumo-accent">trips.</span>
           </h1>
-          <p className="text-[13.5px] text-lumo-fg-mid leading-relaxed max-w-2xl">
+          <p className="text-[15px] text-lumo-fg-mid leading-[1.65] max-w-xl">
             Every trip Lumo has booked or attempted to book on your behalf.
             Tap one to see the legs and status.
           </p>
@@ -71,7 +71,7 @@ export default function TripsPage() {
         {error ? (
           <div
             role="alert"
-            className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-[12.5px] text-red-500"
+            className="rounded-2xl border border-lumo-err/30 bg-lumo-err/5 px-4 py-3 text-[13px] text-lumo-err"
           >
             {error}
           </div>
@@ -79,8 +79,8 @@ export default function TripsPage() {
 
         {loading ? (
           <div className="space-y-3">
-            <div className="h-20 rounded-xl border border-lumo-hair bg-lumo-surface animate-pulse" />
-            <div className="h-20 rounded-xl border border-lumo-hair bg-lumo-surface animate-pulse" />
+            <div className="h-24 rounded-2xl border border-lumo-hair bg-lumo-surface animate-pulse" />
+            <div className="h-24 rounded-2xl border border-lumo-hair bg-lumo-surface animate-pulse" />
           </div>
         ) : trips && trips.length > 0 ? (
           <ul className="space-y-3">
@@ -88,25 +88,25 @@ export default function TripsPage() {
               <li key={t.trip_id}>
                 <Link
                   href={`/trips/${t.trip_id}`}
-                  className="block rounded-xl border border-lumo-hair bg-lumo-surface px-4 py-3.5 hover:bg-lumo-elevated transition-colors"
+                  className="block rounded-2xl border border-lumo-hair bg-lumo-surface px-5 py-4 hover:border-lumo-edge hover:shadow-card-lift transition-all"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-[14.5px] font-medium text-lumo-fg-high truncate">
+                      <div className="text-[15px] font-medium text-lumo-fg truncate">
                         {t.title}
                       </div>
-                      <div className="text-[12px] text-lumo-fg-low mt-0.5">
+                      <div className="text-[12.5px] text-lumo-fg-low mt-1">
                         {new Date(t.created_at).toLocaleString()} · {t.leg_count} {t.leg_count === 1 ? "leg" : "legs"}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {t.total ? (
-                        <span className="text-[13px] font-medium text-lumo-fg">
+                        <span className="text-[13.5px] font-medium text-lumo-fg">
                           {t.total}
                         </span>
                       ) : null}
                       <span
-                        className={`text-[11px] px-2 py-0.5 rounded-full border ${statusPillClass(
+                        className={`text-[11px] px-2.5 py-0.5 rounded-full border ${statusPillClass(
                           t.status,
                         )}`}
                       >
@@ -119,8 +119,8 @@ export default function TripsPage() {
             ))}
           </ul>
         ) : (
-          <div className="rounded-xl border border-dashed border-lumo-hair bg-lumo-bg/40 px-5 py-8 text-center">
-            <p className="text-[13.5px] text-lumo-fg-mid">
+          <div className="rounded-2xl border border-dashed border-lumo-hair bg-lumo-bg/40 px-6 py-10 text-center">
+            <p className="text-[14px] text-lumo-fg-mid leading-relaxed">
               No trips yet — Lumo will list your trip history here once it
               has booked something for you.
             </p>
