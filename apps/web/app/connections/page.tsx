@@ -127,7 +127,7 @@ function ConnectionsInner() {
         <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 py-3">
           <div className="flex items-center gap-3">
             <Link href="/" className="flex items-center hover:opacity-90 transition-opacity">
-              <LumoWordmark height={20} />
+              <LumoWordmark height={22} />
             </Link>
             <span className="text-lumo-fg-low text-[12px]">/</span>
             <span className="text-[13px] text-lumo-fg">Connections</span>

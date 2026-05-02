@@ -77,7 +77,7 @@ function OnboardingShell() {
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/80 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-3">
           <div className="flex items-center">
-            <LumoWordmark height={20} />
+            <LumoWordmark height={22} />
           </div>
           <ThemeToggle />
         </div>
@@ -284,7 +284,7 @@ function OnboardingFlow() {
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/85 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-3">
           <div className="flex items-center gap-2.5">
-            <LumoWordmark height={20} />
+            <LumoWordmark height={22} />
             <span className="hidden sm:inline text-lumo-fg-low text-[12px]">
               /
             </span>

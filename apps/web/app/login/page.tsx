@@ -64,7 +64,7 @@ function Header() {
     <header className="sticky top-0 z-10 border-b border-lumo-hair bg-lumo-bg/85 backdrop-blur-md">
       <div className="max-w-6xl mx-auto flex items-center justify-between px-6 h-14">
         <Link href="/" className="flex items-center gap-2 text-lumo-fg">
-          <LumoWordmark height={20} />
+          <LumoWordmark height={22} />
         </Link>
         <Link
           href="/signup"

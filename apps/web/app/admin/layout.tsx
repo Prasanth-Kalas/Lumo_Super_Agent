@@ -25,7 +25,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             href="/"
             className="flex items-center gap-2.5 hover:opacity-90 transition-opacity"
           >
-            <LumoWordmark height={20} />
+            <LumoWordmark height={22} />
             <span className="hidden sm:inline text-[12px] text-lumo-fg-low">/</span>
             <span className="hidden sm:inline text-[13px] text-lumo-fg">Admin</span>
           </Link>

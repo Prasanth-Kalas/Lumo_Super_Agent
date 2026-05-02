@@ -148,7 +148,7 @@ export default function AgentInstallPage() {
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/85 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-3">
           <Link href={`/marketplace/${data.agent.agent_id}`} className="flex items-center gap-3">
-            <LumoWordmark height={20} />
+            <LumoWordmark height={22} />
             <span className="text-[12px] text-lumo-fg-low">Permission grant</span>
           </Link>
           <ThemeToggle />

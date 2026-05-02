@@ -145,7 +145,7 @@ export default function HistoryPage() {
               href="/"
               className="flex items-center hover:opacity-90 transition-opacity"
             >
-              <LumoWordmark height={20} />
+              <LumoWordmark height={22} />
             </Link>
             <span className="hidden sm:inline text-lumo-fg-low text-[12px]">
               /

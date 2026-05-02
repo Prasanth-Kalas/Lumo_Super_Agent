@@ -243,7 +243,7 @@ export default function AgentDetailPage() {
         <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-5 py-3">
           <div className="flex items-center gap-3">
             <Link href="/marketplace" className="flex items-center gap-2.5 hover:opacity-90 transition-opacity">
-              <LumoWordmark height={20} />
+              <LumoWordmark height={22} />
               <span className="text-lumo-fg-low text-[12px]">/</span>
               <span className="text-[13px] text-lumo-fg-mid">Marketplace</span>
             </Link>

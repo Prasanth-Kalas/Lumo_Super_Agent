@@ -117,7 +117,7 @@ export default function NotificationsSettingsPage() {
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/85 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 py-3">
           <div className="flex items-center gap-2.5">
-            <LumoWordmark height={20} />
+            <LumoWordmark height={22} />
             <span className="hidden sm:inline text-lumo-fg-low text-[12px]">/</span>
             <Link href="/settings" className="hidden sm:inline text-[13px] text-lumo-fg-mid hover:text-lumo-fg">
               Settings
