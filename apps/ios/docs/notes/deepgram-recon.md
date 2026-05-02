@@ -200,28 +200,49 @@ Estimated test bundle delta: +20 to +30 (token service + STT
 client integration + TTS client integration + voice-picker tests).
 Target post-lane: 355–365.
 
-## Risks / questions to surface before scope-work commit
+## Risks / answers from reviewer (2026-05-02)
 
-1. **Audio session mode for full-duplex.** Current
-   `AudioSessionManager` configures `playAndRecord` mode with
-   `defaultToSpeaker`. Deepgram's TTS at 48 kHz playback while
-   STT is at 16 kHz capture — verify the audio session can hold
-   both rates without resampling artefacts. Possibly need
-   `AVAudioSession.RouteSharingPolicy.longFormAudio` or similar.
-2. **Token-refresh during in-flight streams.** Contract says
-   refresh at 50s or on auth error. If a long-running STT
-   stream's token expires mid-utterance, the contract implies the
-   socket closes with auth code → reconnect. Confirm that
-   reconnect mid-turn doesn't lose the partial transcript; may
-   need a small in-memory buffer.
-3. **Settings picker lifecycle.** Web's voice ID lives in
-   `voice.voice_id` admin-setting. iOS user-level picker writes
-   to UserDefaults; if cross-device sync is desired (matching
-   web), file `IOS-VOICE-PICKER-SYNC-1` deferred — out of scope
-   for this lane.
+The 3 risks from the original recon got reviewed answers.
 
-These three are recon-flagged as known unknowns to confirm during
-implementation rather than blockers.
+### RISK 1 — full-duplex audio session: SOLVABLE
+
+- `AVAudioSession.Category.playAndRecord` + `mode = .voiceChat`.
+- AVAudioEngine input node preferred sample rate = `16000 Hz`;
+  output node negotiates hardware rate (typically 48 kHz).
+  Engine handles internal sample-rate conversion via
+  `AVAudioMixerNode`.
+- Test specifically against AirPods Pro (Bluetooth changes
+  negotiated rates) and wired headphones.
+- Bluetooth surprises → file IOS-DEEPGRAM-BLUETOOTH-FALLBACK-1
+  with a half-duplex `LumoVoiceFixture` variant. Out of scope.
+
+### RISK 2 — token-refresh mid-utterance: REFRESH ONLY AT IDLE
+
+- Refresh-ahead at 50s runs **only when WebSocket is idle**.
+- Mid-stream 401 is rare (user holding mic > 60s continuous);
+  partial transcript IS lost — acceptable. Surface
+  "Reconnecting…" toast, resume on next utterance.
+- Codex's contract says "retry once on 401" — clarify in impl
+  that this is the **reconnect** path (fresh WSS handshake with
+  new token), **not** an audio-replay path. We do not buffer.
+
+### RISK 3 — cross-device voice-id sync: OUT OF SCOPE
+
+- Voice-id lives in UserDefaults this lane (key
+  `lumo.voice.voiceId`, default `aura-2-thalia-en`).
+- Lumo Memory facts can promote it to `user_profile.voice_id`
+  later. Filed **IOS-VOICE-PICKER-SYNC-1** deferred.
+
+## Implementation impact of reviewer answers
+
+| Change vs original plan | Lands in commit |
+|---|---|
+| `AudioSessionManager` enforces `.voiceChat` mode | STT client commit |
+| AVAudioEngine input-node preferredSampleRate set to 16000 explicitly | STT client commit |
+| Token-refresh-ahead has explicit "only-when-idle" guard | DeepgramTokenService commit |
+| 401 retry documented as "reconnect with fresh token, not audio replay" | STT + TTS client commits |
+| Mid-stream 401 surfaces "Reconnecting…" toast in VoiceComposerViewModel | STT client commit |
+| Pre-file IOS-DEEPGRAM-BLUETOOTH-FALLBACK-1 follow-up in closeout | Closeout commit |
 
 ## Source pointers
 
