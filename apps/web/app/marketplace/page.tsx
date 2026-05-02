@@ -270,6 +270,12 @@ export default function MarketplacePage() {
               My connections
             </Link>
             <Link
+              href="/publisher"
+              className="h-7 px-2.5 rounded-md inline-flex items-center text-[12px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
+            >
+              For developers
+            </Link>
+            <Link
               href="/"
               className="h-7 px-2.5 rounded-md inline-flex items-center text-[12px] text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors"
             >
@@ -436,8 +442,22 @@ export default function MarketplacePage() {
           </div>
         )}
 
-        <div className="mt-10 text-[12px] text-lumo-fg-low">
-          Are you building an app? <Link href="/publisher" className="text-lumo-accent hover:underline">Publish it on Lumo</Link> (coming soon).
+        <div className="mt-10 rounded-xl border border-lumo-hair bg-lumo-surface px-4 py-4 flex items-center justify-between gap-4">
+          <div>
+            <div className="text-[13px] font-semibold text-lumo-fg">
+              Building an agent?
+            </div>
+            <div className="mt-0.5 text-[12px] text-lumo-fg-mid">
+              Apply for a developer account, ship a manifest, and your tools
+              show up here once approved.
+            </div>
+          </div>
+          <Link
+            href="/publisher"
+            className="shrink-0 h-8 px-3 rounded-md inline-flex items-center text-[12.5px] font-medium bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors"
+          >
+            Open developer portal →
+          </Link>
         </div>
       </div>
 
