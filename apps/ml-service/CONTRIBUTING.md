@@ -24,9 +24,9 @@ Why mandatory: lanes that ship without `@traced` create dark code paths in produ
 
 ### 1.1 Scope ratchet
 
-The lint walks `lumo_ml/plan/` by default — the surface PYTHON-OBSERVABILITY-1 wired tracing across. New surfaces join lane-by-lane: when a lane wires `@traced` into a previously-untraced module (e.g. `lumo_ml/embedding/`), the same lane appends that path to `DEFAULT_TARGETS` in `scripts/lint-traced-coverage.py` so the discipline ratchets *up* but never down.
+The lint walks `lumo_ml/plan/` and `lumo_ml/core/` by default. `plan/` is the surface PYTHON-OBSERVABILITY-1 wired tracing across; `core/` was widened in by PYTHON-EMBEDDING-SERVICE-1. New surfaces join lane-by-lane: when a lane wires `@traced` into a previously-untraced module (e.g. `lumo_ml/transcription.py`), the same lane appends that path to `DEFAULT_TARGETS` in `scripts/lint-traced-coverage.py` so the discipline ratchets *up* but never down.
 
-`lumo_ml/core/` is permanently out of scope — that module *is* the tracing infrastructure (`@traced`, `record_cost`, `Secret`); tracing the tracer is circular noise.
+`lumo_ml/core/` is in scope by default. Cross-cutting domain primitives that land there — `core/embeddings.py`, `core/vector_store.py`, and any future shared building blocks — MUST honor the discipline. The named **tracing-infrastructure** files inside `core/` (`observability.py`, `otel_setup.py`, `pii_redaction.py`) are the only exceptions, exempted via `SCOPE_FILE_EXCLUDES` because tracing the tracer is circular noise. If you add a new domain primitive in `core/`, do not add it to the exempt list — wire `@traced` instead.
 
 ### 1.2 Opt-out: `# noqa: TRC001`
 

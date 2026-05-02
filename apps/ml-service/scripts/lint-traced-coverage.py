@@ -13,12 +13,19 @@ from?" investigation.
 
 Scope ratchet
 -------------
-The default target is ``lumo_ml/plan/`` — the module surface
-PYTHON-OBSERVABILITY-1 wired ``@traced`` across. Other modules
-(``lumo_ml/auth.py``, ``tools.py``, ``transcription.py``, etc.) will
-join the lint scope lane-by-lane as their public functions get traced.
-``lumo_ml/core/`` is the tracing infrastructure itself and is
-permanently out of scope (tracing the tracer is circular).
+The default targets are ``lumo_ml/plan/`` and ``lumo_ml/core/``.
+``plan/`` is the module surface PYTHON-OBSERVABILITY-1 wired
+``@traced`` across. ``core/`` was widened in by
+PYTHON-EMBEDDING-SERVICE-1: cross-cutting domain primitives that land
+there (``embeddings.py``, ``vector_store.py``, ...) MUST honor the
+discipline. The named tracing-infrastructure files inside ``core/``
+(``observability.py``, ``otel_setup.py``, ``pii_redaction.py``) remain
+exempt via :data:`SCOPE_FILE_EXCLUDES` — tracing the tracer is
+circular noise.
+
+Other modules (``lumo_ml/auth.py``, ``tools.py``, ``transcription.py``,
+etc.) will join the lint scope lane-by-lane as their public functions
+get traced.
 
 Add a path to the scope by passing ``--target`` on the command line or
 extending :data:`DEFAULT_TARGETS`. The intent is that the scope
@@ -80,18 +87,36 @@ resolved relative to this so the script can be invoked from any cwd."""
 
 DEFAULT_TARGETS: tuple[str, ...] = (
     "lumo_ml/plan",
+    "lumo_ml/core",
 )
-"""Default scope = the surface PYTHON-OBSERVABILITY-1 wired ``@traced``
-across. New surfaces join here when their lane lands."""
+"""Default scope. ``lumo_ml/plan/`` is the surface PYTHON-OBSERVABILITY-1
+wired ``@traced`` across. ``lumo_ml/core/`` was widened in by
+PYTHON-EMBEDDING-SERVICE-1: cross-cutting domain primitives that land
+in ``core/`` (``embeddings.py``, ``vector_store.py``, ...) MUST honor
+the discipline. The named tracing-infrastructure files inside ``core/``
+(``observability.py``, ``otel_setup.py``, ``pii_redaction.py``) remain
+exempt via :data:`SCOPE_FILE_EXCLUDES` — tracing the tracer is circular
+noise."""
 
 # Files within targets that don't carry public operations (constants,
-# Pydantic schemas, package re-export shims). Listed explicitly so we
-# don't accidentally widen scope to a pure-data module.
+# Pydantic schemas, package re-export shims, tracing infrastructure
+# itself). Listed explicitly so we don't accidentally widen scope to a
+# pure-data module — and so the named tracing-infra files in
+# ``lumo_ml/core/`` stay exempt while the rest of ``core/`` is in scope.
 SCOPE_FILE_EXCLUDES: frozenset[str] = frozenset(
     {
+        # plan/ — pure-data + re-export shims.
         "lumo_ml/plan/__init__.py",
         "lumo_ml/plan/schemas.py",
         "lumo_ml/plan/voice_format.py",
+        # core/ — tracing infrastructure + re-export shim.
+        # Domain primitives in core/ (embeddings.py, vector_store.py,
+        # ...) are NOT exempt — they go through @traced like any other
+        # public surface.
+        "lumo_ml/core/__init__.py",
+        "lumo_ml/core/observability.py",
+        "lumo_ml/core/otel_setup.py",
+        "lumo_ml/core/pii_redaction.py",
     }
 )
 

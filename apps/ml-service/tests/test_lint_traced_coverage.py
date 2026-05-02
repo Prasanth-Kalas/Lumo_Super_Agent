@@ -103,6 +103,69 @@ def test_real_plan_tree_clean(lint: ModuleType) -> None:
     )
 
 
+def test_real_core_tree_clean(lint: ModuleType) -> None:
+    """Regression guard: production ``lumo_ml/core/`` tree must remain
+    clean. Pinned by PYTHON-EMBEDDING-SERVICE-1 — the directory is in
+    scope by default; the named tracing-infra files are exempt via
+    :data:`SCOPE_FILE_EXCLUDES`. Domain primitives in core/
+    (``embeddings.py``, ``vector_store.py``, ...) must carry @traced.
+
+    The ``files`` list may be empty at the moment the lint-scope
+    inversion lands (before any domain primitive ships into ``core/``);
+    in that state the regression guard is trivially clean. Once
+    ``core/embeddings.py`` lands in the same lane, the list grows.
+    """
+    core_dir = REPO_ROOT / "lumo_ml" / "core"
+    lint.REPO_ROOT = REPO_ROOT
+    files = list(lint._iter_target_files([core_dir]))
+    violations = []
+    for path in files:
+        violations.extend(lint._scan_file(path))
+    assert violations == [], (
+        f"core tree regressed: {[v.render() for v in violations]}"
+    )
+
+
+def test_core_tracing_infra_files_are_excluded(lint: ModuleType) -> None:
+    """The three tracing-infrastructure files in ``lumo_ml/core/`` must
+    stay exempt; if someone removes one from :data:`SCOPE_FILE_EXCLUDES`
+    by accident, this test fails distinctly so the cause is obvious.
+    """
+    expected_excluded = {
+        "lumo_ml/core/__init__.py",
+        "lumo_ml/core/observability.py",
+        "lumo_ml/core/otel_setup.py",
+        "lumo_ml/core/pii_redaction.py",
+    }
+    missing = expected_excluded - lint.SCOPE_FILE_EXCLUDES
+    assert not missing, (
+        f"tracing-infra files dropped from SCOPE_FILE_EXCLUDES: {sorted(missing)}"
+    )
+
+
+def test_core_domain_files_are_not_excluded(lint: ModuleType) -> None:
+    """Sanity guard: future domain primitives in ``core/`` must not
+    accidentally land in :data:`SCOPE_FILE_EXCLUDES`. If they do, the
+    discipline rule is silently disabled for them.
+    """
+    forbidden_excludes = {
+        "lumo_ml/core/embeddings.py",
+        "lumo_ml/core/vector_store.py",
+    }
+    leaked = forbidden_excludes & lint.SCOPE_FILE_EXCLUDES
+    assert not leaked, (
+        f"domain primitive(s) wrongly added to SCOPE_FILE_EXCLUDES: {sorted(leaked)}"
+    )
+
+
+def test_core_default_target_includes_core(lint: ModuleType) -> None:
+    """Pin the directory inclusion at the constant level so a
+    well-meaning revert of the scope inversion is caught."""
+    assert "lumo_ml/core" in lint.DEFAULT_TARGETS, (
+        "lumo_ml/core dropped from DEFAULT_TARGETS — scope inversion reverted"
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────
 # CLI-level tests — exit codes
 # ──────────────────────────────────────────────────────────────────────
