@@ -131,11 +131,16 @@ final class VoiceComposerViewModel: ObservableObject {
     /// Explicit barge-in entry point for the Stop affordance on
     /// the trailing composer button. Cancels in-flight TTS; the
     /// resulting `.idle` state propagates through `applyTTS` and
-    /// clears the gate to `.listening` so the user's next tap can
-    /// open the mic immediately.
+    /// clears the gate to `.listening`. We also clear the phase
+    /// synchronously so the button recovers even if the TTS observer
+    /// is detached or its `.idle` event is delayed.
     func requestBargeIn() {
-        guard let tts = ttsRef as? TextToSpeechServicing else { return }
-        tts.cancel()
+        cancelTailGuard()
+        phase = .listening
+        if !state.isListening {
+            state = .idle
+        }
+        (ttsRef as? TextToSpeechServicing)?.cancel()
     }
 
     /// DEBUG-only path that pre-seeds the composer state from a launch

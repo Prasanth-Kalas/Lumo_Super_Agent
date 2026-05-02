@@ -12,6 +12,7 @@ import {
   expectedTtsResumeSequence,
   isMicPausedForVoicePhase,
   normalizeVoiceTtsTailGuardMs,
+  primaryActionForVoiceState,
 } from "../lib/voice-mode-stt-gating.ts";
 
 let pass = 0;
@@ -84,7 +85,7 @@ await t("tail guard env parsing defaults to 300ms and clamps bad values", () => 
 
 await t("VoiceMode gates startListening and barge-in while TTS owns the mic", () => {
   const source = readFileSync("components/VoiceMode.tsx", "utf8");
-  assert.match(source, /if \(ttsMicPausedRef\.current\) return;\s*const Ctor/);
+  assert.match(source, /if \(ttsMicPausedRef\.current\) return;\s*if \(!Ctor\)/);
   assert.match(source, /if \(ttsMicPausedRef\.current\) return;\s*let cancelled = false/);
   assert.match(source, /ttsAbortControllerRef\.current\?\.abort\(\)/);
   assert.match(source, /setState\("post_speaking_guard"\)/);
@@ -98,6 +99,44 @@ await t("five speakable sentences stay eligible for five TTS appends", () => {
   assert.match(source, /chunks\.forEach\(\(chunk\) => enqueueTts\(chunk\)\)/);
   assert.match(source, /tailChunks\.forEach\(\(chunk, index\) =>/);
   assert.doesNotMatch(source, /startListening\(\);\s*}\s*,\s*200\)/);
+});
+
+await t("voice primary action is always present and state-appropriate", () => {
+  assert.deepEqual(primaryActionForVoiceState("idle"), {
+    kind: "tap_to_talk",
+    label: "Tap to talk",
+    disabled: false,
+  });
+  assert.equal(primaryActionForVoiceState("error").kind, "tap_to_talk");
+  assert.deepEqual(primaryActionForVoiceState("listening"), {
+    kind: "stop_listening",
+    label: "Stop",
+    disabled: false,
+  });
+  assert.deepEqual(primaryActionForVoiceState("speaking"), {
+    kind: "stop_speaking",
+    label: "Stop",
+    disabled: false,
+  });
+  assert.deepEqual(primaryActionForVoiceState("post_speaking_guard"), {
+    kind: "stop_speaking",
+    label: "Stop",
+    disabled: false,
+  });
+  assert.deepEqual(primaryActionForVoiceState("thinking"), {
+    kind: "cancel",
+    label: "Cancel",
+    disabled: true,
+  });
+});
+
+await t("VoiceMode renders one primary action button for every enabled state", () => {
+  const source = readFileSync("components/VoiceMode.tsx", "utf8");
+  assert.match(source, /const primaryAction = primaryActionForVoiceState\(state\)/);
+  assert.match(source, /onClick=\{handlePrimaryAction\}/);
+  assert.match(source, /disabled=\{primaryAction\.disabled\}/);
+  assert.match(source, /stopSpeakingAndReturnToListening/);
+  assert.doesNotMatch(source, /const actionVisible/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
