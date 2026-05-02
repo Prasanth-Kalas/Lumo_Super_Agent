@@ -84,6 +84,12 @@ final class VoiceComposerViewModel: ObservableObject {
     private let tailGuardMs: Int
     private var ttsObserveTask: Task<Void, Never>?
     private var tailGuardTask: Task<Void, Never>?
+    /// Held weakly so cancellation reaches the TTS service when
+    /// the user taps the Stop affordance during AGENT_SPEAKING.
+    /// IOS-VOICE-MODE-CONTROLS-REGRESSION-1 — without this hook
+    /// the user would be locked out of barge-in (same UX bug
+    /// codex caught on web in b65ca9d).
+    private weak var ttsRef: AnyObject?
     /// Bumped every time the user finishes a successful voice turn.
     /// `SettingsView` reads this to decide whether to show the voice
     /// section (default OFF until first use).
@@ -114,11 +120,22 @@ final class VoiceComposerViewModel: ObservableObject {
     ///   caught during their review).
     func observe(tts: TextToSpeechServicing) {
         ttsObserveTask?.cancel()
+        ttsRef = tts
         ttsObserveTask = Task { [weak self] in
             for await ttsState in tts.stateChange {
                 await MainActor.run { self?.applyTTS(state: ttsState) }
             }
         }
+    }
+
+    /// Explicit barge-in entry point for the Stop affordance on
+    /// the trailing composer button. Cancels in-flight TTS; the
+    /// resulting `.idle` state propagates through `applyTTS` and
+    /// clears the gate to `.listening` so the user's next tap can
+    /// open the mic immediately.
+    func requestBargeIn() {
+        guard let tts = ttsRef as? TextToSpeechServicing else { return }
+        tts.cancel()
     }
 
     /// DEBUG-only path that pre-seeds the composer state from a launch

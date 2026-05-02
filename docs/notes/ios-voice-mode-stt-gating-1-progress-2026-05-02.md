@@ -80,6 +80,51 @@ Stop still pulls the user's `state` back to idle regardless of
 phase; the phase track continues to reflect TTS lifecycle until
 the TTS service itself emits `.idle` / `.error` / `.fallback`.
 
+### Paired regression patch — IOS-VOICE-MODE-CONTROLS-REGRESSION-1
+
+Reviewer flagged that codex's b65ca9d (web) shipped a UX regression
+where the right-side action button disappears during AGENT_SPEAKING
+because the conditional render wasn't updated for the new states.
+Confirmed iOS had **the same bug class** (outcome C in the
+reviewer's framing): mic icon stayed cyan and looked active, taps
+silently no-op'd, no Stop affordance anywhere, user locked out of
+barge-in.
+
+Patched in this same lane (no separate branch) per reviewer
+direction. The shape:
+
+- `ChatComposerTrailingButton.Mode` gains `.agentSpeaking` case
+  (icon `stop.fill`, label "Stop speaking", id
+  `chat.composer.bargeIn`, fill `LumoColors.warning` so the user
+  reads it as "interrupt" not "another listening state").
+- `Mode.from(input:isListening:phase:)` — phase is now the
+  highest-precedence input. `phase == .agentSpeaking ||
+  phase == .postSpeakingGuard` → `.agentSpeaking` (one visual,
+  no flicker over the 300 ms guard window). Default value
+  `.listening` keeps existing call sites unchanged.
+- Long-press gesture is suppressed in `.agentSpeaking` (Stop is
+  tap-only; long-press would be confusing).
+- `VoiceComposerViewModel` gains a `weak var ttsRef` (held when
+  `observe(tts:)` is called) plus `requestBargeIn()` which calls
+  `tts.cancel()`. The resulting `.idle` propagates through
+  `applyTTS` and clears the gate to `.listening` so the user's
+  next tap can open the mic immediately.
+- `ChatView` passes `phase: voiceComposer.phase` into
+  `Mode.from`; `handleTrailingTap`'s switch grows an
+  `.agentSpeaking` case that calls `voiceComposer.requestBargeIn()`.
+- `isDisabled` carve-out: when `voiceComposer.isMicPausedForTts`
+  is true, the streaming-disable doesn't apply — the Stop button
+  must remain tappable as the user's only barge-in path.
+
+6 new tests in `ChatComposerSwapTests` (10 → 15) lock the patch:
+
+- Phase override: `agentSpeaking` wins over input + listening.
+- `postSpeakingGuard` produces same Stop visual (no flicker).
+- `listening` phase falls through to existing rules.
+- `agentThinking` falls through (today; future-decision lock).
+- `.agentSpeaking` icon / identifier / label.
+- `requestBargeIn()` calls `tts.cancel()` (state → `.idle`).
+
 ### Defensive: dropped TTS clears the gate
 
 The bug class codex flagged during their review: a TTS WebSocket
@@ -105,12 +150,16 @@ behaviour.
 ## Tests
 
 `xcodebuild test -scheme Lumo -only-testing:LumoTests` →
-**388 tests, 0 failures** (was 364 before the lane: +14 in
-`SpeechModeGatingTests`, +10 in `VoiceComposerSttGatingTests`).
+**394 tests, 0 failures** (was 364 before the lane: +14 in
+`SpeechModeGatingTests`, +10 in `VoiceComposerSttGatingTests`,
++6 in `ChatComposerSwapTests` for the paired regression patch).
 
-Brief target was ~370; we landed at 388 with cleaner coverage —
-each helper function gets its own bucket-named test, and the
-defensive dropped-TTS edge has 3 tests (error / fallback / idle).
+Brief target was ~370; we landed at 394 with the gating work +
+the controls-regression patch covered. Each helper function gets
+its own bucket-named test, the defensive dropped-TTS edge has 3
+tests (error / fallback / idle), and the visual gate has 5 tests
+(phase precedence + flicker-prevention + agentThinking lock +
+icon/identifier/label + barge-in handler).
 
 `SpeechModeGatingTests` (14 tests):
 - `expectedTtsResumeSequence` hands-free vs explicit-listen.

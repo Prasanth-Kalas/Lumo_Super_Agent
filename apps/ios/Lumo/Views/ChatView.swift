@@ -325,9 +325,17 @@ struct ChatView: View {
                 ChatComposerTrailingButton(
                     mode: ChatComposerTrailingButton.Mode.from(
                         input: viewModel.input,
-                        isListening: voiceComposer.state.isListening
+                        isListening: voiceComposer.state.isListening,
+                        phase: voiceComposer.phase
                     ),
-                    isDisabled: viewModel.isStreaming && !voiceComposer.state.isListening,
+                    // Stop affordance during AGENT_SPEAKING /
+                    // POST_SPEAKING_GUARD must remain tappable —
+                    // it's the user's only barge-in path. The
+                    // streaming-disable only applies to listening
+                    // and idle modes.
+                    isDisabled: viewModel.isStreaming
+                        && !voiceComposer.state.isListening
+                        && !voiceComposer.isMicPausedForTts,
                     onTap: handleTrailingTap,
                     onLongPressBegan: { Task { await voiceComposer.pressBegan() } },
                     onLongPressEnded: { voiceComposer.release() }
@@ -352,13 +360,19 @@ struct ChatView: View {
     private func handleTrailingTap() {
         let mode = ChatComposerTrailingButton.Mode.from(
             input: viewModel.input,
-            isListening: voiceComposer.state.isListening
+            isListening: voiceComposer.state.isListening,
+            phase: voiceComposer.phase
         )
         switch mode {
         case .mic, .waveform:
             Task { await voiceComposer.tapToTalk() }
         case .send:
             handleSendTap()
+        case .agentSpeaking:
+            // User-initiated barge-in. Cancels in-flight TTS;
+            // VoiceComposerViewModel's TTS observer then clears
+            // the gate to .listening on the resulting .idle event.
+            voiceComposer.requestBargeIn()
         }
     }
 

@@ -34,8 +34,26 @@ struct ChatComposerTrailingButton: View {
         case mic
         case waveform
         case send
+        /// Agent is speaking (or in the 300 ms post-speaking tail
+        /// guard). Button shows a Stop affordance for explicit
+        /// barge-in. Locked in IOS-VOICE-MODE-CONTROLS-REGRESSION-1
+        /// to avoid the bug class codex caught on web (b65ca9d):
+        /// without an explicit Stop, the user is locked out of
+        /// interruption while TTS holds the speaker.
+        case agentSpeaking
 
-        static func from(input: String, isListening: Bool) -> Mode {
+        /// Mode-pick takes phase as the highest-precedence input —
+        /// `AGENT_SPEAKING` and `POST_SPEAKING_GUARD` both surface
+        /// the same Stop affordance so the 300 ms guard window
+        /// doesn't flicker the icon between states.
+        static func from(
+            input: String,
+            isListening: Bool,
+            phase: VoiceModeMachinePhase = .listening
+        ) -> Mode {
+            if phase == .agentSpeaking || phase == .postSpeakingGuard {
+                return .agentSpeaking
+            }
             if isListening { return .waveform }
             let trimmed = input.trimmingCharacters(in: .whitespaces)
             return trimmed.isEmpty ? .mic : .send
@@ -46,6 +64,7 @@ struct ChatComposerTrailingButton: View {
             case .mic: return "mic.fill"
             case .waveform: return "waveform"
             case .send: return "paperplane.fill"
+            case .agentSpeaking: return "stop.fill"
             }
         }
 
@@ -54,6 +73,7 @@ struct ChatComposerTrailingButton: View {
             case .mic: return "Start voice"
             case .waveform: return "Listening — tap to stop"
             case .send: return "Send message"
+            case .agentSpeaking: return "Stop speaking"
             }
         }
 
@@ -62,6 +82,7 @@ struct ChatComposerTrailingButton: View {
             case .mic: return "chat.composer.mic"
             case .waveform: return "chat.composer.listening"
             case .send: return "chat.send"
+            case .agentSpeaking: return "chat.composer.bargeIn"
             }
         }
     }
@@ -99,7 +120,15 @@ struct ChatComposerTrailingButton: View {
         .gesture(
             LongPressGesture(minimumDuration: 0.18)
                 .onChanged { _ in
-                    guard !isDisabled, mode != .send else { return }
+                    // Long-press is push-to-talk only — disabled
+                    // for `.send` (no PTT semantics on a populated
+                    // text field) and `.agentSpeaking` (Stop is
+                    // tap-only; long-press would be a confusing
+                    // way to barge in).
+                    guard !isDisabled,
+                          mode != .send,
+                          mode != .agentSpeaking
+                    else { return }
                     if !isHolding {
                         isHolding = true
                         onLongPressBegan()
@@ -132,6 +161,11 @@ struct ChatComposerTrailingButton: View {
 
     private var buttonFill: Color {
         if isDisabled { return LumoColors.labelTertiary }
+        // Stop affordance is visually distinct so the user reads
+        // it as "interrupt" not "another listening state."
+        // Warning tone matches the existing design system's
+        // attention surface.
+        if mode == .agentSpeaking { return LumoColors.warning }
         return LumoColors.cyan
     }
 }

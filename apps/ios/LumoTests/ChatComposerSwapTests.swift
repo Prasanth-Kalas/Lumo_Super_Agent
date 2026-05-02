@@ -110,4 +110,114 @@ final class ChatComposerSwapTests: XCTestCase {
             "send identifier must be preserved across the swap so existing chat.send accessibility tests keep working"
         )
     }
+
+    // MARK: - 6. AGENT_SPEAKING / POST_SPEAKING_GUARD → Stop affordance
+    //
+    // IOS-VOICE-MODE-CONTROLS-REGRESSION-1 — phase wins over input
+    // and listening so the user always has a visible Stop button
+    // for explicit barge-in. Mirror of codex's web fix for the same
+    // bug class (b65ca9d).
+
+    func test_mode_agentSpeakingPhase_overridesEverything() {
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.from(
+                input: "", isListening: false, phase: .agentSpeaking
+            ),
+            .agentSpeaking
+        )
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.from(
+                input: "Plan a trip", isListening: false, phase: .agentSpeaking
+            ),
+            .agentSpeaking,
+            "phase must override input — Send button hiding the Stop affordance is the bug class we're patching"
+        )
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.from(
+                input: "", isListening: true, phase: .agentSpeaking
+            ),
+            .agentSpeaking
+        )
+    }
+
+    func test_mode_postSpeakingGuard_alsoSurfacesStop_noFlicker() {
+        // The 300 ms tail guard window MUST visually look the
+        // same as AGENT_SPEAKING — flicker over 300 ms is ugly.
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.from(
+                input: "", isListening: false, phase: .postSpeakingGuard
+            ),
+            .agentSpeaking
+        )
+    }
+
+    func test_mode_listeningPhase_fallsThroughToInputBasedRules() {
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.from(
+                input: "", isListening: false, phase: .listening
+            ),
+            .mic
+        )
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.from(
+                input: "Plan a trip", isListening: false, phase: .listening
+            ),
+            .send
+        )
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.from(
+                input: "", isListening: true, phase: .listening
+            ),
+            .waveform
+        )
+    }
+
+    func test_mode_agentThinkingPhase_fallsThroughToday() {
+        // AGENT_THINKING is reserved for a future LLM-streaming
+        // surface; locking current passthrough behaviour so a
+        // future addition is an explicit decision, not accidental.
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.from(
+                input: "", isListening: false, phase: .agentThinking
+            ),
+            .mic
+        )
+    }
+
+    func test_agentSpeakingMode_iconAndIdentifierAndLabel() {
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.agentSpeaking.systemImage,
+            "stop.fill"
+        )
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.agentSpeaking.accessibilityIdentifier,
+            "chat.composer.bargeIn"
+        )
+        XCTAssertEqual(
+            ChatComposerTrailingButton.Mode.agentSpeaking.accessibilityLabel,
+            "Stop speaking"
+        )
+    }
+
+    // MARK: - 7. Barge-in handler
+
+    func test_requestBargeIn_callsTtsCancel() async {
+        let speech = SpeechRecognitionStub()
+        let tts = TextToSpeechStub()
+        let vm = VoiceComposerViewModel(speech: speech, tailGuardMs: 50)
+        vm.observe(tts: tts)
+
+        tts.state = .speaking(provider: .deepgram)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+
+        vm.requestBargeIn()
+
+        // The stub's cancel() resets state to .idle — observable
+        // proof that requestBargeIn() reached tts.cancel().
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(
+            tts.state, .idle,
+            "requestBargeIn must call tts.cancel() so the .idle state propagates and clears the gate"
+        )
+    }
 }
