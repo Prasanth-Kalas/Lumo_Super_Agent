@@ -59,6 +59,26 @@ struct ChatComposerTrailingButton: View {
             return trimmed.isEmpty ? .mic : .send
         }
 
+        enum TapAction: Equatable {
+            case startVoice
+            case stopVoice
+            case sendMessage
+            case stopSpeaking
+        }
+
+        /// Canonical tap intent for the parent view. Keeping this
+        /// beside the mode-pick prevents the visual state and tap
+        /// wiring from drifting (the prior bug: waveform displayed
+        /// "listening" but tapped the start-voice path again).
+        var tapAction: TapAction {
+            switch self {
+            case .mic: return .startVoice
+            case .waveform: return .stopVoice
+            case .send: return .sendMessage
+            case .agentSpeaking: return .stopSpeaking
+            }
+        }
+
         var systemImage: String {
             switch self {
             case .mic: return "mic.fill"

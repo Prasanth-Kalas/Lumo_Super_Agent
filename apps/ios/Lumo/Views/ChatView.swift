@@ -363,12 +363,14 @@ struct ChatView: View {
             isListening: voiceComposer.state.isListening,
             phase: voiceComposer.phase
         )
-        switch mode {
-        case .mic, .waveform:
+        switch mode.tapAction {
+        case .startVoice:
             Task { await voiceComposer.tapToTalk() }
-        case .send:
+        case .stopVoice:
+            voiceComposer.release()
+        case .sendMessage:
             handleSendTap()
-        case .agentSpeaking:
+        case .stopSpeaking:
             // User-initiated barge-in. Cancels in-flight TTS;
             // VoiceComposerViewModel's TTS observer then clears
             // the gate to .listening on the resulting .idle event.

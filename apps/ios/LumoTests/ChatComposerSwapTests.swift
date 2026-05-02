@@ -199,6 +199,13 @@ final class ChatComposerSwapTests: XCTestCase {
         )
     }
 
+    func test_modeTapActions_matchVisibleAffordance() {
+        XCTAssertEqual(ChatComposerTrailingButton.Mode.mic.tapAction, .startVoice)
+        XCTAssertEqual(ChatComposerTrailingButton.Mode.waveform.tapAction, .stopVoice)
+        XCTAssertEqual(ChatComposerTrailingButton.Mode.send.tapAction, .sendMessage)
+        XCTAssertEqual(ChatComposerTrailingButton.Mode.agentSpeaking.tapAction, .stopSpeaking)
+    }
+
     // MARK: - 7. Barge-in handler
 
     func test_requestBargeIn_callsTtsCancel() async {
@@ -218,6 +225,25 @@ final class ChatComposerSwapTests: XCTestCase {
         XCTAssertEqual(
             tts.state, .idle,
             "requestBargeIn must call tts.cancel() so the .idle state propagates and clears the gate"
+        )
+    }
+
+    func test_requestBargeIn_clearsGateImmediately() async {
+        let speech = SpeechRecognitionStub()
+        let tts = TextToSpeechStub()
+        let vm = VoiceComposerViewModel(speech: speech, tailGuardMs: 1_000)
+        vm.observe(tts: tts)
+
+        tts.state = .speaking(provider: .deepgram)
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(vm.phase, .agentSpeaking, "precondition: TTS gate is held")
+
+        vm.requestBargeIn()
+
+        XCTAssertEqual(
+            vm.phase,
+            .listening,
+            "Stop must clear the gate synchronously so the next tap-to-talk is not blocked"
         )
     }
 }

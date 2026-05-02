@@ -61,6 +61,7 @@ import {
   canResumeListeningAfterTts,
   isMicPausedForVoicePhase,
   normalizeVoiceTtsTailGuardMs,
+  primaryActionForVoiceState,
   type VoiceModeMachinePhase,
 } from "@/lib/voice-mode-stt-gating";
 
@@ -1055,11 +1056,17 @@ export default function VoiceMode(props: VoiceModeProps) {
   );
 
   const startListening = useCallback(() => {
-    if (!supportedRef.current) return;
     if (typeof window === "undefined") return;
-    if (ttsMicPausedRef.current) return;
     const Ctor =
       window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
+    const supported =
+      "speechSynthesis" in window && (Boolean(Ctor) || canRecordFallback());
+    supportedRef.current = supported;
+    if (!supported) {
+      setState("unsupported");
+      return;
+    }
+    if (ttsMicPausedRef.current) return;
     if (!Ctor) {
       void startRecordedFallback("browser speech recognition is unavailable");
       return;
@@ -1357,6 +1364,17 @@ export default function VoiceMode(props: VoiceModeProps) {
       scheduleHandsFreeListening(0);
     }, TTS_TAIL_GUARD_MS);
   }, [clearTtsTailGuard, scheduleHandsFreeListening, setVoiceMachinePhase]);
+
+  const stopSpeakingAndReturnToListening = useCallback(() => {
+    cancelTts();
+    clearTtsTailGuard();
+    setVoiceMachinePhase("LISTENING");
+    setState("idle");
+    userStoppedListeningRef.current = false;
+    if (wantHandsFreeRef.current) {
+      startListening();
+    }
+  }, [cancelTts, clearTtsTailGuard, setVoiceMachinePhase, startListening]);
 
   const stopListening = useCallback(() => {
     if (recorderRef.current) {
@@ -1704,11 +1722,23 @@ export default function VoiceMode(props: VoiceModeProps) {
   // unused — we keep the prop for API stability but dropped the UI.
   void onHandsFreeToggle;
 
-  const actionVisible =
-    state !== "listening" &&
-    state !== "thinking" &&
-    state !== "speaking" &&
-    state !== "post_speaking_guard";
+  const primaryAction = primaryActionForVoiceState(state);
+  const handlePrimaryAction = () => {
+    switch (primaryAction.kind) {
+      case "tap_to_talk":
+        startListening();
+        break;
+      case "stop_listening":
+        stopListening();
+        break;
+      case "stop_speaking":
+        stopSpeakingAndReturnToListening();
+        break;
+      case "cancel":
+      case "disabled":
+        break;
+    }
+  };
 
   return (
     <div className="flex flex-col gap-2">
@@ -1765,43 +1795,20 @@ export default function VoiceMode(props: VoiceModeProps) {
           </span>
         ) : null}
 
-        {/* Primary action — shifts with state */}
-        {actionVisible ? (
-          <button
-            type="button"
-            onClick={startListening}
-            className="ml-auto rounded-full border border-lumo-hair px-4 py-2 text-[13px] text-lumo-fg hover:bg-lumo-elevated transition-colors"
-          >
-            Tap to talk
-          </button>
-        ) : null}
-
-        {state === "listening" ? (
-          <button
-            type="button"
-            onClick={stopListening}
-            className="ml-auto rounded-full border border-lumo-hair px-4 py-2 text-[13px] text-lumo-fg hover:bg-lumo-elevated transition-colors"
-          >
-            Stop
-          </button>
-        ) : null}
-
-        {state === "speaking" ? (
-          <button
-            type="button"
-            onClick={() => {
-              cancelTts();
-              setState("idle");
-              if (wantHandsFreeRef.current) {
-                userStoppedListeningRef.current = false;
-                startListening();
-              }
-            }}
-            className="ml-auto rounded-full border border-lumo-hair px-4 py-2 text-[13px] text-lumo-fg hover:bg-lumo-elevated transition-colors"
-          >
-            Stop
-          </button>
-        ) : null}
+        {/* Primary action — always present while voice mode is on. */}
+        <button
+          type="button"
+          onClick={handlePrimaryAction}
+          disabled={primaryAction.disabled}
+          className={
+            "ml-auto rounded-full border border-lumo-hair px-4 py-2 text-[13px] transition-colors " +
+            (primaryAction.disabled
+              ? "text-lumo-fg-low opacity-60"
+              : "text-lumo-fg hover:bg-lumo-elevated")
+          }
+        >
+          {primaryAction.label}
+        </button>
       </div>
 
       {interim ? (
