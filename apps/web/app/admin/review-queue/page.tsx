@@ -60,6 +60,18 @@ interface RuntimeOverride {
   max_calls_per_user_per_minute: number;
   max_calls_per_user_per_day: number;
   max_money_calls_per_user_per_day: number;
+  /** Per-agent (cross-user) ceilings. null = no cap. */
+  max_calls_per_agent_per_minute: number | null;
+  daily_cost_ceiling_usd: number | null;
+  monthly_cost_ceiling_usd: number | null;
+}
+
+interface RuntimePolicyUpdate {
+  status?: RuntimeOverride["status"];
+  /** Pass null to clear an existing ceiling, a positive number to set. */
+  max_calls_per_agent_per_minute?: number | null;
+  daily_cost_ceiling_usd?: number | null;
+  monthly_cost_ceiling_usd?: number | null;
 }
 
 export default function AdminReviewQueuePage() {
@@ -144,11 +156,17 @@ export default function AdminReviewQueuePage() {
 
   async function setRuntimePolicy(
     agent_id: string,
-    status: RuntimeOverride["status"],
+    update: RuntimePolicyUpdate,
   ) {
     if (busyId) return;
     setBusyId(`policy:${agent_id}`);
     try {
+      // Status is required by the API. If the caller is only
+      // adjusting ceilings without flipping status, fall back to
+      // the current policy's status (or "active" for first-time).
+      const currentStatus =
+        policies.find((p) => p.agent_id === agent_id)?.status ?? "active";
+      const status = update.status ?? currentStatus;
       const res = await fetch("/api/admin/agent-policy", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -159,6 +177,20 @@ export default function AdminReviewQueuePage() {
             status === "active"
               ? null
               : note.trim() || "Admin runtime override",
+          // Pass through ceiling deltas only when explicitly set in
+          // the update — leaves omitted fields untouched on the
+          // server (the route's parseClearableLimit helper handles
+          // the null/undefined distinction).
+          ...(update.max_calls_per_agent_per_minute !== undefined && {
+            max_calls_per_agent_per_minute:
+              update.max_calls_per_agent_per_minute,
+          }),
+          ...(update.daily_cost_ceiling_usd !== undefined && {
+            daily_cost_ceiling_usd: update.daily_cost_ceiling_usd,
+          }),
+          ...(update.monthly_cost_ceiling_usd !== undefined && {
+            monthly_cost_ceiling_usd: update.monthly_cost_ceiling_usd,
+          }),
         }),
       });
       if (!res.ok) {
@@ -253,7 +285,7 @@ export default function AdminReviewQueuePage() {
                       agent_id={agentIdOf(s)}
                       policy={policies.find((p) => p.agent_id === agentIdOf(s)) ?? null}
                       busy={busyId === `policy:${agentIdOf(s)}`}
-                      onSet={(status) => void setRuntimePolicy(agentIdOf(s), status)}
+                      onSet={(update) => void setRuntimePolicy(agentIdOf(s), update)}
                     />
 
                     <input
@@ -430,10 +462,65 @@ function RuntimePolicyPanel({
   agent_id: string;
   policy: RuntimeOverride | null;
   busy: boolean;
-  onSet: (status: RuntimeOverride["status"]) => void;
+  onSet: (update: RuntimePolicyUpdate) => void;
 }) {
+  const [editingCeilings, setEditingCeilings] = useState(false);
+  const [agentMin, setAgentMin] = useState("");
+  const [dailyUsd, setDailyUsd] = useState("");
+  const [monthlyUsd, setMonthlyUsd] = useState("");
+
+  // Re-seed the inputs whenever the policy snapshot changes (e.g.,
+  // after a successful save). Empty string represents "no cap"
+  // explicitly so the user can distinguish it from a cleared field.
+  useEffect(() => {
+    setAgentMin(
+      policy?.max_calls_per_agent_per_minute != null
+        ? String(policy.max_calls_per_agent_per_minute)
+        : "",
+    );
+    setDailyUsd(
+      policy?.daily_cost_ceiling_usd != null
+        ? String(policy.daily_cost_ceiling_usd)
+        : "",
+    );
+    setMonthlyUsd(
+      policy?.monthly_cost_ceiling_usd != null
+        ? String(policy.monthly_cost_ceiling_usd)
+        : "",
+    );
+  }, [
+    policy?.max_calls_per_agent_per_minute,
+    policy?.daily_cost_ceiling_usd,
+    policy?.monthly_cost_ceiling_usd,
+  ]);
+
   if (!agent_id) return null;
   const status = policy?.status ?? "active";
+
+  const ceilingSummary = (() => {
+    if (!policy) return null;
+    const parts: string[] = [];
+    if (policy.max_calls_per_agent_per_minute != null) {
+      parts.push(`${policy.max_calls_per_agent_per_minute}/min agent-wide`);
+    }
+    if (policy.daily_cost_ceiling_usd != null) {
+      parts.push(`$${policy.daily_cost_ceiling_usd}/day`);
+    }
+    if (policy.monthly_cost_ceiling_usd != null) {
+      parts.push(`$${policy.monthly_cost_ceiling_usd}/mo`);
+    }
+    return parts.length ? parts.join(" · ") : null;
+  })();
+
+  function saveCeilings() {
+    onSet({
+      max_calls_per_agent_per_minute: parseFieldToClearable(agentMin, "int"),
+      daily_cost_ceiling_usd: parseFieldToClearable(dailyUsd, "money"),
+      monthly_cost_ceiling_usd: parseFieldToClearable(monthlyUsd, "money"),
+    });
+    setEditingCeilings(false);
+  }
+
   return (
     <div className="rounded-md border border-lumo-hair bg-lumo-bg px-3 py-2">
       <div className="flex items-center justify-between gap-3">
@@ -446,6 +533,9 @@ function RuntimePolicyPanel({
               ? `${policy.max_calls_per_user_per_minute}/min · ${policy.max_calls_per_user_per_day}/day · ${policy.max_money_calls_per_user_per_day} money/day`
               : "Default quotas"}
           </div>
+          <div className="text-[11px] text-lumo-fg-low mt-0.5">
+            agent-wide ceilings: {ceilingSummary ?? "none"}
+          </div>
           {policy?.reason ? (
             <div className="mt-1 text-[11px] text-lumo-fg-low">
               reason: {policy.reason}
@@ -453,10 +543,18 @@ function RuntimePolicyPanel({
           ) : null}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEditingCeilings((v) => !v)}
+            disabled={busy}
+            className="h-7 px-2.5 rounded-md border border-lumo-hair text-lumo-fg-mid text-[12px] hover:bg-lumo-elevated disabled:opacity-50"
+          >
+            {editingCeilings ? "Cancel" : "Ceilings"}
+          </button>
           {status === "active" ? (
             <button
               type="button"
-              onClick={() => onSet("suspended")}
+              onClick={() => onSet({ status: "suspended" })}
               disabled={busy}
               className="h-7 px-2.5 rounded-md border border-amber-500/30 text-amber-400 text-[12px] hover:bg-amber-500/10 disabled:opacity-50"
             >
@@ -465,7 +563,7 @@ function RuntimePolicyPanel({
           ) : (
             <button
               type="button"
-              onClick={() => onSet("active")}
+              onClick={() => onSet({ status: "active" })}
               disabled={busy}
               className="h-7 px-2.5 rounded-md border border-emerald-500/30 text-emerald-400 text-[12px] hover:bg-emerald-500/10 disabled:opacity-50"
             >
@@ -475,7 +573,7 @@ function RuntimePolicyPanel({
           {status !== "revoked" ? (
             <button
               type="button"
-              onClick={() => onSet("revoked")}
+              onClick={() => onSet({ status: "revoked" })}
               disabled={busy}
               className="h-7 px-2.5 rounded-md border border-red-500/30 text-red-400 text-[12px] hover:bg-red-500/10 disabled:opacity-50"
             >
@@ -484,8 +582,88 @@ function RuntimePolicyPanel({
           ) : null}
         </div>
       </div>
+      {editingCeilings ? (
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <CeilingInput
+            label="calls/min"
+            value={agentMin}
+            onChange={setAgentMin}
+            placeholder="no cap"
+          />
+          <CeilingInput
+            label="$/day"
+            value={dailyUsd}
+            onChange={setDailyUsd}
+            placeholder="no cap"
+          />
+          <CeilingInput
+            label="$/month"
+            value={monthlyUsd}
+            onChange={setMonthlyUsd}
+            placeholder="no cap"
+          />
+          <div className="col-span-3 flex items-center justify-between gap-2">
+            <span className="text-[10.5px] text-lumo-fg-low">
+              Empty = no cap (clears any existing). All caps apply across all
+              users.
+            </span>
+            <button
+              type="button"
+              onClick={saveCeilings}
+              disabled={busy}
+              className="h-7 px-3 rounded-md bg-lumo-fg text-lumo-bg text-[12px] font-medium hover:bg-lumo-accent hover:text-lumo-accent-ink disabled:opacity-50"
+            >
+              Save ceilings
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function CeilingInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10.5px] text-lumo-fg-low">{label}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="h-7 px-2 rounded-md border border-lumo-hair bg-lumo-bg text-[12px] num focus:border-lumo-edge outline-none"
+      />
+    </label>
+  );
+}
+
+/**
+ * Parse a free-form input into the tri-state ceiling representation:
+ *   - empty / whitespace → null (clear the cap)
+ *   - positive number → set cap (int for counts, decimal for money)
+ *   - anything else (negative, NaN) → undefined (don't send field)
+ */
+function parseFieldToClearable(
+  raw: string,
+  kind: "int" | "money",
+): number | null | undefined {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  if (kind === "int" && !Number.isInteger(n)) return undefined;
+  return n;
 }
 
 function formatShort(iso: string): string {

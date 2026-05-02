@@ -32,9 +32,20 @@ interface RuntimeOverride {
   agent_id: string;
   status: "active" | "suspended" | "revoked";
   reason: string | null;
+  /** Per-(user, agent) caps. Always present (defaulted). */
   max_calls_per_user_per_minute: number;
   max_calls_per_user_per_day: number;
   max_money_calls_per_user_per_day: number;
+  /**
+   * Per-agent (cross-user) ceilings. NULL = no cap. Default null so
+   * existing agents stay unconstrained until an admin opts in. The
+   * threat these cover: a viral partner where many users each stay
+   * under their personal cap but the aggregate burns cost or
+   * floods the partner's API.
+   */
+  max_calls_per_agent_per_minute: number | null;
+  daily_cost_ceiling_usd: number | null;
+  monthly_cost_ceiling_usd: number | null;
 }
 
 const DEFAULT_LIMITS: RuntimeOverride = {
@@ -44,6 +55,9 @@ const DEFAULT_LIMITS: RuntimeOverride = {
   max_calls_per_user_per_minute: 30,
   max_calls_per_user_per_day: 1000,
   max_money_calls_per_user_per_day: 25,
+  max_calls_per_agent_per_minute: null,
+  daily_cost_ceiling_usd: null,
+  monthly_cost_ceiling_usd: null,
 };
 
 export async function evaluateRuntimePolicy(
@@ -120,7 +134,7 @@ export async function listRuntimeOverrides(): Promise<RuntimeOverride[]> {
   const { data, error } = await db
     .from("agent_runtime_overrides")
     .select(
-      "agent_id, status, reason, max_calls_per_user_per_minute, max_calls_per_user_per_day, max_money_calls_per_user_per_day",
+      "agent_id, status, reason, max_calls_per_user_per_minute, max_calls_per_user_per_day, max_money_calls_per_user_per_day, max_calls_per_agent_per_minute, daily_cost_ceiling_usd, monthly_cost_ceiling_usd",
     )
     .order("agent_id", { ascending: true });
   if (error) {
@@ -137,32 +151,52 @@ export async function upsertRuntimeOverride(args: {
   max_calls_per_user_per_minute?: number;
   max_calls_per_user_per_day?: number;
   max_money_calls_per_user_per_day?: number;
+  /**
+   * Pass `null` to clear an existing per-agent ceiling (no limit).
+   * Pass a positive number to set/update. Pass `undefined` (or omit)
+   * to leave the existing value untouched.
+   */
+  max_calls_per_agent_per_minute?: number | null;
+  daily_cost_ceiling_usd?: number | null;
+  monthly_cost_ceiling_usd?: number | null;
   updated_by?: string | null;
 }): Promise<RuntimeOverride | null> {
   const db = getSupabase();
   if (!db) return null;
+  const row: Record<string, unknown> = {
+    agent_id: args.agent_id,
+    status: args.status,
+    reason: args.reason,
+    max_calls_per_user_per_minute:
+      args.max_calls_per_user_per_minute ??
+      DEFAULT_LIMITS.max_calls_per_user_per_minute,
+    max_calls_per_user_per_day:
+      args.max_calls_per_user_per_day ?? DEFAULT_LIMITS.max_calls_per_user_per_day,
+    max_money_calls_per_user_per_day:
+      args.max_money_calls_per_user_per_day ??
+      DEFAULT_LIMITS.max_money_calls_per_user_per_day,
+    updated_by: args.updated_by ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  // Per-agent ceilings: distinguish "leave alone" (undefined) from
+  // "explicitly clear" (null) from "set" (positive number). Only
+  // include the column in the upsert payload when the caller passed
+  // something explicit, so existing values aren't accidentally
+  // wiped on a partial update.
+  if (args.max_calls_per_agent_per_minute !== undefined) {
+    row.max_calls_per_agent_per_minute = args.max_calls_per_agent_per_minute;
+  }
+  if (args.daily_cost_ceiling_usd !== undefined) {
+    row.daily_cost_ceiling_usd = args.daily_cost_ceiling_usd;
+  }
+  if (args.monthly_cost_ceiling_usd !== undefined) {
+    row.monthly_cost_ceiling_usd = args.monthly_cost_ceiling_usd;
+  }
   const { data, error } = await db
     .from("agent_runtime_overrides")
-    .upsert(
-      {
-        agent_id: args.agent_id,
-        status: args.status,
-        reason: args.reason,
-        max_calls_per_user_per_minute:
-          args.max_calls_per_user_per_minute ??
-          DEFAULT_LIMITS.max_calls_per_user_per_minute,
-        max_calls_per_user_per_day:
-          args.max_calls_per_user_per_day ?? DEFAULT_LIMITS.max_calls_per_user_per_day,
-        max_money_calls_per_user_per_day:
-          args.max_money_calls_per_user_per_day ??
-          DEFAULT_LIMITS.max_money_calls_per_user_per_day,
-        updated_by: args.updated_by ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "agent_id" },
-    )
+    .upsert(row, { onConflict: "agent_id" })
     .select(
-      "agent_id, status, reason, max_calls_per_user_per_minute, max_calls_per_user_per_day, max_money_calls_per_user_per_day",
+      "agent_id, status, reason, max_calls_per_user_per_minute, max_calls_per_user_per_day, max_money_calls_per_user_per_day, max_calls_per_agent_per_minute, daily_cost_ceiling_usd, monthly_cost_ceiling_usd",
     )
     .single();
   if (error) {
@@ -178,7 +212,7 @@ async function getRuntimeOverride(agent_id: string): Promise<RuntimeOverride> {
   const { data, error } = await db
     .from("agent_runtime_overrides")
     .select(
-      "agent_id, status, reason, max_calls_per_user_per_minute, max_calls_per_user_per_day, max_money_calls_per_user_per_day",
+      "agent_id, status, reason, max_calls_per_user_per_minute, max_calls_per_user_per_day, max_money_calls_per_user_per_day, max_calls_per_agent_per_minute, daily_cost_ceiling_usd, monthly_cost_ceiling_usd",
     )
     .eq("agent_id", agent_id)
     .maybeSingle();
@@ -193,7 +227,6 @@ async function checkQuotas(
   input: RuntimePolicyInput,
   limits: RuntimeOverride,
 ): Promise<RuntimePolicyDecision> {
-  if (!input.user_id || input.user_id === "anon") return { ok: true };
   const db = getSupabase();
   if (!db) return { ok: true };
 
@@ -201,35 +234,97 @@ async function checkQuotas(
   const minuteAgo = new Date(now.getTime() - 60_000).toISOString();
   const today = now.toISOString().slice(0, 10);
 
-  const [minute, day, moneyDay] = await Promise.all([
-    countUsage({
-      user_id: input.user_id,
+  const isAnon = !input.user_id || input.user_id === "anon";
+
+  // Per-user caps. Anon users skip — we have no identity to attach
+  // the count to, and the per-agent cap below covers global abuse.
+  if (!isAnon) {
+    const [minute, day, moneyDay] = await Promise.all([
+      countUsage({
+        user_id: input.user_id,
+        agent_id: input.agent_id,
+        created_at_gte: minuteAgo,
+      }),
+      countUsage({
+        user_id: input.user_id,
+        agent_id: input.agent_id,
+        created_on_utc: today,
+      }),
+      input.cost_tier === "money"
+        ? countUsage({
+            user_id: input.user_id,
+            agent_id: input.agent_id,
+            created_on_utc: today,
+            cost_tier: "money",
+          })
+        : Promise.resolve(0),
+    ]);
+
+    if (minute >= limits.max_calls_per_user_per_minute) {
+      return quotaDenied("minute", limits.max_calls_per_user_per_minute, minute);
+    }
+    if (day >= limits.max_calls_per_user_per_day) {
+      return quotaDenied("day", limits.max_calls_per_user_per_day, day);
+    }
+    if (moneyDay >= limits.max_money_calls_per_user_per_day) {
+      return quotaDenied("money_day", limits.max_money_calls_per_user_per_day, moneyDay);
+    }
+  }
+
+  // Per-agent (cross-user) caps. Run regardless of anon/auth — these
+  // protect Lumo from aggregate abuse independent of who called.
+  // Each branch is gated on the limit being non-null so unset ceilings
+  // skip the DB read entirely (zero-overhead default).
+  if (limits.max_calls_per_agent_per_minute !== null) {
+    const agentMinute = await countAgentUsage({
       agent_id: input.agent_id,
       created_at_gte: minuteAgo,
-    }),
-    countUsage({
-      user_id: input.user_id,
-      agent_id: input.agent_id,
-      created_on_utc: today,
-    }),
-    input.cost_tier === "money"
-      ? countUsage({
-          user_id: input.user_id,
-          agent_id: input.agent_id,
-          created_on_utc: today,
-          cost_tier: "money",
-        })
-      : Promise.resolve(0),
-  ]);
+    });
+    if (agentMinute >= limits.max_calls_per_agent_per_minute) {
+      return quotaDenied(
+        "agent_minute",
+        limits.max_calls_per_agent_per_minute,
+        agentMinute,
+      );
+    }
+  }
 
-  if (minute >= limits.max_calls_per_user_per_minute) {
-    return quotaDenied("minute", limits.max_calls_per_user_per_minute, minute);
+  if (limits.daily_cost_ceiling_usd !== null) {
+    const start = new Date(`${today}T00:00:00.000Z`);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    const spend = await sumAgentCost({
+      agent_id: input.agent_id,
+      start: start.toISOString(),
+      end: end.toISOString(),
+    });
+    if (spend >= limits.daily_cost_ceiling_usd) {
+      return quotaDenied(
+        "agent_daily_cost",
+        limits.daily_cost_ceiling_usd,
+        spend,
+      );
+    }
   }
-  if (day >= limits.max_calls_per_user_per_day) {
-    return quotaDenied("day", limits.max_calls_per_user_per_day, day);
-  }
-  if (moneyDay >= limits.max_money_calls_per_user_per_day) {
-    return quotaDenied("money_day", limits.max_money_calls_per_user_per_day, moneyDay);
+
+  if (limits.monthly_cost_ceiling_usd !== null) {
+    const monthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
+    const nextMonthStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+    );
+    const spend = await sumAgentCost({
+      agent_id: input.agent_id,
+      start: monthStart.toISOString(),
+      end: nextMonthStart.toISOString(),
+    });
+    if (spend >= limits.monthly_cost_ceiling_usd) {
+      return quotaDenied(
+        "agent_monthly_cost",
+        limits.monthly_cost_ceiling_usd,
+        spend,
+      );
+    }
   }
 
   return { ok: true };
@@ -258,6 +353,67 @@ async function countUsage(args: {
     return 0;
   }
   return count ?? 0;
+}
+
+/**
+ * Cross-user request count for an agent. Used by the per-agent
+ * minute throttle. Backed by `agent_tool_usage_agent_minute_idx`
+ * from migration 063.
+ */
+async function countAgentUsage(args: {
+  agent_id: string;
+  created_at_gte: string;
+}): Promise<number> {
+  const db = getSupabase();
+  if (!db) return 0;
+  const { count, error } = await db
+    .from("agent_tool_usage")
+    .select("id", { count: "exact", head: true })
+    .eq("agent_id", args.agent_id)
+    .gte("created_at", args.created_at_gte);
+  if (error) {
+    console.warn("[runtime-policy] agent quota count failed:", error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
+
+/**
+ * Cross-user cost sum for an agent in [start, end). Used by the
+ * per-agent daily/monthly cost ceiling. Backed by
+ * `agent_cost_log_agent_window_idx` from migration 063.
+ *
+ * Returns 0 on DB error so a transient blip can't lock all users
+ * out — the cap fails open. The per-call rate cap on the same
+ * code path already provides a hard ceiling on spend velocity.
+ */
+async function sumAgentCost(args: {
+  agent_id: string;
+  start: string;
+  end: string;
+}): Promise<number> {
+  const db = getSupabase();
+  if (!db) return 0;
+  const { data, error } = await db
+    .from("agent_cost_log")
+    .select("cost_usd_total")
+    .eq("agent_id", args.agent_id)
+    .gte("created_at", args.start)
+    .lt("created_at", args.end);
+  if (error) {
+    console.warn("[runtime-policy] agent cost sum failed:", error.message);
+    return 0;
+  }
+  let total = 0;
+  for (const row of data ?? []) {
+    const v = (row as { cost_usd_total?: unknown }).cost_usd_total;
+    if (typeof v === "number" && Number.isFinite(v)) total += v;
+    else if (typeof v === "string") {
+      const n = Number(v);
+      if (Number.isFinite(n)) total += n;
+    }
+  }
+  return total;
 }
 
 function quotaDenied(
@@ -289,9 +445,26 @@ function normalizeOverride(row: unknown): RuntimeOverride {
     max_money_calls_per_user_per_day:
       positiveInt(r.max_money_calls_per_user_per_day) ??
       DEFAULT_LIMITS.max_money_calls_per_user_per_day,
+    // Per-agent ceilings preserve null (= no cap) explicitly. We
+    // never coerce missing/zero/negative to a default here — that
+    // would silently turn a cleared cap back on.
+    max_calls_per_agent_per_minute: positiveInt(r.max_calls_per_agent_per_minute),
+    daily_cost_ceiling_usd: positiveNumber(r.daily_cost_ceiling_usd),
+    monthly_cost_ceiling_usd: positiveNumber(r.monthly_cost_ceiling_usd),
   };
 }
 
 function positiveInt(v: unknown): number | null {
   return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : null;
+}
+
+function positiveNumber(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+  // Postgres numeric columns surface as strings through the
+  // supabase-js client; coerce when it's a numeric string.
+  if (typeof v === "string") {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
 }

@@ -24,6 +24,14 @@ interface Body {
   max_calls_per_user_per_minute?: unknown;
   max_calls_per_user_per_day?: unknown;
   max_money_calls_per_user_per_day?: unknown;
+  /**
+   * Per-agent (cross-user) ceilings. `null` clears an existing cap;
+   * a positive number sets one; `undefined` (omitting the key) leaves
+   * the prior value untouched.
+   */
+  max_calls_per_agent_per_minute?: unknown;
+  daily_cost_ceiling_usd?: unknown;
+  monthly_cost_ceiling_usd?: unknown;
 }
 
 export async function GET(): Promise<Response> {
@@ -58,6 +66,21 @@ export async function POST(req: NextRequest): Promise<Response> {
     max_calls_per_user_per_minute: positiveInt(body.max_calls_per_user_per_minute),
     max_calls_per_user_per_day: positiveInt(body.max_calls_per_user_per_day),
     max_money_calls_per_user_per_day: positiveInt(body.max_money_calls_per_user_per_day),
+    // Pass through the tri-state semantics: null clears, positive
+    // sets, undefined leaves alone. parseClearableLimit normalises
+    // that without flattening null → undefined.
+    max_calls_per_agent_per_minute: parseClearableLimit(
+      body.max_calls_per_agent_per_minute,
+      "int",
+    ),
+    daily_cost_ceiling_usd: parseClearableLimit(
+      body.daily_cost_ceiling_usd,
+      "money",
+    ),
+    monthly_cost_ceiling_usd: parseClearableLimit(
+      body.monthly_cost_ceiling_usd,
+      "money",
+    ),
     updated_by: user.email,
   });
   if (!override) return json({ error: "db_unavailable" }, 503);
@@ -66,6 +89,25 @@ export async function POST(req: NextRequest): Promise<Response> {
 
 function positiveInt(v: unknown): number | undefined {
   return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : undefined;
+}
+
+/**
+ * Parse a per-agent ceiling field that supports tri-state semantics:
+ *   - explicit `null` (in JSON) → caller wants to clear the cap
+ *   - positive number → set the cap
+ *   - missing or invalid → undefined (leave alone)
+ *
+ * `int` validates whole-number request counts; `money` accepts any
+ * positive finite number for dollar amounts.
+ */
+function parseClearableLimit(
+  v: unknown,
+  kind: "int" | "money",
+): number | null | undefined {
+  if (v === null) return null;
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return undefined;
+  if (kind === "int" && !Number.isInteger(v)) return undefined;
+  return v;
 }
 
 function json(body: unknown, status = 200): Response {
