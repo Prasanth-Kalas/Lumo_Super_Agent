@@ -9,6 +9,9 @@ export const DEEPGRAM_TOKEN_REFRESH_SECONDS = 50;
 export const DEEPGRAM_STT_MODEL = "nova-3";
 export const DEFAULT_DEEPGRAM_TTS_VOICE = "aura-2-thalia-en";
 export const SECONDARY_DEEPGRAM_TTS_VOICE = "aura-2-orpheus-en";
+export const DEFAULT_DEEPGRAM_TTS_SPEED = 0.9;
+export const MIN_DEEPGRAM_TTS_SPEED = 0.7;
+export const MAX_DEEPGRAM_TTS_SPEED = 1.5;
 export const DEEPGRAM_TTS_VOICES = new Set([
   DEFAULT_DEEPGRAM_TTS_VOICE,
   SECONDARY_DEEPGRAM_TTS_VOICE,
@@ -113,10 +116,14 @@ export function deepgramListenRestUrl(params: { language?: string | null } = {})
   return `${DEEPGRAM_LISTEN_URL}?${query.toString()}`;
 }
 
-export function deepgramSpeakRestUrl(voice: string): string {
+export function deepgramSpeakRestUrl(
+  voice: string,
+  options: { speed?: number | string | null } = {},
+): string {
   const query = new URLSearchParams({
     model: normalizeDeepgramVoice(voice),
     encoding: "mp3",
+    speed: String(normalizeDeepgramTtsSpeed(options.speed)),
   });
   return `${DEEPGRAM_SPEAK_URL}?${query.toString()}`;
 }
@@ -133,6 +140,22 @@ export function deepgramSpeakWebSocketUrl(voice: string): string {
 export function normalizeDeepgramVoice(value: unknown): string {
   if (typeof value === "string" && DEEPGRAM_TTS_VOICES.has(value)) return value;
   return DEFAULT_DEEPGRAM_TTS_VOICE;
+}
+
+export function normalizeDeepgramTtsSpeed(value: unknown): number {
+  if (value === null || value === undefined || value === "") {
+    return DEFAULT_DEEPGRAM_TTS_SPEED;
+  }
+  const parsed =
+    typeof value === "number" ? value : Number.parseFloat(String(value));
+  if (
+    !Number.isFinite(parsed) ||
+    parsed < MIN_DEEPGRAM_TTS_SPEED ||
+    parsed > MAX_DEEPGRAM_TTS_SPEED
+  ) {
+    return DEFAULT_DEEPGRAM_TTS_SPEED;
+  }
+  return Math.round(parsed * 100) / 100;
 }
 
 function clampInt(

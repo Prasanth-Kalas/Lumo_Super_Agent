@@ -27,9 +27,11 @@ import { getServerUser } from "@/lib/auth";
 import { getSetting, isFeatureEnabled } from "@/lib/admin-settings";
 import {
   DEFAULT_DEEPGRAM_TTS_VOICE,
+  normalizeDeepgramTtsSpeed,
   normalizeDeepgramVoice,
 } from "@/lib/deepgram";
 import {
+  DEEPGRAM_TTS_MAX_ATTEMPTS,
   deepgramRequestId,
   fetchDeepgramSpeechWithRetry,
   isRetryableDeepgramStatus,
@@ -145,11 +147,14 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   if (provider === "deepgram" && deepgramApiKey) {
     const voice = normalizeDeepgramVoice(voiceId || modelId);
+    const speed = normalizeDeepgramTtsSpeed(process.env.LUMO_DEEPGRAM_TTS_SPEED);
     const startedAt = Date.now();
     const upstream = await fetchDeepgramSpeechWithRetry({
       apiKey: deepgramApiKey,
       voice,
       text,
+      speed,
+      emotion,
       sessionId,
       userId: authedUser?.id ?? null,
       startedAt,
@@ -194,7 +199,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           error: "tts_upstream_unavailable",
           retryable: true,
           deepgram_request_id: deepgramRequestId(upstream),
-          attempt: 2,
+          attempt: DEEPGRAM_TTS_MAX_ATTEMPTS,
         });
       }
     } else {
@@ -202,7 +207,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         error: "tts_upstream_unavailable",
         retryable: true,
         deepgram_request_id: null,
-        attempt: 2,
+        attempt: DEEPGRAM_TTS_MAX_ATTEMPTS,
       });
     }
   }

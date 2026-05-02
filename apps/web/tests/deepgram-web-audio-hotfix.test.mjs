@@ -145,6 +145,8 @@ await t("Deepgram retry helper retries one transient 503 then returns audio", as
     apiKey: "dg_test",
     voice: "aura-2-thalia-en",
     text: "hello",
+    speed: 0.9,
+    emotion: "warm",
     sessionId: "session_1",
     userId: null,
     startedAt: Date.now(),
@@ -165,12 +167,14 @@ await t("Deepgram retry helper retries one transient 503 then returns audio", as
   assert.equal(isRetryableDeepgramStatus(503), true);
 });
 
-await t("Deepgram retry helper returns second 503 with request id for structured route error", async () => {
+await t("Deepgram retry helper returns third 503 with request id for structured route error", async () => {
   let calls = 0;
   const response = await fetchDeepgramSpeechWithRetry({
     apiKey: "dg_test",
     voice: "aura-2-thalia-en",
     text: "hello",
+    speed: 0.9,
+    emotion: "warm",
     sessionId: "session_1",
     userId: null,
     startedAt: Date.now(),
@@ -183,16 +187,61 @@ await t("Deepgram retry helper returns second 503 with request id for structured
       });
     },
   });
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   assert.equal(response?.status, 503);
-  assert.equal(deepgramRequestId(response), "dg_req_2");
+  assert.equal(deepgramRequestId(response), "dg_req_3");
 });
 
-await t("TTS route maps double Deepgram 5xx to retryable structured 503", () => {
+await t("Deepgram retry helper uses fresh fetch state and 200ms backoff per attempt", async () => {
+  const urls = [];
+  const signals = [];
+  const bodies = [];
+  const waits = [];
+  const response = await fetchDeepgramSpeechWithRetry({
+    apiKey: "dg_test",
+    voice: "aura-2-thalia-en",
+    text: "hello again",
+    speed: 0.9,
+    emotion: "reassuring",
+    sessionId: "session_1",
+    userId: null,
+    startedAt: Date.now(),
+    sleepImpl: async (ms) => {
+      waits.push(ms);
+    },
+    fetchImpl: async (url, init) => {
+      urls.push(String(url));
+      signals.push(init?.signal);
+      bodies.push(String(init?.body));
+      if (urls.length < 3) {
+        return new Response("temporary", {
+          status: 503,
+          headers: { "dg-request-id": `dg_req_${urls.length}` },
+        });
+      }
+      return responseWithBytes([9], { status: 200 });
+    },
+  });
+  assert.equal(response?.status, 200);
+  assert.equal(urls.length, 3);
+  assert.ok(urls.every((url) => /speed=0\.9/.test(url)));
+  assert.equal(new Set(signals).size, 3);
+  assert.deepEqual(waits, [200, 200]);
+  assert.deepEqual(bodies.map((body) => JSON.parse(body)), [
+    { text: "hello again" },
+    { text: "hello again" },
+    { text: "hello again" },
+  ]);
+});
+
+await t("TTS route maps triple Deepgram 5xx to retryable structured 503", () => {
   const source = readFileSync("app/api/tts/route.ts", "utf8");
+  const retrySource = readFileSync("lib/deepgram-tts-retry.ts", "utf8");
   assert.match(source, /tts_upstream_unavailable/);
   assert.match(source, /retryable:\s*true/);
-  assert.match(source, /attempt:\s*2/);
+  assert.match(source, /attempt:\s*DEEPGRAM_TTS_MAX_ATTEMPTS/);
+  assert.match(retrySource, /tts_deepgram_attempt/);
+  assert.match(source, /normalizeDeepgramTtsSpeed\(process\.env\.LUMO_DEEPGRAM_TTS_SPEED\)/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

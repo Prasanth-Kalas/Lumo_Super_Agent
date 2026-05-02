@@ -2,7 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
-| Codex | Lumo_Super_Agent_codex | codex/deepgram-web-audio-hotfix-1 | 2026-05-02 | DEEPGRAM-WEB-AUDIO-HOTFIX-1 Deepgram web audio chunk playback + transient 5xx retry |
+| Codex | Lumo_Super_Agent_codex | codex/deepgram-web-audio-hotfix-2 | 2026-05-02 | DEEPGRAM-WEB-AUDIO-HOTFIX-2 Deepgram TTS diagnostics, 3-attempt retry, slower Aura speed |
 
 ## Closed lanes
 

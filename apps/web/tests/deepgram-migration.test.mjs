@@ -9,6 +9,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   DEFAULT_DEEPGRAM_TTS_VOICE,
+  DEFAULT_DEEPGRAM_TTS_SPEED,
   DEEPGRAM_AUTH_GRANT_URL,
   DEEPGRAM_LISTEN_WS_URL,
   DEEPGRAM_STT_MODEL,
@@ -16,6 +17,7 @@ import {
   deepgramListenRestUrl,
   deepgramListenWebSocketUrl,
   deepgramSpeakRestUrl,
+  normalizeDeepgramTtsSpeed,
   normalizeDeepgramVoice,
 } from "../lib/deepgram.ts";
 import {
@@ -93,8 +95,12 @@ await t("Deepgram URL helpers pin Nova-3 listen and Aura-2 speak params", () => 
   assert.match(listenWs, /sample_rate=16000/);
   assert.match(deepgramListenRestUrl(), /model=nova-3/);
   assert.match(deepgramSpeakRestUrl(DEFAULT_DEEPGRAM_TTS_VOICE), /model=aura-2-thalia-en/);
+  assert.match(deepgramSpeakRestUrl(DEFAULT_DEEPGRAM_TTS_VOICE), /speed=0\.9/);
   assert.equal(normalizeDeepgramVoice("aura-2-orpheus-en"), "aura-2-orpheus-en");
   assert.equal(normalizeDeepgramVoice("unknown"), DEFAULT_DEEPGRAM_TTS_VOICE);
+  assert.equal(normalizeDeepgramTtsSpeed("0.85"), 0.85);
+  assert.equal(normalizeDeepgramTtsSpeed("1.7"), DEFAULT_DEEPGRAM_TTS_SPEED);
+  assert.equal(DEFAULT_DEEPGRAM_TTS_SPEED, 0.9);
   assert.equal(DEEPGRAM_STT_MODEL, "nova-3");
 });
 
@@ -134,6 +140,7 @@ await t("web TTS and recorded STT use Deepgram by default", () => {
   assert.match(ttsRouteSource, /LUMO_DEEPGRAM_API_KEY/);
   assert.match(ttsRouteSource, /fetchDeepgramSpeechWithRetry/);
   assert.match(deepgramTtsRetrySource, /deepgramSpeakRestUrl/);
+  assert.match(ttsRouteSource, /LUMO_DEEPGRAM_TTS_SPEED/);
   assert.match(ttsRouteSource, /LUMO_TTS_PROVIDER/);
   assert.match(sttRouteSource, /deepgramListenRestUrl/);
   assert.match(sttRouteSource, /DEEPGRAM_STT_MODEL/);
