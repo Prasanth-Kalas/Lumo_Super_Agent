@@ -122,6 +122,31 @@ case "$variant" in
         capture confirmation-card dark \
             -LumoAutoSignIn YES -LumoSeedBookingConfirmation YES
         ;;
+    ios-chat-web-viewport-compare-1)
+        # IOS-CHAT-WEB-VIEWPORT-COMPARE-1: re-capture chat-empty +
+        # chat-with-text on a 375pt-wide iPhone SE 3rd-gen sim so
+        # the side-by-side parity pairs are pixel-aligned with web's
+        # web-redesign-1-screenshots/ (which captured at 380px). 5pt
+        # difference is visually indistinguishable for parity.
+        #
+        # Override `LUMO_SIM_ID` to point at an iPhone SE 3rd-gen
+        # simulator. Create one with:
+        #   xcrun simctl create "iPhone SE Lumo" \
+        #     com.apple.CoreSimulator.SimDeviceType.iPhone-SE-3rd-generation \
+        #     com.apple.CoreSimulator.SimRuntime.iOS-26-4
+        # then run:
+        #   LUMO_SIM_ID=<id> LUMO_SHOTS_VARIANT=ios-chat-web-viewport-compare-1 \
+        #     LUMO_SHOTS_OUT=docs/notes/ios-chat-web-viewport-compare-1-screenshots \
+        #     scripts/ios-capture-screenshots.sh
+        echo "[shots] chat-empty (375pt)"
+        capture chat-empty light -LumoAutoSignIn YES
+        capture chat-empty dark  -LumoAutoSignIn YES
+        echo "[shots] chat-with-text (375pt)"
+        capture chat-with-text light \
+            -LumoAutoSignIn YES -LumoStartChatInput "Plan a weekend trip to Vegas"
+        capture chat-with-text dark \
+            -LumoAutoSignIn YES -LumoStartChatInput "Plan a weekend trip to Vegas"
+        ;;
     ios-composer-and-drawer-screens-1)
         # IOS-COMPOSER-AND-DRAWER-SCREENS-1: composer mic↔send swap +
         # drawer screens (Memory / Marketplace / History). Captures
