@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/deepgram-migration-1 | 2026-05-02 | DEEPGRAM-MIGRATION-1 web/ml-service/iOS Deepgram contract migration |
 
 ## Closed lanes
 
