@@ -3,6 +3,37 @@
 Phase 0 contract for `POST /api/tools/plan`. Schemas + stub route +
 codegen + live verification.
 
+## Phase 0 closeout (2026-05-02)
+
+This lane closes **Phase 0** of the Python brain track. The three
+foundation lanes have all landed on `main`:
+
+| Lane | Closed | Outcome |
+|---|---|---|
+| PYTHON-MONOREPO-CONSOLIDATE-1 | 2026-05-02 | `Lumo_ML_Service` content moved into `apps/ml-service/`; `packages/lumo-shared-types/` Pydantic→TS codegen pipeline live; Python CI workflow gating ruff + mypy + pytest + drift. |
+| MLSERVICE-MODAL-DEPLOY-1 | 2026-05-02 | Brain reachable at `https://prasanth-kalas--lumo-ml-service-asgi.modal.run`; JWT secret in Modal Secret + Vercel envs (Production + Preview); production redeploy aliased to `lumo-super-agent.vercel.app`. |
+| MLSERVICE-PLAN-CONTRACT-1 | 2026-05-02 | `POST /api/tools/plan` stub live with `X-Lumo-Plan-Stub: 1` signal; cross-language type contract codegenerated; 8 new TS interfaces consumable from `@lumo/shared-types`. |
+
+**Phase 1 readiness:**
+
+- The brain has a stable wire contract for the orchestrator's pre-LLM
+  hop. Phase 1's `INTENT-CLASSIFIER-MIGRATE-PYTHON-1` swaps the route
+  body for a real classifier without touching the wire shape.
+- The codegen drift check defends the contract — any future schema
+  change here without a paired regen blocks the build.
+- `keep_warm` / `min_containers=1` keeps a container alive on Modal
+  free tier; warm-call latency is ~830 ms p50 today (deferred to
+  `MODAL-LATENCY-OPTIMIZE-1`; orchestrator already tolerates 700 ms
+  forecast call timeouts so Phase 1 can ship without this resolved).
+- The TS-side parallel-write client (`PLAN-CLIENT-TS-PARALLEL-WRITE-1`)
+  is the matching codex lane and fires after their
+  `COMPOUND-RPC-CYCLE-GUARD-1` closes; once it lands, the orchestrator
+  starts shadow-writing `/plan` requests and Phase 1's real classifier
+  has a feedback loop to land into.
+
+Claude Code Python is idle until `INTENT-CLASSIFIER-MIGRATE-PYTHON-1`
+fires.
+
 ## Live verification (post-redeploy)
 
 Modal redeploy was cached (3.4 s) — image layer unchanged, only the
