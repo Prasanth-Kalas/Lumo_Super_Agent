@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code Python | Lumo_Super_Agent_python | claude-code-python/intent-classifier-migrate-python-1 | 2026-05-02 | INTENT-CLASSIFIER-MIGRATE-PYTHON-1 replace /plan stub body with real intent classification — sentence-transformers anchor-based zero-shot + flight-search deterministic guard + Modal Volume for model cache; calibration target ≥85% agreement with TS classifier on 50+ canonical messages |
 
 ## Closed lanes
 
