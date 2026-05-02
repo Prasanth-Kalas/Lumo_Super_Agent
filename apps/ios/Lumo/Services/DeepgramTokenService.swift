@@ -68,13 +68,22 @@ final class DeepgramTokenService: DeepgramTokenServicing {
 
     private let baseURL: URL
     private let session: URLSessionProtocol
+    private let userIDProvider: () -> String?
+    private let accessTokenProvider: () -> String?
 
     private var cachedToken: String?
     private var cachedExpiresAt: Date?
     private var streamActive: Bool = false
 
-    init(baseURL: URL, session: URLSessionProtocol = URLSession.shared) {
+    init(
+        baseURL: URL,
+        userIDProvider: @escaping () -> String? = { nil },
+        accessTokenProvider: @escaping () -> String? = { nil },
+        session: URLSessionProtocol = URLSession.shared
+    ) {
         self.baseURL = baseURL
+        self.userIDProvider = userIDProvider
+        self.accessTokenProvider = accessTokenProvider
         self.session = session
     }
 
@@ -116,6 +125,12 @@ final class DeepgramTokenService: DeepgramTokenServicing {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let userID = userIDProvider(), !userID.isEmpty {
+            req.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
 
         let data: Data
         let response: URLResponse

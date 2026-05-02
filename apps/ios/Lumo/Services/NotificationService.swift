@@ -109,6 +109,7 @@ final class NotificationService: NSObject, NotificationServicing {
     private let baseURL: URL
     private let session: URLSession
     private let userIDProvider: () -> String?
+    private let accessTokenProvider: () -> String?
     private let environment: String
     private let bundleID: String
 
@@ -118,6 +119,7 @@ final class NotificationService: NSObject, NotificationServicing {
     init(
         baseURL: URL,
         userIDProvider: @escaping () -> String?,
+        accessTokenProvider: @escaping () -> String? = { nil },
         environment: String,
         bundleID: String,
         session: URLSession = .shared
@@ -125,6 +127,7 @@ final class NotificationService: NSObject, NotificationServicing {
         self.baseURL = baseURL
         self.session = session
         self.userIDProvider = userIDProvider
+        self.accessTokenProvider = accessTokenProvider
         self.environment = environment
         self.bundleID = bundleID
         super.init()
@@ -133,6 +136,7 @@ final class NotificationService: NSObject, NotificationServicing {
     static func make(
         config: AppConfig,
         userIDProvider: @escaping () -> String?,
+        accessTokenProvider: @escaping () -> String? = { nil },
         bundle: Bundle = .main
     ) -> NotificationService {
         let env = config.apnsUseSandbox ? "sandbox" : "production"
@@ -140,6 +144,7 @@ final class NotificationService: NSObject, NotificationServicing {
         return NotificationService(
             baseURL: config.apiBaseURL,
             userIDProvider: userIDProvider,
+            accessTokenProvider: accessTokenProvider,
             environment: env,
             bundleID: bundleID
         )
@@ -233,6 +238,9 @@ final class NotificationService: NSObject, NotificationServicing {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if let userID = userIDProvider(), !userID.isEmpty {
             req.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let body = jsonBody {
             req.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])

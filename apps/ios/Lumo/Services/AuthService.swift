@@ -54,6 +54,12 @@ protocol AuthServicing: AnyObject {
     var state: AuthState { get }
     var stateChange: AsyncStream<AuthState> { get }
 
+    /// Supabase session JWT for the current user, or nil if signed out.
+    /// Backend route handlers honor `Authorization: Bearer <token>` the
+    /// same way they honor the browser's Supabase cookie — wiring this
+    /// into HTTP clients is how iOS authenticates against Vercel.
+    func currentAccessToken() -> String?
+
     /// Restore a session from Keychain on cold-launch. Resolves to
     /// either `signedOut` (no session), `needsBiometric(...)` (session
     /// found, biometric required), or `signedIn(...)` (session found,
@@ -148,6 +154,10 @@ final class AuthService: AuthServicing {
         self.stateContinuation = continuation
     }
 
+    func currentAccessToken() -> String? {
+        client?.auth.currentSession?.accessToken
+    }
+
     nonisolated static func defaultBiometricGateGetter() -> Bool {
         UserDefaults.standard.object(forKey: "lumo.biometric.enabled") as? Bool ?? true
     }
@@ -201,12 +211,23 @@ final class AuthService: AuthServicing {
     }
 
     func signInWithGoogle() async throws {
-        guard let client, let supabaseURL = config.supabaseURL else {
+        guard let client else {
             throw AuthServiceError.notConfigured
         }
         state = .signingIn
         do {
-            let authorizeURL = google.authorizeURL(supabaseURL: supabaseURL)
+            // Use the SDK's PKCE-aware URL builder so Supabase returns
+            // an auth code (?code=…) that exchangeCodeForSession can
+            // redeem. Hand-building the URL omits the code_challenge
+            // and Supabase falls back to implicit flow (#access_token=…),
+            // which extractAuthCode can't read.
+            let redirectTo = URL(
+                string: "\(GoogleSignInService.callbackScheme)://\(GoogleSignInService.callbackHostPath)"
+            )
+            let authorizeURL = try client.auth.getOAuthSignInURL(
+                provider: .google,
+                redirectTo: redirectTo
+            )
             let callback = try await google.presentAuthSession(authorizeURL: authorizeURL)
             if let providerError = GoogleSignInService.extractError(from: callback) {
                 throw GoogleSignInError.provider(providerError)

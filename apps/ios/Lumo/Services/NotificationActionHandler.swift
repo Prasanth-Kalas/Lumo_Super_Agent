@@ -192,14 +192,17 @@ final class NotificationSnoozeClient: NotificationSnoozing {
     private let baseURL: URL
     private let session: URLSession
     private let userIDProvider: () -> String?
+    private let accessTokenProvider: () -> String?
 
     init(
         baseURL: URL,
         userIDProvider: @escaping () -> String?,
+        accessTokenProvider: @escaping () -> String? = { nil },
         session: URLSession = .shared
     ) {
         self.baseURL = baseURL
         self.userIDProvider = userIDProvider
+        self.accessTokenProvider = accessTokenProvider
         self.session = session
     }
 
@@ -217,6 +220,9 @@ final class NotificationSnoozeClient: NotificationSnoozing {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if let userID = userIDProvider(), !userID.isEmpty {
             req.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         req.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         let (_, response) = try await session.data(for: req)

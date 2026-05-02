@@ -53,7 +53,7 @@
 		</dict>
 	</dict>
 	<key>LumoAPIBase</key>
-	<string>http://localhost:3000</string>
+	<string>https://lumo-super-agent.vercel.app</string>
 	<key>LumoSupabaseURLScheme</key>
 	<string>$(LUMO_SUPABASE_URL_SCHEME)</string>
 	<key>LumoSupabaseURLHost</key>
