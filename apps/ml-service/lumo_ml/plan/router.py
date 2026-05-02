@@ -8,10 +8,16 @@ placeholders, and the ``X-Lumo-Plan-Stub`` response header reports
 ``0`` so codex's parallel-write telemetry can distinguish stub from
 real responses without parsing the body.
 
-``suggestions``, ``compound_graph``, and ``profile_summary_hints`` are
-still ``[]`` / ``None`` — they ship in their own follow-up lanes
-(``SUGGESTIONS-MIGRATE-PYTHON-1``, ``COMPOUND-MISSION-ROUTING-PYTHON-1``,
-plus a future booking-profile-hints migration).
+Phase 1's SUGGESTIONS-MIGRATE-PYTHON-1 lane wires
+:func:`lumo_ml.plan.suggestions.build_assistant_suggestions` so
+``PlanResponse.suggestions`` carries Python-generated chips when the
+orchestrator passes ``last_assistant_message``. ``X-Lumo-Suggestions-
+Source: python`` and ``X-Lumo-Suggestions-Count: N`` headers expose
+the chip-generation result to codex's parallel-write capture.
+
+``compound_graph`` and ``profile_summary_hints`` are still ``None`` —
+they ship in their own follow-up lanes (``COMPOUND-MISSION-ROUTING-
+PYTHON-1`` plus a future booking-profile-hints migration).
 
 The brief asked for this file at ``apps/ml-service/app/routes/plan.py``.
 We put it here under ``lumo_ml/`` instead because ``app/`` is just a
@@ -29,6 +35,7 @@ from fastapi import APIRouter, Depends, Response
 from ..auth import AuthContext, require_lumo_jwt
 from .classifier import IntentClassifier
 from .schemas import PlanRequest, PlanResponse
+from .suggestions import build_assistant_suggestions
 
 router = APIRouter()
 
@@ -49,6 +56,17 @@ STUB_HEADER_VALUE = "0"
 TOP_SCORE_HEADER_NAME = "X-Lumo-Plan-Top-Score"
 GAP_HEADER_NAME = "X-Lumo-Plan-Gap"
 CONFIDENCE_HEADER_NAME = "X-Lumo-Plan-Confidence"
+
+# Per-turn suggestion telemetry (SUGGESTIONS-MIGRATE-PYTHON-1).
+# ``Source: python`` is constant for the duration of this lane — a
+# future SUGGESTIONS-CUTOVER-1 will widen the value to ``both`` then
+# ``python-only``. ``Count`` is the post-dedupe slice count (0–4),
+# emitted on every classified turn including those that emit no chips
+# (``Count: 0`` is meaningful — it distinguishes "ran but no chips
+# qualified" from "didn't run").
+SUGGESTIONS_SOURCE_HEADER_NAME = "X-Lumo-Suggestions-Source"
+SUGGESTIONS_SOURCE_HEADER_VALUE = "python"
+SUGGESTIONS_COUNT_HEADER_NAME = "X-Lumo-Suggestions-Count"
 
 
 def _plan_extra() -> dict:
@@ -77,10 +95,29 @@ def route_plan(req: PlanRequest, response: Response, _auth: Auth) -> PlanRespons
         response.headers[TOP_SCORE_HEADER_NAME] = f"{classification.top_score:.4f}"
     if classification.gap is not None:
         response.headers[GAP_HEADER_NAME] = f"{classification.gap:.4f}"
+
+    planning_step = req.planning_step_hint or "clarification"
+
+    # The chip cascade scores regex against the assistant's text — pre-
+    # LLM /plan calls (the canonical Phase 1 case) have no assistant
+    # text yet and emit zero chips. Once the orchestrator wires post-
+    # LLM /plan calls (or replays from history) the cascade runs.
+    suggestions = (
+        build_assistant_suggestions(
+            assistant_text=req.last_assistant_message,
+            planning_step=planning_step,
+            latest_user_message=req.user_message,
+        )
+        if req.last_assistant_message
+        else []
+    )
+    response.headers[SUGGESTIONS_SOURCE_HEADER_NAME] = SUGGESTIONS_SOURCE_HEADER_VALUE
+    response.headers[SUGGESTIONS_COUNT_HEADER_NAME] = str(len(suggestions))
+
     return PlanResponse(
         intent_bucket=classification.bucket,
-        planning_step=req.planning_step_hint or "clarification",
-        suggestions=[],
+        planning_step=planning_step,
+        suggestions=suggestions,
         # Surface the classifier's reasoning as the prompt addendum —
         # codex's parallel-write logs both sides side-by-side and this
         # makes disagreement diagnosis possible without an extra debug

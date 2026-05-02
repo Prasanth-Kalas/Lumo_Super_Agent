@@ -104,6 +104,11 @@ def test_plan_request_maximal_round_trip() -> None:
             }
         ],
         "planning_step_hint": "selection",
+        # SUGGESTIONS-MIGRATE-PYTHON-1: optional input the
+        # orchestrator passes when /plan is called post-LLM (or with a
+        # replayed turn) so the suggestion-chip cascade has assistant
+        # text to score against.
+        "last_assistant_message": "Pick the cheapest, fastest, or nonstop option.",
     }
     req = PlanRequest.model_validate(maximal)
     dumped = req.model_dump(mode="json")
