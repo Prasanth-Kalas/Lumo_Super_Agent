@@ -45,6 +45,7 @@ const migration056 = readFileSync(
 const tokenRouteSource = readFileSync("app/api/audio/deepgram-token/route.ts", "utf8");
 const ttsRouteSource = readFileSync("app/api/tts/route.ts", "utf8");
 const sttRouteSource = readFileSync("app/api/stt/route.ts", "utf8");
+const deepgramTtsRetrySource = readFileSync("lib/deepgram-tts-retry.ts", "utf8");
 
 await t("temporary token call uses Deepgram auth grant with 60s TTL", async () => {
   const result = await createDeepgramTemporaryToken({
@@ -131,7 +132,8 @@ await t("Deepgram token route is auth-gated, rate-limited, and short-lived", () 
 
 await t("web TTS and recorded STT use Deepgram by default", () => {
   assert.match(ttsRouteSource, /LUMO_DEEPGRAM_API_KEY/);
-  assert.match(ttsRouteSource, /deepgramSpeakRestUrl/);
+  assert.match(ttsRouteSource, /fetchDeepgramSpeechWithRetry/);
+  assert.match(deepgramTtsRetrySource, /deepgramSpeakRestUrl/);
   assert.match(ttsRouteSource, /LUMO_TTS_PROVIDER/);
   assert.match(sttRouteSource, /deepgramListenRestUrl/);
   assert.match(sttRouteSource, /DEEPGRAM_STT_MODEL/);
