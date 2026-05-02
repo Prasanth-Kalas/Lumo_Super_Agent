@@ -21,6 +21,18 @@ discipline rule (every public function gets ``@traced``; every
 LLM/embedding/GPU call records cost).
 """
 
+from .embeddings import (
+    DIMENSIONS,
+    DOLLARS_PER_M_TOKENS,
+    EmbedBatchRequest,
+    EmbedBatchResponse,
+    Embedding,
+    EmbedTextRequest,
+    EmbedTextResponse,
+    ModelVersion,
+    embed_batch,
+    embed_text,
+)
 from .observability import (
     Secret,
     model_dump_for_logs,
@@ -30,7 +42,17 @@ from .observability import (
 from .otel_setup import init_observability
 
 __all__ = [
+    "DIMENSIONS",
+    "DOLLARS_PER_M_TOKENS",
+    "EmbedBatchRequest",
+    "EmbedBatchResponse",
+    "EmbedTextRequest",
+    "EmbedTextResponse",
+    "Embedding",
+    "ModelVersion",
     "Secret",
+    "embed_batch",
+    "embed_text",
     "init_observability",
     "model_dump_for_logs",
     "record_cost",
