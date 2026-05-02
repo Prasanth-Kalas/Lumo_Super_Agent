@@ -2,8 +2,9 @@
  * GET /api/me — canonical identity for the current user.
  *
  * Returns:
- *   200 { user: { id, email, full_name, first_name, member_since } }  when signed in
- *   401 { reason: "not_authenticated" }                                when signed out
+ *   200 { user: { id, email, full_name, first_name, member_since,
+ *                  role } }                                          when signed in
+ *   401 { reason: "not_authenticated" }                              when signed out
  *
  * Why this exists: the shell (chat page, header, /memory page) needs
  * to show "Hey Alex" and "signed in as alex@..." without every page
@@ -18,10 +19,17 @@
  * `member_since` mirrors Supabase's `user.created_at`. /settings/account
  * shows it under the email; consumer surfaces should prefer this over
  * re-deriving from anywhere else.
+ *
+ * `role` is the resolved identity role — 'user' (default), 'partner'
+ * (approved publisher), or 'admin' (Lumo team). The shell uses it to
+ * gate menu items (e.g. show "Developer" link only for partners,
+ * "Admin" link only for admins). See lib/publisher/access.ts for the
+ * resolution order.
  */
 
 import type { NextRequest } from "next/server";
 import { getServerUser } from "@/lib/auth";
+import { getUserRole } from "@/lib/publisher/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +42,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
   const fullName =
     (user.user_metadata as { full_name?: string } | null)?.full_name ?? null;
   const firstName = deriveFirstName(fullName);
+  const role = await getUserRole(user.email ?? null);
   return json({
     user: {
       id: user.id,
@@ -41,6 +50,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
       full_name: fullName,
       first_name: firstName,
       member_since: user.created_at ?? null,
+      role,
     },
   });
 }

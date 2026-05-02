@@ -34,7 +34,7 @@ export async function GET(): Promise<Response> {
   const { data, error } = await sb
     .from("partner_developers")
     .select(
-      "email, display_name, company, reason, tier, reviewer_note, reviewed_at, reviewed_by, created_at",
+      "email, display_name, company, reason, tier, capability_tier, reviewer_note, reviewed_at, reviewed_by, created_at",
     )
     .order("created_at", { ascending: false });
   if (error) return json({ error: error.message }, 500);
@@ -58,6 +58,13 @@ interface PostBody {
   email?: unknown;
   decision?: unknown;
   note?: unknown;
+  /**
+   * Optional capability tier to set in the same request. Lets the
+   * admin promote "approve and bump to tier_2" in one click. Omit
+   * to leave the column untouched; new accounts default to tier_1
+   * from migration 066.
+   */
+  capability_tier?: unknown;
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -96,18 +103,27 @@ export async function POST(req: NextRequest): Promise<Response> {
   const sb = getSupabase();
   if (!sb) return json({ error: "db_unavailable" }, 503);
 
+  const update: Record<string, unknown> = {
+    tier: decision,
+    reviewer_note: note,
+    reviewed_at: new Date().toISOString(),
+    reviewed_by: user.email,
+    updated_at: new Date().toISOString(),
+  };
+  // Only touch capability_tier when explicitly provided so a
+  // re-decision (e.g., flipping from rejected back to waitlisted)
+  // doesn't accidentally reset an admin-tuned ceiling.
+  const ct = body.capability_tier;
+  if (ct === "tier_1" || ct === "tier_2" || ct === "tier_3") {
+    update.capability_tier = ct;
+  }
+
   const { data, error } = await sb
     .from("partner_developers")
-    .update({
-      tier: decision,
-      reviewer_note: note,
-      reviewed_at: new Date().toISOString(),
-      reviewed_by: user.email,
-      updated_at: new Date().toISOString(),
-    })
+    .update(update)
     .eq("email", email)
     .select(
-      "email, display_name, company, reason, tier, reviewer_note, reviewed_at, reviewed_by, created_at",
+      "email, display_name, company, reason, tier, capability_tier, reviewer_note, reviewed_at, reviewed_by, created_at",
     )
     .single();
   if (error) return json({ error: error.message }, 500);

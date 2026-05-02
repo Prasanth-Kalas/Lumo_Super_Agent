@@ -42,11 +42,20 @@ interface DeveloperApplication {
   company: string | null;
   reason: string | null;
   tier: "waitlisted" | "approved" | "rejected" | "revoked";
+  capability_tier: "tier_1" | "tier_2" | "tier_3";
   reviewer_note: string | null;
   reviewed_at: string | null;
   reviewed_by: string | null;
   created_at: string | null;
 }
+
+type CapabilityTier = "tier_1" | "tier_2" | "tier_3";
+
+const CAPABILITY_TIER_LABEL: Record<CapabilityTier, string> = {
+  tier_1: "tier_1 (free + low)",
+  tier_2: "tier_2 (+ metered)",
+  tier_3: "tier_3 (+ money)",
+};
 
 interface CertificationReport {
   checked_at: string;
@@ -137,6 +146,7 @@ export default function AdminReviewQueuePage() {
   async function decideDeveloper(
     email: string,
     decision: DeveloperApplication["tier"],
+    capability_tier?: CapabilityTier,
   ) {
     if (busyId) return;
     setBusyId(`dev:${email}`);
@@ -148,6 +158,10 @@ export default function AdminReviewQueuePage() {
           email,
           decision,
           note: note.trim() || undefined,
+          // Only include capability_tier when explicitly chosen so a
+          // re-decision (e.g. flipping rejected→waitlisted) doesn't
+          // wipe an admin-tuned tier.
+          ...(capability_tier && { capability_tier }),
         }),
       });
       if (!res.ok) {
@@ -163,6 +177,15 @@ export default function AdminReviewQueuePage() {
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function setDeveloperTier(email: string, capability_tier: CapabilityTier) {
+    // Tier-only update for an already-approved row. Reuses the
+    // /api/admin/developers POST endpoint with the existing tier so
+    // the row's status doesn't change.
+    const current = developers.find((d) => d.email === email);
+    if (!current) return;
+    await decideDeveloper(email, current.tier, capability_tier);
   }
 
   useEffect(() => {
@@ -288,6 +311,7 @@ export default function AdminReviewQueuePage() {
           developers={developers}
           busyId={busyId}
           onDecide={(email, decision) => void decideDeveloper(email, decision)}
+          onSetTier={(email, tier) => void setDeveloperTier(email, tier)}
         />
 
         <div className="mb-3 mt-8 flex items-baseline justify-between">
@@ -748,10 +772,12 @@ function DeveloperApplicationsPanel({
   developers,
   busyId,
   onDecide,
+  onSetTier,
 }: {
   developers: DeveloperApplication[];
   busyId: string | null;
   onDecide: (email: string, decision: DeveloperApplication["tier"]) => void;
+  onSetTier: (email: string, tier: CapabilityTier) => void;
 }) {
   // Default-collapsed when nothing is waiting; expand whenever any
   // application is in `waitlisted` so the admin doesn't miss it.
@@ -826,6 +852,26 @@ function DeveloperApplicationsPanel({
                   </div>
                   <div className="shrink-0 flex flex-col items-end gap-2">
                     <DeveloperTierPill tier={d.tier} />
+                    {d.tier === "approved" ? (
+                      <label className="flex items-center gap-1.5 text-[10.5px] text-lumo-fg-low">
+                        cap
+                        <select
+                          value={d.capability_tier ?? "tier_1"}
+                          onChange={(e) =>
+                            onSetTier(d.email, e.target.value as CapabilityTier)
+                          }
+                          disabled={busyId === `dev:${d.email}`}
+                          className="h-6 px-1.5 rounded border border-lumo-hair bg-lumo-bg text-[11px] text-lumo-fg focus:border-lumo-edge outline-none disabled:opacity-50"
+                          title="Capability tier — gates which cost_tiers this developer's agents may expose."
+                        >
+                          {(["tier_1", "tier_2", "tier_3"] as const).map((t) => (
+                            <option key={t} value={t}>
+                              {CAPABILITY_TIER_LABEL[t]}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                     <div className="flex items-center gap-1.5">
                       {d.tier !== "approved" ? (
                         <button
