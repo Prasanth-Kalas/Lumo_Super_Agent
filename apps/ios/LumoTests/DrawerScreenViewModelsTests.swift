@@ -696,6 +696,127 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         }
     }
 
+    // MARK: - IOS-MCP-CONNECT-1
+
+    func test_marketplaceAgent_requiresMcpToken_trueWhenConnectModelMatches() {
+        let mcp = MarketplaceAgentDTO(
+            agent_id: "mcp:slack",
+            display_name: "Slack",
+            one_liner: "x",
+            domain: "messaging",
+            connect_model: "mcp_bearer",
+            source: "mcp"
+        )
+        XCTAssertTrue(mcp.requiresMcpToken)
+        let oauth = MarketplaceAgentDTO(
+            agent_id: "lumo-google",
+            display_name: "Google",
+            one_liner: "x",
+            domain: "calendar",
+            connect_model: "oauth2"
+        )
+        XCTAssertFalse(oauth.requiresMcpToken)
+    }
+
+    func test_marketplaceVM_connectMcp_emptyToken_setsError_doesNotCallAPI() async {
+        let fake = FakeDrawerScreensFetcher()
+        let agent = MarketplaceAgentDTO(
+            agent_id: "mcp:slack",
+            display_name: "Slack",
+            one_liner: "x",
+            domain: "messaging",
+            connect_model: "mcp_bearer",
+            source: "mcp"
+        )
+        fake.marketplaceResult = .success(MarketplaceResponseDTO(agents: [agent]))
+        let vm = MarketplaceScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        let ok = await vm.connectMcp(agent: agent, token: "   ")
+
+        XCTAssertFalse(ok)
+        XCTAssertEqual(fake.connectMcpCalls.count, 0)
+        XCTAssertNotNil(vm.mcpConnectError)
+    }
+
+    func test_marketplaceVM_connectMcp_success_strippsMcpPrefix_andReloads() async {
+        let fake = FakeDrawerScreensFetcher()
+        let agent = MarketplaceAgentDTO(
+            agent_id: "mcp:slack",
+            display_name: "Slack",
+            one_liner: "x",
+            domain: "messaging",
+            connect_model: "mcp_bearer",
+            source: "mcp"
+        )
+        fake.marketplaceResult = .success(MarketplaceResponseDTO(agents: [agent]))
+        let vm = MarketplaceScreenViewModel(fetcher: fake)
+        await vm.load()
+        XCTAssertEqual(fake.marketplaceFetchCount, 1)
+
+        let ok = await vm.connectMcp(agent: agent, token: "  abc-token  ")
+
+        XCTAssertTrue(ok)
+        XCTAssertEqual(fake.connectMcpCalls.count, 1)
+        XCTAssertEqual(fake.connectMcpCalls[0].serverID, "slack",
+                       "the `mcp:` prefix must be stripped before POST")
+        XCTAssertEqual(fake.connectMcpCalls[0].accessToken, "abc-token",
+                       "token must be trimmed before submit")
+        XCTAssertEqual(vm.mcpConnectSuccessAgentID, "mcp:slack")
+        XCTAssertNil(vm.mcpConnectError)
+        XCTAssertEqual(fake.marketplaceFetchCount, 2,
+                       "successful connect must trigger a catalog reload")
+    }
+
+    func test_marketplaceVM_connectMcp_failure_surfacesError_noSuccessFlag() async {
+        let fake = FakeDrawerScreensFetcher()
+        let agent = MarketplaceAgentDTO(
+            agent_id: "mcp:slack",
+            display_name: "Slack",
+            one_liner: "x",
+            domain: "messaging",
+            connect_model: "mcp_bearer",
+            source: "mcp"
+        )
+        fake.marketplaceResult = .success(MarketplaceResponseDTO(agents: [agent]))
+        fake.connectMcpResult = .failure(DrawerScreensError.badStatus(400))
+        let vm = MarketplaceScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        let ok = await vm.connectMcp(agent: agent, token: "abc")
+
+        XCTAssertFalse(ok)
+        XCTAssertNil(vm.mcpConnectSuccessAgentID)
+        XCTAssertNotNil(vm.mcpConnectError)
+    }
+
+    func test_marketplaceVM_connectMcp_agentIdWithoutMcpPrefix_passesThroughVerbatim() async {
+        let fake = FakeDrawerScreensFetcher()
+        let agent = MarketplaceAgentDTO(
+            agent_id: "slack",
+            display_name: "Slack",
+            one_liner: "x",
+            domain: "messaging",
+            connect_model: "mcp_bearer",
+            source: "mcp"
+        )
+        fake.marketplaceResult = .success(MarketplaceResponseDTO(agents: [agent]))
+        let vm = MarketplaceScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        _ = await vm.connectMcp(agent: agent, token: "abc")
+
+        XCTAssertEqual(fake.connectMcpCalls.first?.serverID, "slack")
+    }
+
+    func test_marketplaceVM_clearMcpConnectSuccess_resetsFlag() {
+        let fake = FakeDrawerScreensFetcher()
+        let vm = MarketplaceScreenViewModel(fetcher: fake)
+        vm.mcpConnectSuccessAgentID = "mcp:slack"
+        vm.clearMcpConnectSuccess()
+        XCTAssertNil(vm.mcpConnectSuccessAgentID)
+    }
+
     func test_marketplaceVM_load_emptyAgents_loadsEmptyArray() async {
         // Empty array distinct from .loading — the view's empty-state
         // branch keys off `loaded([])`, not `loaded(_) where isEmpty`.

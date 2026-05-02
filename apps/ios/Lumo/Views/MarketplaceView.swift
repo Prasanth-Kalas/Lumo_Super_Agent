@@ -222,6 +222,7 @@ struct MarketplaceAgentDetailView: View {
     /// the source of truth.
     let initialAgent: MarketplaceAgentDTO
     @ObservedObject var viewModel: MarketplaceScreenViewModel
+    @State private var showMcpSheet: Bool = false
 
     init(agent: MarketplaceAgentDTO, viewModel: MarketplaceScreenViewModel) {
         self.initialAgent = agent
@@ -333,6 +334,26 @@ struct MarketplaceAgentDetailView: View {
                                 .foregroundStyle(LumoColors.labelTertiary)
                         }
                     }
+                } else if agent.requiresMcpToken {
+                    Button {
+                        showMcpSheet = true
+                    } label: {
+                        Text("Connect with token")
+                            .font(LumoFonts.bodyEmphasized)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .foregroundStyle(LumoColors.background)
+                            .background(Capsule().fill(LumoColors.cyan))
+                    }
+                    .accessibilityIdentifier("marketplace.detail.connectMcp")
+                    .disabled(viewModel.mcpConnectingAgentID == agent.agent_id)
+                    if let success = viewModel.mcpConnectSuccessAgentID,
+                       success == agent.agent_id {
+                        Text("Connected. Manage from Settings → Connections.")
+                            .font(LumoFonts.caption)
+                            .foregroundStyle(LumoColors.success)
+                            .accessibilityIdentifier("marketplace.detail.mcpSuccess")
+                    }
                 } else if agent.requiresOAuth && !agent.isInstalled {
                     VStack(alignment: .leading, spacing: LumoSpacing.xs) {
                         Text("Connect via web for now")
@@ -376,6 +397,24 @@ struct MarketplaceAgentDetailView: View {
         .background(LumoColors.background.ignoresSafeArea())
         .navigationTitle(agent.display_name)
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showMcpSheet) {
+            McpConnectSheet(
+                agent: agent,
+                viewModel: viewModel,
+                onDismiss: { showMcpSheet = false }
+            )
+        }
+        .onChange(of: viewModel.mcpConnectSuccessAgentID) { _, newValue in
+            // Auto-clear the success banner after a short window
+            // so it doesn't loiter once the user has acknowledged.
+            guard newValue == agent.agent_id else { return }
+            Task {
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                if viewModel.mcpConnectSuccessAgentID == agent.agent_id {
+                    viewModel.clearMcpConnectSuccess()
+                }
+            }
+        }
     }
 
     private func handleInstallTap() {

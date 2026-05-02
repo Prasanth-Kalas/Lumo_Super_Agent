@@ -217,6 +217,12 @@ struct MarketplaceAgentDTO: Codable, Equatable, Identifiable {
 
     var requiresOAuth: Bool { connect_model == "oauth2" }
 
+    /// True for MCP servers that use bearer-token auth — the only
+    /// MCP connect model we ship on iOS today (mirrors web's Phase 1
+    /// token-paste path). MCP OAuth (`mcp_oauth`) lands when the
+    /// dynamic-client-registration flow ships on the server side.
+    var requiresMcpToken: Bool { connect_model == "mcp_bearer" }
+
     var category: String? { listing?.category }
 
     init(
@@ -444,6 +450,9 @@ protocol DrawerScreensFetching: AnyObject {
     /// `extra.onboarded_at` on the user_profile so the next
     /// /onboarding visit redirects out; iOS uses the same field.
     func markUserOnboarded(via: String) async throws
+    /// IOS-MCP-CONNECT-1 — paste-bearer connect for MCP servers.
+    /// Mirrors web's POST /api/mcp/connections {server_id, access_token}.
+    func connectMcpServer(serverID: String, accessToken: String) async throws
 }
 
 /// PATCH body for `/api/memory/profile`. Only fields the iOS-v1 edit
@@ -517,6 +526,35 @@ final class DrawerScreensClient: DrawerScreensFetching {
 
     func fetchHistory(limitSessions: Int = 30) async throws -> HistoryResponseDTO {
         try await get(path: "api/history?limit_sessions=\(limitSessions)", as: HistoryResponseDTO.self)
+    }
+
+    func connectMcpServer(serverID: String, accessToken: String) async throws {
+        guard !serverID.isEmpty else { throw DrawerScreensError.transport("missing server id") }
+        guard !accessToken.isEmpty else { throw DrawerScreensError.transport("missing access token") }
+        let url = baseURL.appendingPathComponent("api/mcp/connections")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let userID = userIDProvider(), !userID.isEmpty {
+            req.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let body: [String: Any] = [
+            "server_id": serverID,
+            "access_token": accessToken,
+        ]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw DrawerScreensError.transport("\(error)")
+        }
+        try Self.expectOK(response, data: data)
     }
 
     func markUserOnboarded(via: String) async throws {
@@ -789,6 +827,7 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
         .success(ConnectionsResponseDTO(connections: []))
     var disconnectResult: Result<Void, Error> = .success(())
     var markOnboardedResult: Result<Void, Error> = .success(())
+    var connectMcpResult: Result<Void, Error> = .success(())
 
     private(set) var memoryFetchCount = 0
     private(set) var marketplaceFetchCount = 0
@@ -800,6 +839,7 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     private(set) var connectionsFetchCount = 0
     private(set) var disconnectCalls: [String] = []
     private(set) var markOnboardedCalls: [String] = []
+    private(set) var connectMcpCalls: [(serverID: String, accessToken: String)] = []
 
     func fetchMemory() async throws -> MemoryResponseDTO {
         memoryFetchCount += 1
@@ -876,6 +916,14 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     func markUserOnboarded(via: String) async throws {
         markOnboardedCalls.append(via)
         switch markOnboardedResult {
+        case .success: return
+        case .failure(let e): throw e
+        }
+    }
+
+    func connectMcpServer(serverID: String, accessToken: String) async throws {
+        connectMcpCalls.append((serverID, accessToken))
+        switch connectMcpResult {
         case .success: return
         case .failure(let e): throw e
         }

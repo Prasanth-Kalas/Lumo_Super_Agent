@@ -128,6 +128,11 @@ final class MarketplaceScreenViewModel: ObservableObject {
     /// Distinct from `state.error` which represents catalog-load
     /// failure — install failures don't blank the catalog.
     @Published var installError: String? = nil
+    /// IOS-MCP-CONNECT-1 — non-nil while a token-paste connect
+    /// is in flight for the given agent_id.
+    @Published var mcpConnectingAgentID: String? = nil
+    @Published var mcpConnectError: String? = nil
+    @Published var mcpConnectSuccessAgentID: String? = nil
 
     private let fetcher: DrawerScreensFetching
 
@@ -188,6 +193,56 @@ final class MarketplaceScreenViewModel: ObservableObject {
         } catch {
             installError = "Install failed. Please try again."
         }
+    }
+
+    /// IOS-MCP-CONNECT-1 — submit a paste-bearer token to the
+    /// MCP connections endpoint. Mirrors web's flow: derive
+    /// server_id by stripping the `mcp:` prefix from agent_id,
+    /// POST { server_id, access_token } and surface a one-shot
+    /// success or error. Catalog reload happens after success
+    /// so the agent's connection state can update if the server
+    /// includes it.
+    func connectMcp(agent: MarketplaceAgentDTO, token: String) async -> Bool {
+        guard mcpConnectingAgentID == nil else { return false }
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            mcpConnectError = "Paste the token first."
+            return false
+        }
+        let serverID: String = {
+            if agent.agent_id.hasPrefix("mcp:") {
+                return String(agent.agent_id.dropFirst("mcp:".count))
+            }
+            return agent.agent_id
+        }()
+        mcpConnectingAgentID = agent.agent_id
+        mcpConnectError = nil
+        defer { mcpConnectingAgentID = nil }
+        do {
+            try await fetcher.connectMcpServer(serverID: serverID, accessToken: trimmed)
+            mcpConnectSuccessAgentID = agent.agent_id
+            await load()
+            return true
+        } catch let e as DrawerScreensError {
+            switch e {
+            case .badStatus(let code):
+                mcpConnectError = "Connect failed (\(code)). Please check the token and try again."
+            case .decode, .transport:
+                mcpConnectError = "Network hiccup. Please try again."
+            case .oauthRequired, .unknownAgent, .unknownTrip, .tripAlreadyTerminal:
+                // Not reachable from MCP connect; route to a
+                // generic so the switch stays exhaustive.
+                mcpConnectError = "Connect failed. Please try again."
+            }
+            return false
+        } catch {
+            mcpConnectError = "Connect failed. Please try again."
+            return false
+        }
+    }
+
+    func clearMcpConnectSuccess() {
+        mcpConnectSuccessAgentID = nil
     }
 
     func _seedForTest(state: DrawerLoadState<[MarketplaceAgentDTO]>) {
