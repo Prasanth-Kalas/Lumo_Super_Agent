@@ -112,6 +112,10 @@ await t("voice_provider_compare migration has RLS and append-only guard", () => 
   }
   assert.match(migration056, /provider in \('deepgram','elevenlabs'\)/);
   assert.match(migration056, /direction in \('stt','tts'\)/);
+  assert.match(
+    migration056,
+    /voice_provider_compare_by_provider_direction_created[\s\S]*provider,\s*direction,\s*created_at desc/,
+  );
   assert.match(migration056, /alter table public\.voice_provider_compare enable row level security/);
   assert.match(migration056, /revoke all on public\.voice_provider_compare from anon, authenticated/);
   assert.match(migration056, /VOICE_PROVIDER_COMPARE_APPEND_ONLY/);

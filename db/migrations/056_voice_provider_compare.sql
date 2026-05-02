@@ -8,8 +8,7 @@
 -- Rollback:
 --   drop trigger if exists voice_provider_compare_append_only_guard on public.voice_provider_compare;
 --   drop function if exists public.voice_provider_compare_append_only();
---   drop index if exists public.voice_provider_compare_by_direction_created;
---   drop index if exists public.voice_provider_compare_by_provider_created;
+--   drop index if exists public.voice_provider_compare_by_provider_direction_created;
 --   drop index if exists public.voice_provider_compare_by_created;
 --   drop table if exists public.voice_provider_compare;
 
@@ -78,11 +77,14 @@ comment on column public.voice_provider_compare.error is
 create index if not exists voice_provider_compare_by_created
   on public.voice_provider_compare (created_at desc);
 
-create index if not exists voice_provider_compare_by_provider_created
-  on public.voice_provider_compare (provider, created_at desc);
+-- Earlier local drafts used separate provider/direction indexes. Drop them so
+-- rerunning this idempotent migration on staging converges to the final query
+-- shape requested for cutover dashboards.
+drop index if exists public.voice_provider_compare_by_provider_created;
+drop index if exists public.voice_provider_compare_by_direction_created;
 
-create index if not exists voice_provider_compare_by_direction_created
-  on public.voice_provider_compare (direction, created_at desc);
+create index if not exists voice_provider_compare_by_provider_direction_created
+  on public.voice_provider_compare (provider, direction, created_at desc);
 
 create or replace function public.voice_provider_compare_append_only()
 returns trigger

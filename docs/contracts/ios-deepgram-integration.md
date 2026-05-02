@@ -26,6 +26,8 @@ Refresh strategy:
 - Refresh immediately if Deepgram returns an expiry/auth error.
 - Keep the token in memory only.
 
+Reference: the endpoint details and error schema are frozen in `docs/contracts/deepgram-token.md`.
+
 ## STT: Nova-3 Streaming
 
 Endpoint:
@@ -75,15 +77,17 @@ Authorization: Bearer <temporary token from /api/audio/deepgram-token>
 Playback contract:
 
 - Deepgram emits chunked `linear16` PCM.
+- Expected chunks are variable-sized binary frames. iOS should enqueue any non-empty frame immediately rather than waiting for a preferred packet size.
 - Feed chunks into `AVAudioEngine` / `AVAudioPlayerNode` as they arrive.
 - Start playback on first valid audio chunk; do not wait for stream close.
+- End of stream is the WebSocket close after a `Close` command or provider normal-close event once all queued audio has drained.
 - Stop playback immediately on mute, barge-in, route change, or push-to-talk start.
 
 ## Error And Reconnect
 
 Network drop:
 
-- Reconnect silently with exponential backoff.
+- Reconnect silently with exponential backoff: 250ms, 500ms, 1000ms.
 - Try up to 3 reconnects for the current turn.
 - Refresh the token before retry if the token is older than 50 seconds or the close reason indicates auth expiry.
 - After 3 failures, show a user-visible toast and fall back to text mode for the turn.
@@ -98,6 +102,10 @@ Server token errors:
 - `401`: session expired; use the app's sign-in/session-refresh flow.
 - `429`: wait for `retry_after_seconds`.
 - `503`: voice unavailable; keep text mode working.
+
+## Push-To-Talk Doctrine
+
+The mode-pick rule is unchanged from `docs/doctrines/mic-vs-send-button.md`: listening always wins over text input. If STT is active, the composer affordance remains in the listen/send-stop state even when text is present.
 
 ## Privacy Rules
 

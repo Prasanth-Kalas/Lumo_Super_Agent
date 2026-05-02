@@ -14,7 +14,7 @@ Rate limit: 30 token grants per authenticated user/IP pair per 60 seconds. Over-
 
 Clients never receive `LUMO_DEEPGRAM_API_KEY`. They call this endpoint to receive a short-lived Deepgram bearer token suitable for realtime Listen/Speak connections.
 
-The server mints tokens with Deepgram's Auth Grant endpoint and a 60 second TTL. Deepgram grants these temporary tokens `usage:write` for core voice APIs; they are not Manage API keys.
+The server mints tokens with Deepgram's Auth Grant endpoint (`POST /v1/auth/grant`) and a 60 second TTL. Deepgram grants these temporary tokens `usage:write` for core voice APIs; they are not Manage API keys.
 
 ## Request
 
