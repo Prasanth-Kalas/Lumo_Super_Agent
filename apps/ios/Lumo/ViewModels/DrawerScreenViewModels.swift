@@ -307,6 +307,70 @@ final class HistoryScreenViewModel: ObservableObject {
     }
 }
 
+// MARK: - Connections (IOS-CONNECTIONS-1)
+
+@MainActor
+final class ConnectionsScreenViewModel: ObservableObject {
+    @Published var state: DrawerLoadState<[ConnectionMetaDTO]> = .idle
+    /// Non-nil while a disconnect call is in flight for that
+    /// connection_id. Drives the row's "Disconnecting…" affordance
+    /// + disabled button; gates concurrent taps.
+    @Published var disconnectingID: String? = nil
+    @Published var disconnectError: String? = nil
+
+    private let fetcher: DrawerScreensFetching
+
+    init(fetcher: DrawerScreensFetching) {
+        self.fetcher = fetcher
+    }
+
+    func load() async {
+        if case .loading = state { return }
+        state = .loading
+        do {
+            let resp = try await fetcher.fetchConnections()
+            state = .loaded(resp.connections)
+            disconnectError = nil
+        } catch {
+            state = .error(MemoryScreenViewModel.message(for: error))
+        }
+    }
+
+    /// Optimistically removes the connection from the loaded list
+    /// while the disconnect call is in flight; restores on failure.
+    /// System rows (id starts with `system:`) cannot be revoked
+    /// server-side and are gated out at the call site.
+    func disconnect(id: String) async {
+        guard disconnectingID == nil else { return }
+        guard !id.hasPrefix("system:") else { return }
+        guard case .loaded(let connections) = state,
+              let index = connections.firstIndex(where: { $0.id == id }) else { return }
+        let removed = connections[index]
+        var optimistic = connections
+        optimistic.remove(at: index)
+        state = .loaded(optimistic)
+        disconnectingID = id
+        disconnectError = nil
+        defer { disconnectingID = nil }
+        do {
+            try await fetcher.disconnectConnection(id: id)
+        } catch {
+            // Rollback at the same index so the user doesn't see
+            // their connection teleport on retry.
+            if case .loaded(var current) = state {
+                let safeIndex = min(index, current.count)
+                current.insert(removed, at: safeIndex)
+                state = .loaded(current)
+            }
+            disconnectError = MemoryScreenViewModel.message(for: error)
+        }
+    }
+
+    func _seedForTest(state: DrawerLoadState<[ConnectionMetaDTO]>) {
+        self.state = state
+    }
+}
+
 // MARK: - Time-since formatter
 
 /// Compact iOS-style "time since" formatter. Mirrors the contract of

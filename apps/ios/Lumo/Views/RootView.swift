@@ -47,6 +47,7 @@ struct RootView: View {
     @StateObject private var memoryViewModel: MemoryScreenViewModel
     @StateObject private var marketplaceViewModel: MarketplaceScreenViewModel
     @StateObject private var historyViewModel: HistoryScreenViewModel
+    @StateObject private var connectionsViewModel: ConnectionsScreenViewModel
     private let drawerScreensFetcher: DrawerScreensFetching
 
     @State private var path = NavigationPath()
@@ -114,6 +115,9 @@ struct RootView: View {
         )
         _historyViewModel = StateObject(
             wrappedValue: HistoryScreenViewModel(fetcher: drawerScreensFetcher)
+        )
+        _connectionsViewModel = StateObject(
+            wrappedValue: ConnectionsScreenViewModel(fetcher: drawerScreensFetcher)
         )
     }
 
@@ -241,6 +245,8 @@ struct RootView: View {
             // Not in EXPLORE today; reachable programmatically (e.g.
             // future Settings → Profile link, deep link from web).
             ProfileView()
+        case .connections:
+            ConnectionsView(viewModel: connectionsViewModel)
         }
     }
 

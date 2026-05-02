@@ -10,6 +10,13 @@ import Foundation
 /// Settings, Marketplace). `profile` and `receiptDetail` aren't in
 /// EXPLORE — they're pushed programmatically (notification deep-link
 /// for receipts, future Settings → Profile link for profile).
+///
+/// IOS-CONNECTIONS-1 added `connections` for the OAuth-status
+/// dashboard. It mirrors web's `/connections` route and is reachable
+/// from Marketplace context (where users learn about agents) — it's
+/// not yet in the drawer's EXPLORE list to keep the surface area
+/// scoped, but the destination is wired so deep-links + future
+/// drawer placement work without re-plumbing.
 enum DrawerDestination: Hashable {
     case workspace
     case trips
@@ -20,6 +27,7 @@ enum DrawerDestination: Hashable {
     case settings
     case marketplace
     case profile
+    case connections
 }
 
 /// One entry in the drawer's "Recent Chats" list.

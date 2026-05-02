@@ -47,6 +47,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             accountSection
+            connectionsSection
             securitySection
             paymentsSection
             voiceSection
@@ -127,6 +128,27 @@ struct SettingsView: View {
     }
 
     // MARK: - Payments
+
+    // MARK: - Connections (IOS-CONNECTIONS-1)
+
+    @ViewBuilder
+    private var connectionsSection: some View {
+        Section("Connections") {
+            // Pushes via the root NavigationStack's
+            // `navigationDestination(for: DrawerDestination.self)`
+            // handler so the same ConnectionsScreenViewModel instance
+            // is reused across drawer and Settings entry points.
+            NavigationLink(value: DrawerDestination.connections) {
+                HStack {
+                    Image(systemName: "link.circle")
+                        .foregroundStyle(LumoColors.cyanDeep)
+                        .frame(width: 26)
+                    Text("Connected apps")
+                }
+            }
+            .accessibilityIdentifier("settings.connections")
+        }
+    }
 
     @ViewBuilder
     private var paymentsSection: some View {

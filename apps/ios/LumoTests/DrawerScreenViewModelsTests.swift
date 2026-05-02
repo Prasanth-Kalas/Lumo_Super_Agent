@@ -756,6 +756,154 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         }
     }
 
+    // MARK: - IOS-CONNECTIONS-1
+
+    private static func makeConnection(
+        id: String = "conn-1",
+        agent_id: String = "lumo-google",
+        status: String = "active",
+        source: String? = "oauth",
+        scopes: [String] = ["calendar.read"]
+    ) -> ConnectionMetaDTO {
+        ConnectionMetaDTO(
+            id: id,
+            agent_id: agent_id,
+            display_name: "Lumo Google",
+            one_liner: "Reads your calendar.",
+            source: source,
+            status: status,
+            scopes: scopes,
+            expires_at: nil,
+            connected_at: "2026-04-30T10:00:00Z",
+            last_used_at: "2026-05-02T08:00:00Z",
+            revoked_at: nil,
+            updated_at: "2026-05-02T08:00:00Z"
+        )
+    }
+
+    func test_connectionsResponse_decodes_systemAndOauthRows() throws {
+        let json = """
+        {
+          "connections": [
+            {
+              "id": "system:lumo.flight",
+              "agent_id": "lumo.flight",
+              "display_name": "Lumo Flight",
+              "one_liner": "First-party.",
+              "source": "system",
+              "status": "active",
+              "scopes": ["system"],
+              "expires_at": null,
+              "connected_at": "2026-04-01T00:00:00Z",
+              "last_used_at": null,
+              "revoked_at": null,
+              "updated_at": "2026-04-01T00:00:00Z"
+            },
+            {
+              "id": "abc",
+              "agent_id": "lumo-google",
+              "source": "oauth",
+              "status": "active",
+              "scopes": ["calendar.read"],
+              "expires_at": "2026-06-01T00:00:00Z",
+              "connected_at": "2026-04-30T10:00:00Z",
+              "last_used_at": "2026-05-02T08:00:00Z",
+              "revoked_at": null,
+              "updated_at": "2026-05-02T08:00:00Z"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(ConnectionsResponseDTO.self, from: json)
+        XCTAssertEqual(decoded.connections.count, 2)
+        XCTAssertTrue(decoded.connections[0].isSystem)
+        XCTAssertFalse(decoded.connections[1].isSystem)
+        XCTAssertTrue(decoded.connections[1].isActive)
+    }
+
+    func test_connectionsVM_load_success_listsConnections() async {
+        let fake = FakeDrawerScreensFetcher()
+        let conn = Self.makeConnection()
+        fake.connectionsResult = .success(ConnectionsResponseDTO(connections: [conn]))
+        let vm = ConnectionsScreenViewModel(fetcher: fake)
+        await vm.load()
+        guard case .loaded(let list) = vm.state else {
+            return XCTFail("expected loaded; got \(vm.state)")
+        }
+        XCTAssertEqual(list.count, 1)
+        XCTAssertEqual(fake.connectionsFetchCount, 1)
+    }
+
+    func test_connectionsVM_load_failure_surfacesError() async {
+        let fake = FakeDrawerScreensFetcher()
+        fake.connectionsResult = .failure(DrawerScreensError.badStatus(503))
+        let vm = ConnectionsScreenViewModel(fetcher: fake)
+        await vm.load()
+        guard case .error = vm.state else {
+            return XCTFail("expected error; got \(vm.state)")
+        }
+    }
+
+    func test_connectionsVM_disconnect_success_optimisticallyRemoves() async {
+        let fake = FakeDrawerScreensFetcher()
+        let a = Self.makeConnection(id: "a", agent_id: "lumo-google")
+        let b = Self.makeConnection(id: "b", agent_id: "lumo-stripe")
+        fake.connectionsResult = .success(ConnectionsResponseDTO(connections: [a, b]))
+        let vm = ConnectionsScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.disconnect(id: "a")
+
+        XCTAssertEqual(fake.disconnectCalls, ["a"])
+        XCTAssertNil(vm.disconnectingID)
+        XCTAssertNil(vm.disconnectError)
+        guard case .loaded(let remaining) = vm.state else {
+            return XCTFail("expected loaded; got \(vm.state)")
+        }
+        XCTAssertEqual(remaining.map(\.id), ["b"])
+    }
+
+    func test_connectionsVM_disconnect_failure_restoresAtSameIndex() async {
+        let fake = FakeDrawerScreensFetcher()
+        let conns = [
+            Self.makeConnection(id: "a"),
+            Self.makeConnection(id: "b"),
+            Self.makeConnection(id: "c"),
+        ]
+        fake.connectionsResult = .success(ConnectionsResponseDTO(connections: conns))
+        fake.disconnectResult = .failure(DrawerScreensError.transport("offline"))
+        let vm = ConnectionsScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.disconnect(id: "b")
+
+        guard case .loaded(let restored) = vm.state else {
+            return XCTFail("loaded state must survive disconnect failure")
+        }
+        XCTAssertEqual(restored.map(\.id), ["a", "b", "c"], "rolled-back row must return to its original slot")
+        XCTAssertNotNil(vm.disconnectError)
+    }
+
+    func test_connectionsVM_disconnect_systemRow_isNoOp() async {
+        let fake = FakeDrawerScreensFetcher()
+        let sys = Self.makeConnection(id: "system:lumo.flight", source: "system")
+        fake.connectionsResult = .success(ConnectionsResponseDTO(connections: [sys]))
+        let vm = ConnectionsScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.disconnect(id: "system:lumo.flight")
+
+        XCTAssertTrue(fake.disconnectCalls.isEmpty, "must not POST disconnect for system rows")
+    }
+
+    func test_connectionsUI_statusStyle_branchesMatchWeb() {
+        XCTAssertEqual(ConnectionsUI.statusStyle("active").label, "active")
+        XCTAssertEqual(ConnectionsUI.statusStyle("expired").label, "expired")
+        XCTAssertEqual(ConnectionsUI.statusStyle("revoked").label, "revoked")
+        XCTAssertEqual(ConnectionsUI.statusStyle("error").label, "error")
+        XCTAssertEqual(ConnectionsUI.statusStyle("anything-else").label, "anything-else")
+    }
+
     // MARK: - 3. HistoryTimeFormatter
 
     func test_timeFormatter_under60s_isNow() {

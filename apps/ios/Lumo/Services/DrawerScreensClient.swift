@@ -281,6 +281,32 @@ struct CancelTripResultDTO: Codable, Equatable {
     let message: String?
 }
 
+/// IOS-CONNECTIONS-1 — mirror of web's ConnectionMeta shape from
+/// `GET /api/connections`. iOS-v1 renders status, scopes, source,
+/// connected/last-used timestamps, and a Disconnect action gated on
+/// source=="oauth" (system rows can't be revoked, matching web).
+struct ConnectionMetaDTO: Codable, Equatable, Identifiable {
+    let id: String
+    let agent_id: String
+    let display_name: String?
+    let one_liner: String?
+    let source: String?
+    let status: String
+    let scopes: [String]
+    let expires_at: String?
+    let connected_at: String
+    let last_used_at: String?
+    let revoked_at: String?
+    let updated_at: String
+
+    var isSystem: Bool { source == "system" }
+    var isActive: Bool { status == "active" }
+}
+
+struct ConnectionsResponseDTO: Codable, Equatable {
+    let connections: [ConnectionMetaDTO]
+}
+
 struct HistoryResponseDTO: Codable, Equatable {
     let sessions: [HistorySessionDTO]
     let trips: [HistoryTripDTO]
@@ -340,6 +366,13 @@ protocol DrawerScreensFetching: AnyObject {
     /// route doc). Returns the server's structured response so
     /// the UI can surface the right message + new status.
     func cancelTrip(id: String, reason: String?) async throws -> CancelTripResultDTO
+    /// IOS-CONNECTIONS-1 — list the user's connected agents
+    /// (OAuth + system) for the Connections drawer destination.
+    func fetchConnections() async throws -> ConnectionsResponseDTO
+    /// Revoke a specific connection. System connections (id prefix
+    /// `system:`) are not revocable on the server; iOS gates this
+    /// at the UI layer to avoid the 404 round-trip.
+    func disconnectConnection(id: String) async throws
 }
 
 /// PATCH body for `/api/memory/profile`. Only fields the iOS-v1 edit
@@ -413,6 +446,35 @@ final class DrawerScreensClient: DrawerScreensFetching {
 
     func fetchHistory(limitSessions: Int = 30) async throws -> HistoryResponseDTO {
         try await get(path: "api/history?limit_sessions=\(limitSessions)", as: HistoryResponseDTO.self)
+    }
+
+    func fetchConnections() async throws -> ConnectionsResponseDTO {
+        try await get(path: "api/connections", as: ConnectionsResponseDTO.self)
+    }
+
+    func disconnectConnection(id: String) async throws {
+        guard !id.isEmpty else { throw DrawerScreensError.transport("missing connection id") }
+        let url = baseURL.appendingPathComponent("api/connections/disconnect")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let userID = userIDProvider(), !userID.isEmpty {
+            req.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let body: [String: Any] = ["connection_id": id]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw DrawerScreensError.transport("\(error)")
+        }
+        try Self.expectOK(response, data: data)
     }
 
     func cancelTrip(id: String, reason: String?) async throws -> CancelTripResultDTO {
@@ -624,6 +686,9 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
             new_status: "draft",
             message: "Cancellation recorded."
         ))
+    var connectionsResult: Result<ConnectionsResponseDTO, Error> =
+        .success(ConnectionsResponseDTO(connections: []))
+    var disconnectResult: Result<Void, Error> = .success(())
 
     private(set) var memoryFetchCount = 0
     private(set) var marketplaceFetchCount = 0
@@ -632,6 +697,8 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     private(set) var forgetFactCalls: [String] = []
     private(set) var installAgentCalls: [String] = []
     private(set) var cancelTripCalls: [(id: String, reason: String?)] = []
+    private(set) var connectionsFetchCount = 0
+    private(set) var disconnectCalls: [String] = []
 
     func fetchMemory() async throws -> MemoryResponseDTO {
         memoryFetchCount += 1
@@ -685,6 +752,22 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
         cancelTripCalls.append((id, reason))
         switch cancelTripResult {
         case .success(let r): return r
+        case .failure(let e): throw e
+        }
+    }
+
+    func fetchConnections() async throws -> ConnectionsResponseDTO {
+        connectionsFetchCount += 1
+        switch connectionsResult {
+        case .success(let r): return r
+        case .failure(let e): throw e
+        }
+    }
+
+    func disconnectConnection(id: String) async throws {
+        disconnectCalls.append(id)
+        switch disconnectResult {
+        case .success: return
         case .failure(let e): throw e
         }
     }
