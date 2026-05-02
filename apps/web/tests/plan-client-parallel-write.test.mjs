@@ -6,10 +6,11 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { callPlan } from "../lib/lumo-ml/plan-client.ts";
+import { callPlan, normalizeSuggestions } from "../lib/lumo-ml/plan-client.ts";
 import {
   buildPlanCompareInsertRow,
   buildPlanRequest,
+  suggestionJaccard,
 } from "../lib/lumo-ml/plan-compare.ts";
 
 let pass = 0;
@@ -31,6 +32,10 @@ const oldSecret = process.env.LUMO_ML_SERVICE_JWT_SECRET;
 const oldMlUrl = process.env.LUMO_ML_AGENT_URL;
 const migration054 = readFileSync(
   "../../db/migrations/054_agent_plan_compare.sql",
+  "utf8",
+);
+const migration057 = readFileSync(
+  "../../db/migrations/057_agent_plan_compare_suggestions.sql",
   "utf8",
 );
 const orchestratorSource = readFileSync("lib/orchestrator.ts", "utf8");
@@ -64,18 +69,30 @@ await t("callPlan returns ok:true with latency and stub header detection", async
         {
           intent_bucket: "tool_path",
           planning_step: "clarification",
-          suggestions: [],
+          suggestions: [
+            { id: "s1", label: "Next weekend", value: "May 9 to May 11" },
+            { id: "s2", label: "In 2 weeks", value: "May 16 to May 18" },
+          ],
           system_prompt_addendum: null,
           compound_graph: null,
           profile_summary_hints: null,
         },
-        { headers: { "X-Lumo-Plan-Stub": "1" } },
+        {
+          headers: {
+            "X-Lumo-Plan-Stub": "1",
+            "X-Lumo-Suggestions-Source": "python",
+            "X-Lumo-Suggestions-Count": "2",
+          },
+        },
       );
     },
   });
   assert.equal(result.ok, true);
   assert.equal(result.was_stub, true);
+  assert.equal(result.suggestions_source, "python");
+  assert.equal(result.suggestions_count, 2);
   assert.equal(result.response.intent_bucket, "tool_path");
+  assert.equal(result.response.suggestions?.length, 2);
   assert.ok(result.latency_ms >= 0);
 });
 
@@ -138,6 +155,18 @@ await t("migration 054 declares schema, RLS, service-role grants, and append-onl
   assert.match(migration054, /AGENT_PLAN_COMPARE_APPEND_ONLY/);
 });
 
+await t("migration 057 adds suggestion comparison columns", () => {
+  for (const column of [
+    "suggestions_python",
+    "suggestions_ts",
+    "suggestions_jaccard",
+  ]) {
+    assert.match(migration057, new RegExp(`\\b${column}\\b`));
+  }
+  assert.match(migration057, /suggestions_jaccard >= 0/);
+  assert.match(migration057, /suggestions_jaccard <= 1/);
+});
+
 await t("buildPlanRequest carries bounded history and session approvals", () => {
   const request = buildPlanRequest({
     input: {
@@ -163,30 +192,45 @@ await t("buildPlanRequest carries bounded history and session approvals", () => 
       },
     ],
     planningStepHint: "selection",
+    lastAssistantMessage: "Pick cheapest, fastest, or nonstop.",
   });
   assert.equal(request.user_message, "book a flight");
   assert.equal(request.history?.[0]?.content.length, 2000);
   assert.equal(request.approvals?.[0]?.agent_id, "lumo-flights");
   assert.equal(request.planning_step_hint, "selection");
+  assert.equal(request.last_assistant_message, "Pick cheapest, fastest, or nonstop.");
 });
 
 await t("comparison row preserves TS authority and records Python error/stub outcomes", () => {
   const okRow = buildPlanCompareInsertRow({
-    planPromise: Promise.resolve({ ok: false, error: "unused", latency_ms: 0 }),
+    request: baseReq,
     sessionId: "sess row",
     turnId: "turn row",
     userId: "00000000-0000-0000-0000-000000000001",
     tsIntentBucket: "tool_path",
     tsPlanningStep: "selection",
     tsLatencyMs: 42,
+    tsSuggestions: {
+      kind: "assistant_suggestions",
+      turn_id: "turn_suggestions",
+      suggestions: [
+        { id: "s1", label: "Cheapest", value: "Cheapest" },
+        { id: "s2", label: "Fastest", value: "Fastest" },
+      ],
+    },
     pyResult: {
       ok: true,
       latency_ms: 103,
       was_stub: true,
+      suggestions_source: "python",
+      suggestions_count: 2,
       response: {
         intent_bucket: "tool_path",
         planning_step: "clarification",
-        suggestions: [],
+        suggestions: [
+          { id: "s1", label: "Cheapest", value: "Cheapest" },
+          { id: "s2", label: "Nonstop only", value: "Nonstop only" },
+        ],
         system_prompt_addendum: null,
         compound_graph: null,
         profile_summary_hints: null,
@@ -198,26 +242,86 @@ await t("comparison row preserves TS authority and records Python error/stub out
   assert.equal(okRow.agreement_step, false);
   assert.equal(okRow.py_was_stub, true);
   assert.equal(okRow.ts_latency_ms, 42);
+  assert.deepEqual(okRow.suggestions_ts, ["Cheapest", "Fastest"]);
+  assert.deepEqual(okRow.suggestions_python, ["Cheapest", "Nonstop only"]);
+  assert.equal(okRow.suggestions_jaccard, 1 / 3);
 
   const errorRow = buildPlanCompareInsertRow({
-    planPromise: Promise.resolve({ ok: false, error: "unused", latency_ms: 0 }),
+    request: baseReq,
     sessionId: "sess_error",
     turnId: "turn_error",
     userId: null,
     tsIntentBucket: "reasoning_path",
     tsPlanningStep: null,
     tsLatencyMs: 7,
+    tsSuggestions: null,
     pyResult: { ok: false, error: "timeout", latency_ms: 701 },
   });
   assert.equal(errorRow.py_error, "timeout");
   assert.equal(errorRow.py_was_stub, null);
   assert.equal(errorRow.agreement_bucket, null);
+  assert.deepEqual(errorRow.suggestions_ts, []);
+  assert.deepEqual(errorRow.suggestions_python, []);
+  assert.equal(errorRow.suggestions_jaccard, null);
+});
+
+await t("missing and empty Python suggestions collapse to the same telemetry row", () => {
+  assert.deepEqual(normalizeSuggestions(undefined), []);
+  assert.deepEqual(normalizeSuggestions([]), []);
+  const base = {
+    request: baseReq,
+    sessionId: "sess_empty",
+    turnId: "turn_empty",
+    userId: null,
+    tsIntentBucket: "tool_path",
+    tsPlanningStep: "clarification",
+    tsLatencyMs: 12,
+    tsSuggestions: null,
+    pyResult: {
+      ok: true,
+      latency_ms: 30,
+      was_stub: false,
+      suggestions_source: "python",
+      suggestions_count: 0,
+      response: {
+        intent_bucket: "tool_path",
+        planning_step: "clarification",
+        system_prompt_addendum: null,
+        compound_graph: null,
+        profile_summary_hints: null,
+      },
+    },
+  };
+  const missingRow = buildPlanCompareInsertRow(base);
+  const emptyRow = buildPlanCompareInsertRow({
+    ...base,
+    pyResult: {
+      ...base.pyResult,
+      response: {
+        ...base.pyResult.response,
+        suggestions: [],
+      },
+    },
+  });
+  assert.deepEqual(missingRow.suggestions_python, []);
+  assert.deepEqual(emptyRow.suggestions_python, []);
+  assert.equal(missingRow.suggestions_jaccard, null);
+  assert.equal(emptyRow.suggestions_jaccard, null);
+});
+
+await t("suggestion Jaccard handles exact, partial, and empty sets", () => {
+  assert.equal(suggestionJaccard(["A", "B"], ["A", "B"]), 1);
+  assert.equal(suggestionJaccard(["A", "B"], ["A", "C"]), 1 / 3);
+  assert.equal(suggestionJaccard([], ["A"]), 0);
+  assert.equal(suggestionJaccard([], []), null);
 });
 
 await t("orchestrator starts /plan recorder and flushes without awaiting it", () => {
   assert.match(orchestratorSource, /createPlanCompareRecorder/);
   assert.match(orchestratorSource, /planCompare\.captureTsIntent/);
   assert.match(orchestratorSource, /planCompare\.flush/);
+  assert.match(orchestratorSource, /assistantText:\s*assistantText\.trim\(\)/);
+  assert.match(orchestratorSource, /suggestions:\s*assistantSuggestions/);
   assert.doesNotMatch(orchestratorSource, /await\s+planCompare\.flush/);
 });
 

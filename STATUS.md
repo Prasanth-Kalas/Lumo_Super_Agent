@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Codex | Lumo_Super_Agent_codex | codex/plan-client-suggestions-wire-1 | 2026-05-02 | PLAN-CLIENT-SUGGESTIONS-WIRE-1 Python suggestion telemetry wiring |
 
 ## Closed lanes
 

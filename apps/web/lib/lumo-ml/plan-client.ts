@@ -7,6 +7,8 @@ export type PlanResponseResult =
       response: PlanResponse;
       latency_ms: number;
       was_stub: boolean;
+      suggestions_source: string | null;
+      suggestions_count: number | null;
     }
   | {
       ok: false;
@@ -82,6 +84,12 @@ export async function callPlan(
       response: parsed,
       latency_ms,
       was_stub: response.headers.get("x-lumo-plan-stub") === "1",
+      suggestions_source: normalizeHeaderValue(
+        response.headers.get("x-lumo-suggestions-source"),
+      ),
+      suggestions_count: normalizeCountHeader(
+        response.headers.get("x-lumo-suggestions-count"),
+      ),
     };
   } catch (error) {
     const name = error instanceof Error ? error.name : "plan_request_error";
@@ -149,7 +157,7 @@ function normalizePlanningStep(
   return null;
 }
 
-function normalizeSuggestions(value: unknown): PlanResponse["suggestions"] {
+export function normalizeSuggestions(value: unknown): PlanResponse["suggestions"] {
   if (!Array.isArray(value)) return [];
   const suggestions: Suggestion[] = [];
   for (const entry of value) {
@@ -169,6 +177,18 @@ function normalizeSuggestions(value: unknown): PlanResponse["suggestions"] {
     if (suggestions.length >= 4) break;
   }
   return suggestions as PlanResponse["suggestions"];
+}
+
+function normalizeHeaderValue(value: string | null): string | null {
+  const compact = value?.trim();
+  return compact ? compact.slice(0, 80) : null;
+}
+
+function normalizeCountHeader(value: string | null): number | null {
+  if (value === null) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.min(parsed, 4);
 }
 
 function elapsedMs(started: number, nowMs: () => number): number {

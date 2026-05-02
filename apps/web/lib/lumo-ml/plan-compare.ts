@@ -1,5 +1,6 @@
 import type { PlanRequest, PlanResponse } from "@lumo/shared-types";
 import { getSupabase } from "../db.ts";
+import type { AssistantSuggestionsFrameValue } from "../chat-suggestions.ts";
 import type { ChatMessage, OrchestratorInput } from "../orchestrator.ts";
 import type { PlanningStep } from "../chat-suggestions.ts";
 import type { AgentTimingBucket } from "../perf/timing-spans.ts";
@@ -20,12 +21,20 @@ export interface AgentPlanCompareRow {
   py_latency_ms: number | null;
   py_was_stub: boolean | null;
   py_error: string | null;
+  suggestions_python: string[];
+  suggestions_ts: string[];
+  suggestions_jaccard: number | null;
 }
 
 export interface PlanCompareRecorder {
   readonly request: PlanRequest;
   captureTsIntent(bucket: AgentTimingBucket, latencyMs: number): void;
-  flush(args: { turnId: string; planningStep?: PlanningStep | null }): void;
+  flush(args: {
+    turnId: string;
+    planningStep?: PlanningStep | null;
+    assistantText?: string | null;
+    suggestions?: AssistantSuggestionsFrameValue | null;
+  }): void;
 }
 
 interface CreatePlanCompareRecorderInput {
@@ -34,13 +43,14 @@ interface CreatePlanCompareRecorderInput {
 }
 
 interface WritePlanCompareInput {
-  planPromise: Promise<PlanResponseResult>;
+  request: PlanRequest;
   sessionId: string;
   turnId: string;
   userId: string | null;
   tsIntentBucket: AgentTimingBucket | null;
   tsPlanningStep: PlanningStep | null;
   tsLatencyMs: number | null;
+  tsSuggestions: AssistantSuggestionsFrameValue | null;
 }
 
 export function createPlanCompareRecorder({
@@ -48,7 +58,6 @@ export function createPlanCompareRecorder({
   approvals,
 }: CreatePlanCompareRecorderInput): PlanCompareRecorder {
   const request = buildPlanRequest({ input, approvals });
-  const planPromise = callPlan(request);
   let flushed = false;
   let tsIntentBucket: AgentTimingBucket | null = null;
   let tsLatencyMs: number | null = null;
@@ -59,17 +68,24 @@ export function createPlanCompareRecorder({
       tsIntentBucket = bucket;
       tsLatencyMs = Number.isFinite(latencyMs) ? Math.max(0, Math.round(latencyMs)) : null;
     },
-    flush({ turnId, planningStep }) {
+    flush({ turnId, planningStep, assistantText, suggestions }) {
       if (flushed) return;
       flushed = true;
+      const requestWithTurnContext = buildPlanRequest({
+        input,
+        approvals,
+        planningStepHint: planningStep ?? null,
+        lastAssistantMessage: assistantText ?? null,
+      });
       void writePlanCompareRow({
-        planPromise,
+        request: requestWithTurnContext,
         sessionId: input.session_id,
         turnId,
         userId: input.user_id && input.user_id !== "anon" ? input.user_id : null,
         tsIntentBucket,
         tsPlanningStep: planningStep ?? null,
         tsLatencyMs,
+        tsSuggestions: suggestions ?? null,
       }).catch((error) => {
         console.warn("[plan-compare] write failed", error);
       });
@@ -81,8 +97,10 @@ export function buildPlanRequest({
   input,
   approvals,
   planningStepHint = null,
+  lastAssistantMessage = null,
 }: CreatePlanCompareRecorderInput & {
   planningStepHint?: PlanningStep | null;
+  lastAssistantMessage?: string | null;
 }): PlanRequest {
   const lastUser =
     input.messages
@@ -96,13 +114,16 @@ export function buildPlanRequest({
     history: input.messages.slice(-24).map(toPlanChatTurn),
     approvals: approvals.slice(0, 64).map(toPlanApproval),
     planning_step_hint: planningStepHint,
+    last_assistant_message: lastAssistantMessage
+      ? truncate(lastAssistantMessage, 20_000)
+      : null,
   };
 }
 
 export async function writePlanCompareRow(
   input: WritePlanCompareInput,
 ): Promise<AgentPlanCompareRow> {
-  const pyResult = await input.planPromise;
+  const pyResult = await callPlan(input.request);
   const row = buildPlanCompareInsertRow({
     ...input,
     pyResult,
@@ -125,6 +146,10 @@ export function buildPlanCompareInsertRow(input: WritePlanCompareInput & {
   const pyPlanningStep = input.pyResult.ok
     ? input.pyResult.response.planning_step
     : null;
+  const suggestionsTs = suggestionLabelsFromAssistantFrame(input.tsSuggestions);
+  const suggestionsPython = input.pyResult.ok
+    ? suggestionLabelsFromPlanResponse(input.pyResult.response)
+    : [];
   return {
     session_id: sanitizeNoWhitespace(input.sessionId, 200),
     turn_id: sanitizeNoWhitespace(input.turnId, 240),
@@ -145,7 +170,60 @@ export function buildPlanCompareInsertRow(input: WritePlanCompareInput & {
     py_latency_ms: input.pyResult.latency_ms,
     py_was_stub: input.pyResult.ok ? input.pyResult.was_stub : null,
     py_error: input.pyResult.ok ? null : truncate(input.pyResult.error, 240),
+    suggestions_python: suggestionsPython,
+    suggestions_ts: suggestionsTs,
+    suggestions_jaccard: input.pyResult.ok
+      ? suggestionJaccard(suggestionsTs, suggestionsPython)
+      : null,
   };
+}
+
+export function suggestionLabelsFromAssistantFrame(
+  frame: AssistantSuggestionsFrameValue | null | undefined,
+): string[] {
+  return normalizeSuggestionLabels(frame?.suggestions ?? []);
+}
+
+export function suggestionLabelsFromPlanResponse(
+  response: PlanResponse,
+): string[] {
+  return normalizeSuggestionLabels(response.suggestions ?? []);
+}
+
+export function suggestionJaccard(
+  tsSuggestions: string[],
+  pySuggestions: string[],
+): number | null {
+  const ts = new Set(tsSuggestions);
+  const py = new Set(pySuggestions);
+  if (ts.size === 0 && py.size === 0) return null;
+  let intersection = 0;
+  for (const label of ts) {
+    if (py.has(label)) intersection++;
+  }
+  const union = new Set([...ts, ...py]).size;
+  return union === 0 ? null : intersection / union;
+}
+
+function normalizeSuggestionLabels(
+  suggestions: Array<{ label?: unknown; value?: unknown }>,
+): string[] {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const suggestion of suggestions) {
+    const raw =
+      typeof suggestion.label === "string" && suggestion.label.trim()
+        ? suggestion.label
+        : typeof suggestion.value === "string"
+          ? suggestion.value
+          : "";
+    const label = truncate(raw.trim(), 120);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+    if (labels.length >= 4) break;
+  }
+  return labels;
 }
 
 function toPlanChatTurn(

@@ -1385,6 +1385,8 @@ async function runTurnInner(
   planCompare.flush({
     turnId: timing.requestId,
     planningStep: suggestionPlanningStep,
+    assistantText: assistantText.trim(),
+    suggestions: assistantSuggestions,
   });
 
   return {
