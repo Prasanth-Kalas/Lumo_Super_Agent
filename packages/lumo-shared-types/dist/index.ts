@@ -471,6 +471,7 @@ export interface PlanRequest {
    */
   approvals?: SessionAppApproval[];
   planning_step_hint?: ("clarification" | "selection" | "confirmation" | "post_booking") | null;
+  last_assistant_message?: string | null;
 }
 /**
  * Pre-bootstrapped per-session approval record. Mirrors

@@ -113,6 +113,15 @@ class PlanRequest(BaseModel):
     history: list[ChatTurn] = Field(default_factory=list, max_length=50)
     approvals: list[SessionAppApproval] = Field(default_factory=list, max_length=64)
     planning_step_hint: PlanningStep | None = None
+    last_assistant_message: str | None = Field(default=None, max_length=20_000)
+    """The assistant's text from the prior turn (or the current turn at
+    end-of-LLM call when the orchestrator wires up post-generation
+    /plan calls). Required input for suggestion-chip generation —
+    mirrors ``assistantText`` in
+    ``apps/web/lib/chat-suggestions.ts:buildAssistantSuggestions``.
+    ``None`` when no assistant text is yet available (cold-start /
+    pre-LLM /plan call); the brain returns ``suggestions=[]`` in that
+    case."""
 
 
 class PlanResponse(BaseModel):
