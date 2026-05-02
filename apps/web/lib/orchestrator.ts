@@ -80,6 +80,7 @@ import {
   type AgentTimingRecorder,
 } from "./perf/timing-spans.js";
 import { classifyIntent } from "./perf/intent-classifier.js";
+import { streamFastTurn } from "./perf/fast-turn.js";
 import {
   routeModelForIntent,
   toolsForModelRoute,
@@ -1031,7 +1032,120 @@ async function runTurnInner(
     let fallbackModelUsed: string | false = false;
     let response: Anthropic.Message;
     let streamedText = "";
-    try {
+
+    // Fast-provider branch (option 2 of the multi-provider lane).
+    // Only the FIRST iteration of a fast_path turn is Groq-eligible:
+    //   - i === 0: the user's prompt is fresh
+    //   - modelRoute.useFastProvider: classifier returned fast_path
+    //     with high confidence AND a Groq/Cerebras key is set
+    //   - tools are already disabled for fast_path so Groq's text
+    //     completion is sufficient
+    // On any failure the catch block falls through to the existing
+    // Anthropic Haiku fallback, so the user always gets a reply.
+    const useFastProviderThisPass = i === 0 && modelRoute.useFastProvider;
+    if (useFastProviderThisPass) {
+      try {
+        const fastStarted = Date.now();
+        const fastResult = await streamFastTurn({
+          system,
+          messages: [...messages, ...loopAssistantMessages].map((m) => ({
+            role: typeof m.role === "string" ? m.role : "user",
+            content:
+              typeof m.content === "string"
+                ? m.content
+                : JSON.stringify(m.content),
+          })) as Array<{ role: "system" | "user" | "assistant"; content: string }>,
+          onText: (delta) => {
+            assistantText += delta;
+            emit({ type: "text", value: delta });
+          },
+        });
+        modelUsed = `${fastResult.provider}:${fastResult.model}`;
+        emit({
+          type: "internal",
+          value: {
+            kind: "perf_fast_turn",
+            detail: {
+              provider: fastResult.provider,
+              model: fastResult.model,
+              latency_ms: fastResult.latencyMs,
+              input_tokens: fastResult.inputTokens,
+              output_tokens: fastResult.outputTokens,
+            },
+          },
+        });
+        // Synthesize an Anthropic.Message-shaped response so the
+        // rest of the loop (cost recording + termination) doesn't
+        // need a parallel code path. stop_reason="end_turn" + a
+        // single text block ensures the loop exits cleanly with
+        // no tool_use to handle.
+        response = {
+          id: `fast_${fastResult.provider}_${fastStarted}`,
+          type: "message",
+          role: "assistant",
+          model: modelUsed,
+          content: [{ type: "text", text: fastResult.text }],
+          stop_reason: "end_turn",
+          stop_sequence: null,
+          usage: {
+            input_tokens: fastResult.inputTokens,
+            output_tokens: fastResult.outputTokens,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            server_tool_use: null,
+            service_tier: null,
+          },
+        } as unknown as Anthropic.Message;
+        streamedText = fastResult.text;
+        // Skip the Anthropic call below for this iteration.
+        // The loop tail handles response/usage uniformly.
+        // eslint-disable-next-line no-inner-declarations
+        function noop() {}
+        noop();
+      } catch (fastError) {
+        // Log + fall through to Anthropic. We don't emit a fatal
+        // error frame because the fallback below will produce a
+        // valid reply.
+        emit({
+          type: "internal",
+          value: {
+            kind: "perf_fast_turn_fallback",
+            detail: {
+              error_code:
+                fastError instanceof Error ? fastError.name : "unknown_error",
+              error_message:
+                fastError instanceof Error
+                  ? fastError.message.slice(0, 240)
+                  : String(fastError).slice(0, 240),
+              fallback_model: modelRoute.model,
+            },
+          },
+        });
+        // Run the Anthropic path as if we never tried Groq.
+        const result = await createStreamingAnthropicMessage({
+          anthropic,
+          params: {
+            model: modelUsed,
+            max_tokens: 1024,
+            system: systemWithPromptCache,
+            ...(toolsForThisPass.length > 0 ? { tools: toolsForThisPass } : {}),
+            messages: [...messages, ...loopAssistantMessages],
+          },
+          recorder: timing,
+          model: modelUsed,
+          loopIndex: i,
+          promptCaching: true,
+          onText: (delta) => {
+            assistantText += delta;
+            emit({ type: "text", value: delta });
+          },
+        });
+        response = result.message;
+        streamedText = result.streamedText;
+      }
+      // Skip the standard try block below — we already have response.
+      // Fall through into the post-call accounting code below.
+    } else try {
       const result = await createStreamingAnthropicMessage({
         anthropic,
         params: {

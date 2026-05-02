@@ -10,6 +10,14 @@ export interface ModelRoute {
   confidence: number;
   classifierProvider: IntentClassification["provider"];
   reason: string;
+  /**
+   * True when the orchestrator should serve this turn through the
+   * Groq/Cerebras fast-turn helper rather than Anthropic. The
+   * orchestrator falls through to Anthropic (using `fallbackModel`)
+   * if the fast-turn call fails. Always false for `tool_path` and
+   * `reasoning_path` — those need Anthropic's tool-call envelope.
+   */
+  useFastProvider: boolean;
 }
 
 export function routeModelForIntent({
@@ -32,8 +40,19 @@ export function routeModelForIntent({
       confidence: classification.confidence,
       classifierProvider: classification.provider,
       reason: classification.reasoning,
+      useFastProvider: false,
     };
   }
+
+  // fast_path: fully Groq-eligible (no tools, just text). The
+  // orchestrator picks the actual fast-provider model from
+  // LUMO_GROQ_FAST_TURN_MODEL via fast-turn.ts.
+  // tool_path: stays on Anthropic Haiku — Groq's tool-call envelope
+  // is OpenAI-shaped and the orchestrator's tool loop expects
+  // Anthropic's tool_use blocks; bridging is its own lane.
+  const fastEligible =
+    bucket === "fast_path" &&
+    Boolean(process.env.LUMO_GROQ_API_KEY ?? process.env.LUMO_CEREBRAS_API_KEY);
 
   return {
     bucket,
@@ -43,6 +62,7 @@ export function routeModelForIntent({
     confidence: classification.confidence,
     classifierProvider: classification.provider,
     reason: classification.reasoning,
+    useFastProvider: fastEligible,
   };
 }
 

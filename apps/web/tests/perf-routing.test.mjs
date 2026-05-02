@@ -250,6 +250,75 @@ await t("model router maps buckets to Haiku fast path and Sonnet reasoning", () 
   });
   assert.equal(reasoning.model, "claude-sonnet-4-6");
   assert.equal(reasoning.toolsEnabled, true);
+  assert.equal(reasoning.useFastProvider, false);
+});
+
+await t("model router enables Groq fast provider only on fast_path with key set", () => {
+  const original = {
+    groq: process.env.LUMO_GROQ_API_KEY,
+    cerebras: process.env.LUMO_CEREBRAS_API_KEY,
+  };
+  try {
+    process.env.LUMO_GROQ_API_KEY = "groq-test-key";
+    delete process.env.LUMO_CEREBRAS_API_KEY;
+    const fastWithKey = routeModelForIntent({
+      classification: {
+        bucket: "fast_path",
+        confidence: 0.95,
+        reasoning: "simple",
+        provider: "groq",
+        model: "llama",
+        latencyMs: 20,
+        source: "provider",
+      },
+      defaultModel: "claude-sonnet-4-6",
+      fastModel: "claude-haiku-4-6",
+    });
+    assert.equal(fastWithKey.useFastProvider, true,
+      "fast_path with Groq key set must enable the fast-provider branch");
+    assert.equal(fastWithKey.fallbackModel, "claude-sonnet-4-6",
+      "fast-provider failure must still fall back to Anthropic");
+
+    delete process.env.LUMO_GROQ_API_KEY;
+    delete process.env.LUMO_CEREBRAS_API_KEY;
+    const fastNoKey = routeModelForIntent({
+      classification: {
+        bucket: "fast_path",
+        confidence: 0.95,
+        reasoning: "simple",
+        provider: "groq",
+        model: "llama",
+        latencyMs: 20,
+        source: "provider",
+      },
+      defaultModel: "claude-sonnet-4-6",
+      fastModel: "claude-haiku-4-6",
+    });
+    assert.equal(fastNoKey.useFastProvider, false,
+      "no Groq/Cerebras key → stay on Anthropic Haiku");
+
+    process.env.LUMO_GROQ_API_KEY = "groq-test-key";
+    const toolPath = routeModelForIntent({
+      classification: {
+        bucket: "tool_path",
+        confidence: 0.95,
+        reasoning: "needs a tool",
+        provider: "groq",
+        model: "llama",
+        latencyMs: 20,
+        source: "provider",
+      },
+      defaultModel: "claude-sonnet-4-6",
+      fastModel: "claude-haiku-4-6",
+    });
+    assert.equal(toolPath.useFastProvider, false,
+      "tool_path stays on Anthropic — Groq's tool-call envelope isn't bridged");
+  } finally {
+    if (original.groq !== undefined) process.env.LUMO_GROQ_API_KEY = original.groq;
+    else delete process.env.LUMO_GROQ_API_KEY;
+    if (original.cerebras !== undefined) process.env.LUMO_CEREBRAS_API_KEY = original.cerebras;
+    else delete process.env.LUMO_CEREBRAS_API_KEY;
+  }
 });
 
 await t("dashboard query helper computes phase and bucket percentiles", () => {
