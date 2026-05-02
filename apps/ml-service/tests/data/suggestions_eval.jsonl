@@ -1,0 +1,42 @@
+{"id": "clar-date-1", "planning_step": "clarification", "assistant_text": "Which dates work for you?", "expected_labels": ["Next weekend (May 9-11)", "In 2 weeks (May 16-18)", "Memorial Day weekend"]}
+{"id": "clar-date-2", "planning_step": "clarification", "assistant_text": "Got it. When are you thinking of traveling?", "expected_labels": ["Next weekend (May 9-11)", "In 2 weeks (May 16-18)", "Memorial Day weekend"]}
+{"id": "clar-date-3", "planning_step": "clarification", "assistant_text": "What's your travel window? Pick a weekend.", "expected_labels": ["Next weekend (May 9-11)", "In 2 weeks (May 16-18)", "Memorial Day weekend"]}
+{"id": "clar-airport-chi", "planning_step": "clarification", "assistant_text": "Which airport should I use?", "latest_user_message": "I'm flying out of Chicago", "expected_labels": ["Chicago O'Hare (ORD)", "Chicago Midway (MDW)", "Use either Chicago airport"]}
+{"id": "clar-airport-nyc", "planning_step": "clarification", "assistant_text": "What's your origin airport?", "latest_user_message": "Manhattan", "expected_labels": ["JFK", "LaGuardia (LGA)", "Newark (EWR)"]}
+{"id": "clar-airport-sf", "planning_step": "clarification", "assistant_text": "Which Bay Area airport — depart from where?", "latest_user_message": "san francisco", "expected_labels": ["San Francisco (SFO)", "Oakland (OAK)", "San Jose (SJC)"]}
+{"id": "clar-airport-region-via-arg", "planning_step": "clarification", "assistant_text": "Which city should I use?", "user_region": "nyc", "expected_labels": ["JFK", "LaGuardia (LGA)", "Newark (EWR)"]}
+{"id": "clar-trip-shape", "planning_step": "clarification", "assistant_text": "Should I look at one-way or round trip?", "expected_labels": ["Roundtrip, 1 passenger", "One-way, 1 passenger", "Roundtrip, 2 passengers"]}
+{"id": "clar-trip-shape-2", "planning_step": "clarification", "assistant_text": "What trip type works — round trip with a return flight?", "expected_labels": ["Roundtrip, 1 passenger", "One-way, 1 passenger", "Roundtrip, 2 passengers"]}
+{"id": "clar-traveler", "planning_step": "clarification", "assistant_text": "How many passengers should I plan for?", "expected_labels": ["Just me", "Two travelers", "Family of four"]}
+{"id": "clar-traveler-party-size", "planning_step": "clarification", "assistant_text": "What's the party size — how many people?", "expected_labels": ["Just me", "Two travelers", "Family of four"]}
+{"id": "clar-budget", "planning_step": "clarification", "assistant_text": "What budget should I work with? Tell me a price cap.", "expected_labels": ["Keep it lean", "Mid-range", "No hard limit"]}
+{"id": "clar-budget-cheap", "planning_step": "clarification", "assistant_text": "Do you want to go cheap or comfortable? What's the limit?", "expected_labels": ["Keep it lean", "Mid-range", "No hard limit"]}
+{"id": "clar-comfort", "planning_step": "clarification", "assistant_text": "What should I optimize for? Tell me your priority.", "expected_labels": ["Cheapest", "Fastest", "Most comfortable"]}
+{"id": "clar-comfort-prefer", "planning_step": "clarification", "assistant_text": "Would you prefer the cheapest or the fastest? Tell me what you'd choose.", "expected_labels": ["Cheapest", "Fastest", "Most comfortable"]}
+{"id": "clar-no-question-mark", "planning_step": "clarification", "assistant_text": "Got it, looking up flights now.", "expected_labels": []}
+{"id": "clar-free-text-identity", "planning_step": "clarification", "assistant_text": "What's your full name as it appears on your passport?", "expected_labels": []}
+{"id": "clar-free-text-dob", "planning_step": "clarification", "assistant_text": "What's your date of birth — pick from the calendar?", "expected_labels": []}
+{"id": "sel-1", "planning_step": "selection", "assistant_text": "Pick the option you like — cheapest, fastest, or nonstop?", "expected_labels": ["Cheapest", "Fastest", "Nonstop only"]}
+{"id": "sel-2", "planning_step": "selection", "assistant_text": "Choose between these offers.", "expected_labels": ["Cheapest", "Fastest", "Nonstop only"]}
+{"id": "sel-3", "planning_step": "selection", "assistant_text": "Which option do you want — nonstop only?", "expected_labels": ["Cheapest", "Fastest", "Nonstop only"]}
+{"id": "sel-4", "planning_step": "selection", "assistant_text": "Select an offer from the list.", "expected_labels": ["Cheapest", "Fastest", "Nonstop only"]}
+{"id": "sel-5", "planning_step": "selection", "assistant_text": "Cheapest or fastest?", "expected_labels": ["Cheapest", "Fastest", "Nonstop only"]}
+{"id": "sel-6", "planning_step": "selection", "assistant_text": "Pick one of these offers and I'll continue.", "expected_labels": ["Cheapest", "Fastest", "Nonstop only"]}
+{"id": "sel-7-no-keyword", "planning_step": "selection", "assistant_text": "Here are the results.", "expected_labels": []}
+{"id": "sel-8-no-keyword", "planning_step": "selection", "assistant_text": "I found seven flights — let me know.", "expected_labels": []}
+{"id": "conf-1", "planning_step": "confirmation", "assistant_text": "Ready to confirm the booking? Tap below.", "expected_labels": ["Confirm booking", "Different traveler", "Change dates", "Cancel"]}
+{"id": "conf-2", "planning_step": "confirmation", "assistant_text": "Final price is $342. Confirm and I'll book it.", "expected_labels": ["Confirm booking", "Different traveler", "Change dates", "Cancel"]}
+{"id": "conf-3", "planning_step": "confirmation", "assistant_text": "Tap to confirm or change the traveler.", "expected_labels": ["Confirm booking", "Different traveler", "Change dates", "Cancel"]}
+{"id": "conf-4", "planning_step": "confirmation", "assistant_text": "Payment ready. Confirm or cancel?", "expected_labels": ["Confirm booking", "Different traveler", "Change dates", "Cancel"]}
+{"id": "conf-5", "planning_step": "confirmation", "assistant_text": "I'll book this if you say go — confirm?", "expected_labels": ["Confirm booking", "Different traveler", "Change dates", "Cancel"]}
+{"id": "conf-6", "planning_step": "confirmation", "assistant_text": "Ready to change dates instead?", "expected_labels": ["Confirm booking", "Different traveler", "Change dates", "Cancel"]}
+{"id": "conf-7-no-keyword", "planning_step": "confirmation", "assistant_text": "All set, let me know.", "expected_labels": []}
+{"id": "conf-8-no-keyword", "planning_step": "confirmation", "assistant_text": "Your itinerary is set.", "expected_labels": []}
+{"id": "post-1", "planning_step": "post_booking", "assistant_text": "Booked! Confirmation incoming. What's next — hotel or ground transport?", "expected_labels": ["Book hotel", "Add ground transport", "Send to calendar"]}
+{"id": "post-2", "planning_step": "post_booking", "assistant_text": "Confirmed. Want me to send to calendar or add a hotel?", "expected_labels": ["Book hotel", "Add ground transport", "Send to calendar"]}
+{"id": "post-3", "planning_step": "post_booking", "assistant_text": "Booking confirmed. Receipt is in your inbox. Add ground transport next?", "expected_labels": ["Book hotel", "Add ground transport", "Send to calendar"]}
+{"id": "post-4", "planning_step": "post_booking", "assistant_text": "Confirmation number 3F4K2X. What's next?", "expected_labels": ["Book hotel", "Add ground transport", "Send to calendar"]}
+{"id": "post-5", "planning_step": "post_booking", "assistant_text": "Booked. I can also book a hotel for these dates.", "expected_labels": ["Book hotel", "Add ground transport", "Send to calendar"]}
+{"id": "post-6", "planning_step": "post_booking", "assistant_text": "Confirmation in your inbox — anything else? Receipt ready.", "expected_labels": ["Book hotel", "Add ground transport", "Send to calendar"]}
+{"id": "post-7-no-keyword", "planning_step": "post_booking", "assistant_text": "Have a good trip.", "expected_labels": []}
+{"id": "post-8-no-keyword", "planning_step": "post_booking", "assistant_text": "See you on the flight.", "expected_labels": []}
