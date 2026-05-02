@@ -8,17 +8,17 @@
  *      with mime "audio/mpeg", and feed chunks from the response's
  *      ReadableStream as they arrive. Playback starts as soon as
  *      the browser has enough buffered to begin (~one MP3 frame,
- *      typically 20-50KB for Turbo v2.5 at 128kbps).
+ *      typically 20-50KB for streamed MP3 at conversational bitrates).
  *
  *   2. Blob fallback — when MSE isn't supported (older Safari, some
  *      mobile browsers) or when the mime isn't acceptable, we buffer
  *      the full response to a Blob and play via object URL. Same
  *      user-visible behavior, just without the early-start benefit.
  *
- * Why audio/mpeg and not an ISO container (mp4/aac): ElevenLabs
- * emits raw MP3. MSE accepts MP3 in most browsers (Chrome, Edge,
- * Firefox). Safari desktop works; iOS Safari 17+ supports
- * ManagedMediaSource with audio/mpeg too. When detection says no,
+ * Why audio/mpeg and not an ISO container (mp4/aac): the provider route
+ * emits MP3 for broad browser compatibility. MSE accepts MP3 in most
+ * browsers (Chrome, Edge, Firefox). Safari desktop works; iOS Safari 17+
+ * supports ManagedMediaSource with audio/mpeg too. When detection says no,
  * we fall back — the user just waits for the buffer.
  *
  * Cancellation: `stop()` aborts the fetch reader, tears down the

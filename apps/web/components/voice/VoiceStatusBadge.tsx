@@ -13,7 +13,7 @@
  *   a glance, whether their cloned voice or a stock voice will be used.
  *   Showing only "Voice clone: on" without the engine name means a
  *   user with a pending_deletion clone, or one whose self-hosted
- *   engine has fallen back to ElevenLabs, gets misled. The badge
+ *   engine has fallen back to the stock provider, gets misled. The badge
  *   makes the actual TTS path visible.
  *
  * Variants are derived from props, not held internally — Codex VOICE-1
@@ -33,7 +33,7 @@ export type CloneStatus =
 export type TTSEngine =
   | "self_hosted_xtts"
   | "self_hosted_coqui"
-  | "elevenlabs_fallback"
+  | "provider_fallback"
   | "stock_voice"
   | "unknown";
 
@@ -65,7 +65,7 @@ function deriveBadge(props: VoiceStatusBadgeProps): BadgeView {
         label: "Voice clone active",
         tone: "ok",
         description:
-          ttsEngine === "elevenlabs_fallback"
+          ttsEngine === "provider_fallback"
             ? "Played back by our third-party fallback (self-hosted engine unavailable)."
             : "Played back by Lumo's self-hosted voice engine.",
       };

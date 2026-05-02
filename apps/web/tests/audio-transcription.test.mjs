@@ -36,10 +36,10 @@ await t("missing ML config returns stable not_configured fallback", async () => 
   });
   assert.equal(result.status, "not_configured");
   assert.equal(result.transcript, "");
-  assert.equal(result.model, "whisper-large-v3");
+  assert.equal(result.model, "nova-3");
 });
 
-await t("normalizes valid Whisper response", async () => {
+await t("normalizes valid Deepgram response", async () => {
   const result = normalizeTranscribeResponse(
     {
       status: "ok",
@@ -47,7 +47,7 @@ await t("normalizes valid Whisper response", async () => {
       segments: [{ start: 0, end: 1.4, text: " hello vegas ", speaker: "SPEAKER_00" }],
       language: "en",
       duration_s: 1.5,
-      model: "whisper-large-v3",
+      model: "nova-3",
       diarization: "ok",
     },
     42,
@@ -67,7 +67,7 @@ await t("preserves diarization not_configured warning", async () => {
     segments: [{ start: 0, end: 1.4, text: "hello vegas", speaker: null }],
     language: "en",
     duration_s: 1.5,
-    model: "whisper-large-v3",
+    model: "nova-3",
     diarization: "not_configured",
   });
   assert.equal(result?.status, "ok");

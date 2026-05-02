@@ -1,17 +1,15 @@
 /**
  * Static catalog of voices exposed to the user via the voice picker.
  *
- * We intentionally don't query ElevenLabs' /voices endpoint at runtime:
- *   - Their library has 1000+ voices, most not tuned for concierge use
+ * We intentionally don't query the provider voice list at runtime:
+ *   - Provider catalogs contain many voices not tuned for concierge use
  *   - We want curated copy ("thoughtful male friend") the API doesn't provide
  *   - Stable ids let us A/B test voice selections without a round trip
  *
- * To add or swap a voice: pick a voice from the ElevenLabs library
- * (app.elevenlabs.io/voice-library), copy its id, and add an entry
- * here with a hand-written description that reflects how it feels,
- * not what ElevenLabs' tags say. The description is what users read
- * when they're auditioning — make it sound like a character, not a
- * spec sheet.
+ * To add or swap a voice: pick a Deepgram Aura-2 voice id and add an
+ * entry here with a hand-written description that reflects how it feels.
+ * The description is what users read when they're auditioning — make it
+ * sound like a character, not a spec sheet.
  *
  * Preview text: deliberately a concierge-shaped sentence so users
  * audition the voice in the context they'll actually hear it in.
@@ -35,47 +33,19 @@ export interface VoiceOption {
 
 export const VOICE_CATALOG: VoiceOption[] = [
   {
-    id: "EXAVITQu4vr4xnSDxMaL",
-    name: "Sarah",
+    id: "aura-2-thalia-en",
+    name: "Thalia",
     description:
-      "Conversational and warm. Sounds like a friend texting you back — not reading a script. The new default for natural everyday chat.",
+      "Conversational and warm. Sounds like a capable friend walking you through the plan — natural, clear, and easy to trust.",
     character: "warm-female",
     default: true,
   },
   {
-    id: "21m00Tcm4TlvDq8ikWAM",
-    name: "Rachel",
+    id: "aura-2-orpheus-en",
+    name: "Orpheus",
     description:
-      "Calm and professional. Late-20s American female — a little more narrator-forward. Pick this if you want Lumo to sound composed and premium.",
-    character: "warm-female",
-  },
-  {
-    id: "XB0fDUnXU5powFXDhCwa",
-    name: "Charlotte",
-    description:
-      "Warm British female. Inviting, unhurried, a touch of dry humor. The voice of someone who has planned a thousand trips and enjoyed every one.",
-    character: "british-female",
-  },
-  {
-    id: "AZnzlk1XvdvUeBnXmlld",
-    name: "Domi",
-    description:
-      "Expressive and confident. Early-20s American female with range — can sound excited or measured depending on the turn.",
-    character: "youthful-female",
-  },
-  {
-    id: "ErXwobaYiN019PkySvjV",
-    name: "Antoni",
-    description:
-      "Thoughtful American male. 30s, calm, unhurried. A chill friend who happens to be excellent at logistics.",
+      "Measured and composed. A calm travel operator voice for confirmations, receipts, and high-stakes booking steps.",
     character: "warm-male",
-  },
-  {
-    id: "pNInz6obpgDQGBDnMUN5",
-    name: "Adam",
-    description:
-      "Deep and confident. 30s, authoritative without being stiff. The voice you want when Lumo says 'your trip is booked.'",
-    character: "deep-male",
   },
 ];
 

@@ -4,7 +4,7 @@
  * /admin (Overview) — at-a-glance operator view.
  *
  * Three cards: queue depth (pending submissions), app counts by
- * lifecycle status, env health (Supabase / ElevenLabs / Anthropic
+ * lifecycle status, env health (Supabase / voice provider / Anthropic
  * keys present). Click each card to drill into the relevant tab.
  *
  * Kept loose on data shape — different APIs, different errors,

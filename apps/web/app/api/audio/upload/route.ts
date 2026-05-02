@@ -1,5 +1,5 @@
 /**
- * /api/audio/upload — signed-URL pipeline for Whisper transcripts.
+ * /api/audio/upload — signed-URL pipeline for audio transcripts.
  *
  * The browser uploads audio directly to Supabase Storage, then calls
  * PATCH /api/audio/upload/[id] to finalize and transcribe. Lumo Core

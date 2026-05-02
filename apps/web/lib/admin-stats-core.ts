@@ -527,7 +527,10 @@ export function interpretBrainHealth(
   const service_jwt = readJwtStatus(upstream.service_jwt);
   const sandbox = readUpstreamStatus(upstream.sandbox);
   const modal = readUpstreamStatus(
-    upstream.modal_whisper ?? upstream.modal_clip ?? upstream.modal,
+    upstream.deepgram_transcription ??
+      upstream.modal_clip ??
+      upstream.modal_whisper ??
+      upstream.modal,
   );
 
   let status: BrainHealthSnapshot["status"];

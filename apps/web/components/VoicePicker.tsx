@@ -20,10 +20,10 @@
  *   - unavailable    → /api/tts returned 503 on first preview; show
  *                      a line telling the user premium TTS isn't
  *                      configured and the voice will only affect
- *                      things once the admin sets ELEVENLABS_API_KEY.
+ *                      things once the admin sets LUMO_DEEPGRAM_API_KEY.
  *
  * Only one preview plays at a time — starting a new preview stops
- * any in-flight one. Works with or without ElevenLabs configured;
+ * any in-flight one. Works with or without Deepgram configured;
  * when it's not, the preview button shows a polite unavailable
  * state instead of silently doing nothing.
  */
@@ -43,9 +43,9 @@ import {
 
 type PreviewState = "idle" | "loading" | "playing";
 // Three-valued diagnostic instead of a simple boolean: we split the
-// "not configured" case (admin hasn't plugged in ElevenLabs) from the
-// "upstream blip" case (proxy is wired up, but ElevenLabs itself is
-// refusing — billing issue, 402, or transient outage). Same fallback
+// "not configured" case (admin hasn't plugged in Deepgram) from the
+// "upstream blip" case (proxy is wired up, but the provider itself is
+// refusing — billing issue, quota, or transient outage). Same fallback
 // behavior; clearer copy so the operator isn't chasing a missing key
 // when the real problem is a declined card.
 type PremiumStatus = "available" | "not-configured" | "upstream-issue";
@@ -112,12 +112,12 @@ export default function VoicePicker() {
       if (!res.ok) {
         // Distinguish between the two failure classes so the banner
         // tells the operator what to actually do:
-        //   503 → ELEVENLABS_API_KEY isn't set, or upstream returned
+        //   503 → LUMO_DEEPGRAM_API_KEY isn't set, or upstream returned
         //         401 (which the proxy re-maps to 503). Admin config
         //         issue.
         //   everything else (502 upstream_error / upstream_unreachable,
-        //         5xx) → proxy is wired up but ElevenLabs itself is
-        //         refusing. Usually billing (402) or a brief outage.
+        //         5xx) → proxy is wired up but the provider itself is
+        //         refusing. Usually billing/quota or a brief outage.
         setPremiumStatus(res.status === 503 ? "not-configured" : "upstream-issue");
         setPreviewState("idle");
         setPreviewId(null);
@@ -151,12 +151,12 @@ export default function VoicePicker() {
       {premiumStatus === "not-configured" ? (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-[13px] text-amber-600 dark:text-amber-400">
           Premium voice previews aren&apos;t available — your admin
-          hasn&apos;t configured ElevenLabs yet. Pick a voice now and
+          hasn&apos;t configured Deepgram yet. Pick a voice now and
           it&apos;ll take effect once they do.
         </div>
       ) : premiumStatus === "upstream-issue" ? (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-[13px] text-amber-600 dark:text-amber-400">
-          Premium voice is temporarily unavailable — ElevenLabs refused
+          Premium voice is temporarily unavailable — the provider refused
           the request (often a billing or quota issue). Your admin can
           check the subscription; Lumo will pick it up as soon as
           upstream recovers.

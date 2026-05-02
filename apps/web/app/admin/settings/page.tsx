@@ -39,23 +39,18 @@ const LLM_MODELS = [
 ];
 
 const VOICE_PROVIDERS = [
-  { id: "elevenlabs", label: "ElevenLabs (current)" },
-  { id: "openai_realtime", label: "OpenAI Realtime (not wired yet)" },
+  { id: "deepgram", label: "Deepgram Aura-2 (current)" },
+  { id: "elevenlabs", label: "Legacy fallback (env flag only)" },
 ];
 
-const VOICE_MODELS_ELEVEN = [
-  { id: "eleven_turbo_v2_5", label: "Turbo v2.5 (fast, stable)" },
-  { id: "eleven_v3", label: "v3 (richest emotion, variable latency)" },
-  { id: "eleven_flash_v2_5", label: "Flash v2.5 (75ms, flatter)" },
-  { id: "eleven_multilingual_v2", label: "Multilingual v2" },
+const VOICE_MODELS_DEEPGRAM = [
+  { id: "aura-2-thalia-en", label: "Aura-2 Thalia (warm default)" },
+  { id: "aura-2-orpheus-en", label: "Aura-2 Orpheus (composed alternate)" },
 ];
 
 const VOICE_PRESETS = [
-  { id: "21m00Tcm4TlvDq8ikWAM", label: "Rachel — warm female (default)" },
-  { id: "EXAVITQu4vr4xnSDxMaL", label: "Bella — soft female" },
-  { id: "ErXwobaYiN019PkySvjV", label: "Antoni — calm male" },
-  { id: "VR6AewLTigWG4xSOukaG", label: "Arnold — strong male" },
-  { id: "pNInz6obpgDQGcFmaJgB", label: "Adam — deep male" },
+  { id: "aura-2-thalia-en", label: "Thalia — warm female (default)" },
+  { id: "aura-2-orpheus-en", label: "Orpheus — composed male" },
 ];
 
 export default function AdminSettingsPage() {
@@ -161,19 +156,19 @@ export default function AdminSettingsPage() {
       {/* ── Voice ────────────────────────────────────────── */}
       <Section
         title="Voice"
-        description="Provider, model, voice character, and tuning. Most users hear ElevenLabs Turbo v2.5 — change carefully and test."
+        description="Provider, model, voice character, and tuning. Most users hear Deepgram Aura-2 Thalia — change carefully and test."
       >
         <SelectRow
           label="Provider"
           options={VOICE_PROVIDERS}
-          value={String(settings.get("voice.provider") ?? "elevenlabs")}
+          value={String(settings.get("voice.provider") ?? "deepgram")}
           onSave={(v) => void save("voice.provider", v)}
           saving={savingKey === "voice.provider"}
         />
         <SelectRow
           label="Model"
-          options={VOICE_MODELS_ELEVEN}
-          value={String(settings.get("voice.model") ?? "eleven_turbo_v2_5")}
+          options={VOICE_MODELS_DEEPGRAM}
+          value={String(settings.get("voice.model") ?? "aura-2-thalia-en")}
           onSave={(v) => void save("voice.model", v)}
           saving={savingKey === "voice.model"}
         />
@@ -186,21 +181,21 @@ export default function AdminSettingsPage() {
         />
         <SliderRow
           label="Stability"
-          help="0 = expressive but unstable, 1 = monotone. 0.42 is the current default."
+          help="Legacy fallback tuning only. Deepgram Aura-2 ignores this knob."
           value={Number(settings.get("voice.stability") ?? 0.42)}
           onSave={(v) => void save("voice.stability", v)}
           saving={savingKey === "voice.stability"}
         />
         <SliderRow
           label="Similarity boost"
-          help="Higher locks the voice character harder. 0.8 holds Rachel as we loosen stability."
+          help="Legacy fallback tuning only. Deepgram Aura-2 ignores this knob."
           value={Number(settings.get("voice.similarity_boost") ?? 0.8)}
           onSave={(v) => void save("voice.similarity_boost", v)}
           saving={savingKey === "voice.similarity_boost"}
         />
         <SliderRow
           label="Style"
-          help="Emotional inference from punctuation. 0.55 is the current default; above 0.7 over-acts."
+          help="Legacy fallback tuning only. Deepgram Aura-2 ignores this knob."
           value={Number(settings.get("voice.style") ?? 0.55)}
           onSave={(v) => void save("voice.style", v)}
           saving={savingKey === "voice.style"}

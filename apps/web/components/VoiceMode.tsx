@@ -56,8 +56,8 @@ import {
 } from "@/lib/voice-emotion";
 
 // How long to honor a "premium TTS unavailable" verdict before
-// re-probing. Tuned for transient upstream issues (ElevenLabs 402
-// while billing bumps through, brief 5xx, network glitch) — 60 s is
+// re-probing. Tuned for transient upstream issues (quota, brief 5xx,
+// network glitch) — 60 s is
 // long enough to avoid thrash on every chunk, short enough to recover
 // within a single conversation once upstream heals.
 const PREMIUM_TTS_COOLDOWN_MS = 60_000;
@@ -281,8 +281,8 @@ export default function VoiceMode(props: VoiceModeProps) {
   // or non-2xx response. Crucially NOT a session-permanent lock: we
   // hold the "unavailable" verdict for `PREMIUM_TTS_COOLDOWN_MS` then
   // quietly re-probe on the next speech turn. This means a transient
-  // upstream blip (ElevenLabs 402/timeout, short outage) no longer
-  // condemns the rest of the session to browser TTS — we recover as
+  // upstream blip (timeout, quota, short outage) no longer condemns the
+  // rest of the session to browser TTS — we recover as
   // soon as the upstream does.
   const premiumStatusRef = useRef<"unknown" | "available" | "unavailable">(
     "unknown",
@@ -385,7 +385,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     };
   }, []);
 
-  // ─── Premium TTS (ElevenLabs via /api/tts) ────────────────────
+  // ─── Premium TTS (Deepgram via /api/tts) ──────────────────────
   //
   // Declared BEFORE the STT lifecycle because startListening needs
   // to call cancelTts() to stop any in-flight audio when the user

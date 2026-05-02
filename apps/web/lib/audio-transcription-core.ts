@@ -57,7 +57,7 @@ export async function transcribeAudioCore(args: {
     segments: [],
     language: args.input.language ?? null,
     duration_s: 0,
-    model: "whisper-large-v3",
+    model: "nova-3",
     diarization: args.input.speaker_diarization ? "not_configured" : "not_requested",
     source: "fallback" as const,
     latency_ms: Date.now() - started,
@@ -119,7 +119,7 @@ export function normalizeTranscribeResponse(
   const segments = normalizeSegments(body.segments);
   const language = typeof body.language === "string" ? body.language : null;
   const duration_s = finiteNumber(body.duration_s);
-  const model = typeof body.model === "string" && body.model ? body.model : "whisper-large-v3";
+  const model = typeof body.model === "string" && body.model ? body.model : "nova-3";
   const diarization = normalizeDiarization(body.diarization, segments);
   return {
     status,

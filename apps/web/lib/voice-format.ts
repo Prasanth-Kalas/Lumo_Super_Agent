@@ -71,9 +71,9 @@ export function toSpeakable(md: string): string {
   // Emoji sweep — keep it plain. (Rough unicode range for emoji.)
   s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "");
 
-  // Normalize prosody punctuation. ElevenLabs' `style` param leans on
-  // these for emotional cadence, so we KEEP them (the prior rule
-  // accidentally swallowed some into plain spaces):
+  // Normalize prosody punctuation. Modern neural TTS leans on these for
+  // emotional cadence, so we KEEP them (the prior rule accidentally
+  // swallowed some into plain spaces):
   //   "—"  em-dash   → "—"   (natural "take a breath" pause)
   //   "--" double-hy → "—"
   //   "..." or "…"   → "…"   (trailing-thought pause)

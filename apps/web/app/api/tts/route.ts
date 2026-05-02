@@ -4,44 +4,38 @@
  * Request body:  { text: string, voice_id?: string }
  * Response:
  *   200 audio/mpeg  — streamed MP3 audio, pipe straight into <audio>.
- *   503 json        — { reason: "elevenlabs_not_configured" } when
- *                     the ELEVENLABS_API_KEY env isn't set. The client
- *                     falls back to browser speechSynthesis.
- *   502 json        — upstream ElevenLabs failure.
+ *   503 json        — { reason: "tts_not_configured" } when no server-side
+ *                     provider key is set. The client falls back to browser
+ *                     speechSynthesis.
+ *   502 json        — upstream provider failure.
  *
- * Why proxy instead of calling ElevenLabs from the browser:
- *   - API key stays server-side. ElevenLabs tokens are usage-metered
- *     and we're not shipping them to every browser.
+ * Why proxy instead of calling the provider from the browser:
+ *   - API key stays server-side. Provider tokens are usage-metered and
+ *     we're not shipping them to every browser.
  *   - Rate-limiting + per-user throttling (TODO) can happen here.
- *   - Lets us swap providers later without touching the client —
- *     ElevenLabs today, OpenAI Realtime (Phase 3) tomorrow.
+ *   - Lets us swap providers without touching the client. Deepgram is the
+ *     default provider; the legacy provider remains behind LUMO_TTS_PROVIDER
+ *     for the seven-day cutover rollback window.
  *
- * Streaming: Upstream's /stream endpoint sends MP3 chunks as they
- * come out of the TTS model. We pipe `upstream.body` directly as
- * our ReadableStream — no buffering, no parsing. First byte in the
- * user's browser lands ~275ms after we start the request (Turbo
- * v2.5 model latency).
- *
- * Voice default: Rachel (21m00Tcm4TlvDq8ikWAM) — warm, professional
- * American female. Picked because it's the best all-rounder for a
- * concierge tone: authoritative enough for "your flight is booked",
- * friendly enough for "I found three options". Overridable per-call
- * via `voice_id` in the body.
- *
- * Model: eleven_turbo_v2_5 — reverted from the eleven_v3 trial
- * after users reported the v3 output was rushed and breaking up
- * mid-stream. Turbo v2.5 has a proven ~275 ms first-chunk latency
- * and very consistent prosody. If we want to re-trial v3 later,
- * flip the MODEL_ID constant back. Flash v2.5 (75 ms) is the
- * other one-liner if latency ever becomes more important than
- * expressiveness — the flatter delivery is the tradeoff.
+ * Streaming: Deepgram's REST Speak endpoint returns MP3 audio and supports
+ * progressive response bodies. We pipe the provider body directly to the
+ * browser and instrument the first emitted audio chunk for the cutover table.
  */
 
 import type { NextRequest } from "next/server";
+import { getServerUser } from "@/lib/auth";
 import { getSetting, isFeatureEnabled } from "@/lib/admin-settings";
 import {
+  DEFAULT_DEEPGRAM_TTS_VOICE,
+  deepgramSpeakRestUrl,
+  normalizeDeepgramVoice,
+} from "@/lib/deepgram";
+import {
+  instrumentAudioStream,
+  recordVoiceProviderCompare,
+} from "@/lib/voice-provider-compare";
+import {
   inferVoiceEmotion,
-  openAiEmotionInstructions,
   tuneVoiceForEmotion,
   type VoiceEmotion,
 } from "@/lib/voice-emotion";
@@ -52,39 +46,24 @@ export const dynamic = "force-dynamic";
 // Compile-time fallbacks. Admin-settings overrides win at runtime;
 // these are what the route uses if the DB is unreachable or the
 // settings rows are missing.
-const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"; // Rachel
-const DEFAULT_MODEL_ID = "eleven_turbo_v2_5";
+const DEFAULT_VOICE_ID = DEFAULT_DEEPGRAM_TTS_VOICE;
+const DEFAULT_MODEL_ID = DEFAULT_DEEPGRAM_TTS_VOICE;
 const DEFAULT_STABILITY = 0.42;
 const DEFAULT_SIMILARITY = 0.8;
 const DEFAULT_STYLE = 0.55;
-const DEFAULT_OPENAI_MODEL_ID = "gpt-4o-mini-tts";
-const DEFAULT_OPENAI_VOICE = "cedar";
-const OPENAI_VOICES = new Set([
-  "alloy",
-  "ash",
-  "ballad",
-  "cedar",
-  "coral",
-  "echo",
-  "fable",
-  "marin",
-  "nova",
-  "onyx",
-  "sage",
-  "shimmer",
-  "verse",
-]);
 
-// Hard caps so a runaway turn doesn't burn through the ElevenLabs
-// character quota. Speech at ~150wpm ≈ 13 chars/sec, so 5000 chars
-// is roughly a 6-minute monologue — longer than any reasonable
-// concierge turn should be.
+// Hard caps so a runaway turn doesn't burn through provider quota. Speech at
+// ~150wpm ≈ 13 chars/sec, so 5000 chars is roughly a six-minute monologue —
+// longer than any reasonable concierge turn should be.
 const MAX_TEXT_CHARS = 5000;
+const LEGACY_ELEVENLABS_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
+const LEGACY_ELEVENLABS_MODEL_ID = "eleven_turbo_v2_5";
 
 interface Body {
   text?: string;
   voice_id?: string;
   emotion?: VoiceEmotion;
+  session_id?: string;
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -116,12 +95,16 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
   }
 
+  const provider = normalizeProvider(process.env.LUMO_TTS_PROVIDER);
+  const deepgramApiKey = process.env.LUMO_DEEPGRAM_API_KEY;
   const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
-  const openAiApiKey = process.env.OPENAI_API_KEY;
-  if (!elevenLabsApiKey && !openAiApiKey) {
+  if (provider === "deepgram" && !deepgramApiKey) {
     // Graceful fallback signal — client reads this and flips to
     // speechSynthesis for the rest of the session.
     return json(503, { reason: "tts_not_configured" });
+  }
+  if (provider === "elevenlabs" && !elevenLabsApiKey) {
+    return json(503, { reason: "tts_legacy_not_configured" });
   }
 
   // Pull live config from admin_settings. The body's voice_id wins
@@ -143,6 +126,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   );
   const style = await getSetting<number>("voice.style", DEFAULT_STYLE);
   const emotion = parseEmotion(body.emotion) ?? inferVoiceEmotion(text);
+  const authedUser = await getServerUser().catch(() => null);
+  const sessionId =
+    typeof body.session_id === "string" && body.session_id.trim()
+      ? body.session_id.trim()
+      : null;
 
   const voiceId =
     typeof body.voice_id === "string" && body.voice_id.length > 0
@@ -151,11 +139,81 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const providerErrors: Array<{ provider: string; status?: number; reason: string }> = [];
 
-  if (elevenLabsApiKey) {
+  if (provider === "deepgram" && deepgramApiKey) {
+    const voice = normalizeDeepgramVoice(voiceId || modelId);
+    const startedAt = Date.now();
+    let upstream: Response;
+    try {
+      upstream = await fetch(deepgramSpeakRestUrl(voice), {
+        method: "POST",
+        headers: {
+          authorization: `Token ${deepgramApiKey}`,
+          "content-type": "application/json",
+          accept: "audio/mpeg",
+        },
+        body: JSON.stringify({ text }),
+      });
+    } catch (err) {
+      console.error("[tts] network error reaching Deepgram:", err);
+      providerErrors.push({ provider: "deepgram", reason: "network_error" });
+      void recordVoiceProviderCompare({
+        provider: "deepgram",
+        direction: "tts",
+        total_audio_ms: Date.now() - startedAt,
+        error: "network_error",
+        session_id: sessionId,
+        user_id: authedUser?.id ?? null,
+      });
+      upstream = null as unknown as Response;
+    }
+
+    if (upstream?.ok && upstream.body) {
+      return audio(
+        instrumentAudioStream(upstream.body, {
+          provider: "deepgram",
+          direction: "tts",
+          startedAt,
+          session_id: sessionId,
+          user_id: authedUser?.id ?? null,
+        }),
+        "deepgram",
+        emotion,
+      );
+    }
+
+    if (upstream) {
+      const errBody = await safeText(upstream);
+      console.error(
+        "[tts] Deepgram upstream error:",
+        upstream.status,
+        errBody.slice(0, 500),
+      );
+      providerErrors.push({
+        provider: "deepgram",
+        status: upstream.status,
+        reason: upstream.status === 401 ? "auth_failed" : "upstream_error",
+      });
+      void recordVoiceProviderCompare({
+        provider: "deepgram",
+        direction: "tts",
+        total_audio_ms: Date.now() - startedAt,
+        error: upstream.status === 401 ? "auth_failed" : "upstream_error",
+        session_id: sessionId,
+        user_id: authedUser?.id ?? null,
+      });
+    }
+  }
+
+  if (provider === "elevenlabs" && elevenLabsApiKey) {
+    const legacyVoiceId =
+      typeof voiceId === "string" && voiceId.length > 0
+        ? voiceId
+        : LEGACY_ELEVENLABS_VOICE_ID;
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(
-      voiceId,
+      legacyVoiceId,
     )}/stream?output_format=mp3_44100_128`;
 
+    const startedAt = Date.now();
     let upstream: Response;
     try {
       upstream = await fetch(url, {
@@ -167,7 +225,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         },
         body: JSON.stringify({
           text,
-          model_id: modelId,
+          model_id: modelId || LEGACY_ELEVENLABS_MODEL_ID,
           // Live from admin_settings. Defaults are the "warm friend"
           // baseline (stability 0.42, similarity 0.80, style 0.55) but
           // an operator can retune from /admin/settings without a
@@ -186,19 +244,37 @@ export async function POST(req: NextRequest): Promise<Response> {
         }),
       });
     } catch (err) {
-      console.error("[tts] network error reaching ElevenLabs:", err);
+      console.error("[tts] network error reaching legacy TTS provider:", err);
       providerErrors.push({ provider: "elevenlabs", reason: "network_error" });
+      void recordVoiceProviderCompare({
+        provider: "elevenlabs",
+        direction: "tts",
+        total_audio_ms: Date.now() - startedAt,
+        error: "network_error",
+        session_id: sessionId,
+        user_id: authedUser?.id ?? null,
+      });
       upstream = null as unknown as Response;
     }
 
     if (upstream?.ok && upstream.body) {
-      return audio(upstream.body, "elevenlabs", emotion);
+      return audio(
+        instrumentAudioStream(upstream.body, {
+          provider: "elevenlabs",
+          direction: "tts",
+          startedAt,
+          session_id: sessionId,
+          user_id: authedUser?.id ?? null,
+        }),
+        "elevenlabs",
+        emotion,
+      );
     }
 
     if (upstream) {
       const errBody = await safeText(upstream);
       console.error(
-        "[tts] ElevenLabs upstream error:",
+        "[tts] legacy TTS upstream error:",
         upstream.status,
         errBody.slice(0, 500),
       );
@@ -207,60 +283,18 @@ export async function POST(req: NextRequest): Promise<Response> {
         status: upstream.status,
         reason: upstream.status === 401 ? "auth_failed" : "upstream_error",
       });
-    }
-  }
-
-  if (openAiApiKey) {
-    const openAiModel =
-      process.env.OPENAI_TTS_MODEL?.trim() || DEFAULT_OPENAI_MODEL_ID;
-    const openAiVoice = pickOpenAiVoice(body.voice_id);
-    let upstream: Response;
-    try {
-      upstream = await fetch("https://api.openai.com/v1/audio/speech", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${openAiApiKey}`,
-          "content-type": "application/json",
-          accept: "audio/mpeg",
-        },
-        body: JSON.stringify({
-          model: openAiModel,
-          voice: openAiVoice,
-          input: text,
-          response_format: "mp3",
-          ...(openAiModel.startsWith("gpt-4o")
-            ? {
-                instructions: openAiEmotionInstructions(emotion),
-              }
-            : {}),
-        }),
-      });
-    } catch (err) {
-      console.error("[tts] network error reaching OpenAI TTS:", err);
-      providerErrors.push({ provider: "openai", reason: "network_error" });
-      upstream = null as unknown as Response;
-    }
-
-    if (upstream?.ok && upstream.body) {
-      return audio(upstream.body, "openai", emotion);
-    }
-
-    if (upstream) {
-      const errBody = await safeText(upstream);
-      console.error(
-        "[tts] OpenAI TTS upstream error:",
-        upstream.status,
-        errBody.slice(0, 500),
-      );
-      providerErrors.push({
-        provider: "openai",
-        status: upstream.status,
-        reason: upstream.status === 401 ? "auth_failed" : "upstream_error",
+      void recordVoiceProviderCompare({
+        provider: "elevenlabs",
+        direction: "tts",
+        total_audio_ms: Date.now() - startedAt,
+        error: upstream.status === 401 ? "auth_failed" : "upstream_error",
+        session_id: sessionId,
+        user_id: authedUser?.id ?? null,
       });
     }
   }
 
-  const hasConfiguredProvider = Boolean(elevenLabsApiKey || openAiApiKey);
+  const hasConfiguredProvider = provider === "deepgram" ? Boolean(deepgramApiKey) : Boolean(elevenLabsApiKey);
   return json(hasConfiguredProvider ? 502 : 503, {
     reason: hasConfiguredProvider
       ? "tts_providers_unavailable"
@@ -290,6 +324,12 @@ function audio(
   });
 }
 
+function normalizeProvider(value: unknown): "deepgram" | "elevenlabs" {
+  return typeof value === "string" && value.toLowerCase() === "elevenlabs"
+    ? "elevenlabs"
+    : "deepgram";
+}
+
 function parseEmotion(value: unknown): VoiceEmotion | null {
   return value === "neutral" ||
     value === "warm" ||
@@ -298,15 +338,6 @@ function parseEmotion(value: unknown): VoiceEmotion | null {
     value === "celebratory"
     ? value
     : null;
-}
-
-function pickOpenAiVoice(requested: unknown): string {
-  if (typeof requested === "string" && OPENAI_VOICES.has(requested)) {
-    return requested;
-  }
-  const envVoice = process.env.OPENAI_TTS_VOICE?.trim();
-  if (envVoice && OPENAI_VOICES.has(envVoice)) return envVoice;
-  return DEFAULT_OPENAI_VOICE;
 }
 
 function json(status: number, body: unknown): Response {

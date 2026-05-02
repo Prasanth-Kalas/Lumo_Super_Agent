@@ -216,7 +216,7 @@ await t(
             status: "degraded",
             last_error: "E2B/Firecracker runtime is not configured",
           },
-          modal_whisper: { status: "ok" },
+          deepgram_transcription: { status: "ok" },
         },
       },
       fetched,
