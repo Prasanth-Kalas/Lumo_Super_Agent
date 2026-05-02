@@ -40,7 +40,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { startBargeInMonitor, type BargeInHandle } from "@/lib/barge-in";
 import { startWakeWord, type WakeWordHandle } from "@/lib/wake-word";
-import { playAudioStream, type StreamingAudioHandle } from "@/lib/streaming-audio";
+import {
+  createChunkedAudioPlayer,
+  type ChunkedAudioPlayer,
+} from "@/lib/streaming-audio";
 import { getSelectedVoiceId } from "@/lib/voice-catalog";
 import {
   nextSpeakableChunks,
@@ -288,9 +291,11 @@ export default function VoiceMode(props: VoiceModeProps) {
     "unknown",
   );
   const premiumUnavailableSinceRef = useRef<number>(0);
-  // Active streaming-audio handle for the in-flight premium TTS
-  // chunk, if any. Mute / cancel / barge-in call .stop() on it.
-  const activeStreamRef = useRef<StreamingAudioHandle | null>(null);
+  // Active premium TTS session for the in-flight assistant turn.
+  // Deepgram returns one MP3 response per sentence chunk; this
+  // player keeps a single MediaSource alive and appends every chunk
+  // before ending the stream. Mute / cancel / barge-in call .stop().
+  const activeStreamRef = useRef<ChunkedAudioPlayer | null>(null);
   // Keep the current browser-native utterance strongly referenced.
   // Some WebKit/Chromium builds can garbage-collect a local-only
   // SpeechSynthesisUtterance before it speaks, which presents as
@@ -317,6 +322,7 @@ export default function VoiceMode(props: VoiceModeProps) {
   interface TtsQueueEntry {
     text: string;
     onEnd?: () => void;
+    final?: boolean;
   }
   const ttsQueueRef = useRef<TtsQueueEntry[]>([]);
   const ttsWorkerRunningRef = useRef<boolean>(false);
@@ -341,13 +347,6 @@ export default function VoiceMode(props: VoiceModeProps) {
   useEffect(() => {
     enabledRef.current = enabled;
   }, [enabled]);
-
-  const hasUnspokenTail = useCallback(() => {
-    return lastSpokenTextRef.current
-      .slice(spokenSoFarRef.current)
-      .trim()
-      .length > 0;
-  }, []);
 
   // J5 — barge-in: a second mic pipeline that stays open while TTS is
   // playing. When it detects user speech, we cancel TTS and pivot to
@@ -389,16 +388,15 @@ export default function VoiceMode(props: VoiceModeProps) {
   //
   // Declared BEFORE the STT lifecycle because startListening needs
   // to call cancelTts() to stop any in-flight audio when the user
-  // begins speaking. The six functions below (playPremiumTts,
-  // stopPremiumAudio, playOneChunk, runTtsWorker, enqueueTts,
-  // cancelTts) are all useCallback-stable refs so the dependency
-  // arrays downstream don't trigger unnecessary re-renders.
-  const playPremiumTts = useCallback(
+  // begins speaking. The functions below are all useCallback-stable
+  // refs so the dependency arrays downstream don't trigger
+  // unnecessary re-renders.
+  const appendPremiumTts = useCallback(
     async (
       text: string,
       emotion: VoiceEmotion,
       onStart: () => void,
-    ): Promise<"played" | "unavailable" | "aborted"> => {
+    ): Promise<"appended" | "unavailable" | "aborted"> => {
       if (typeof window === "undefined") return "unavailable";
 
       if (premiumStatusRef.current === "unavailable") {
@@ -433,6 +431,14 @@ export default function VoiceMode(props: VoiceModeProps) {
       }
 
       if (!res.ok || !res.body) {
+        if (res.status === 503) {
+          const payload = (await res.json().catch(() => null)) as {
+            retryable?: unknown;
+          } | null;
+          if (payload?.retryable === true) {
+            setErrorMessage("Voice unavailable — chat continues");
+          }
+        }
         console.info(
           "[voice] premium TTS unavailable (status",
           res.status + "), using browser fallback; will re-probe in",
@@ -450,26 +456,19 @@ export default function VoiceMode(props: VoiceModeProps) {
       );
       setCurrentEmotion(responseEmotion ?? inferVoiceEmotion(text));
 
-      return new Promise<"played" | "unavailable" | "aborted">((resolve) => {
-        let handle: StreamingAudioHandle;
+      let handle = activeStreamRef.current;
+      if (!handle) {
         try {
-          handle = playAudioStream(res, {
+          handle = createChunkedAudioPlayer({
             onStart: () => onStart(),
             onEnd: (reason) => {
               if (activeStreamRef.current === handle) {
                 activeStreamRef.current = null;
               }
-              if (reason === "played") {
-                resolve("played");
-                return;
+              if (reason === "error") {
+                premiumStatusRef.current = "unavailable";
+                premiumUnavailableSinceRef.current = Date.now();
               }
-              if (reason === "stopped") {
-                resolve("aborted");
-                return;
-              }
-              premiumStatusRef.current = "unavailable";
-              premiumUnavailableSinceRef.current = Date.now();
-              resolve("unavailable");
             },
           });
           activeStreamRef.current = handle;
@@ -477,9 +476,16 @@ export default function VoiceMode(props: VoiceModeProps) {
           console.warn("[voice] premium TTS playback failed, falling back:", err);
           premiumStatusRef.current = "unavailable";
           premiumUnavailableSinceRef.current = Date.now();
-          resolve("unavailable");
+          return "unavailable";
         }
-      });
+      }
+
+      const appended = await handle.appendResponse(res);
+      if (appended === "appended") return "appended";
+      if (appended === "stopped") return "aborted";
+      premiumStatusRef.current = "unavailable";
+      premiumUnavailableSinceRef.current = Date.now();
+      return "unavailable";
     },
     [],
   );
@@ -498,22 +504,48 @@ export default function VoiceMode(props: VoiceModeProps) {
     activeStreamRef.current = null;
   }, []);
 
-  // Play ONE chunk to completion. Tries premium first, falls back
-  // to speechSynthesis only on premium failure. Resolves ONLY when
-  // the audio has actually finished — runTtsWorker depends on that
-  // to serialize. Never call this from a render effect directly;
-  // enqueue via enqueueTts().
+  const finishPremiumAudio = useCallback(async () => {
+    const h = activeStreamRef.current;
+    if (!h) return "played" as const;
+    const reason = await h.finish();
+    if (activeStreamRef.current === h) {
+      activeStreamRef.current = null;
+    }
+    if (reason === "played") return "played" as const;
+    if (reason === "stopped") return "aborted" as const;
+    premiumStatusRef.current = "unavailable";
+    premiumUnavailableSinceRef.current = Date.now();
+    return "unavailable" as const;
+  }, []);
+
+  // Append ONE chunk to the premium stream. Non-final premium chunks
+  // resolve as soon as their bytes are appended so later chunks can
+  // pre-buffer before playback reaches the boundary. The final chunk
+  // (or final sentinel) waits for natural playback end. Browser TTS
+  // fallback remains sequential.
   const playOneChunk = useCallback(
-    async (text: string, onStart: () => void): Promise<void> => {
+    async (text: string, final: boolean, onStart: () => void): Promise<void> => {
+      if (!text.trim() && final) {
+        await finishPremiumAudio();
+        return;
+      }
       if (!text.trim()) return;
       const speakable = toSpeakable(text);
-      if (!speakable.trim()) return;
+      if (!speakable.trim()) {
+        if (final) await finishPremiumAudio();
+        return;
+      }
       const emotion = inferVoiceEmotion(speakable);
       const prosody = browserProsodyForEmotion(emotion);
       setCurrentEmotion(emotion);
 
-      const premium = await playPremiumTts(speakable, emotion, onStart);
-      if (premium === "played" || premium === "aborted") return;
+      const premium = await appendPremiumTts(speakable, emotion, onStart);
+      if (premium === "appended") {
+        if (final) await finishPremiumAudio();
+        return;
+      }
+      if (premium === "aborted") return;
+      stopPremiumAudio();
 
       if (
         typeof window === "undefined" ||
@@ -620,7 +652,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         speak(true);
       });
     },
-    [playPremiumTts],
+    [appendPremiumTts, finishPremiumAudio, stopPremiumAudio],
   );
 
   // Drain the queue one chunk at a time. Each chunk carries its
@@ -649,7 +681,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         // pulled the entry. Check once more before spawning audio.
         if (myTurn !== ttsTurnIdRef.current) break;
 
-        await playOneChunk(next.text, () => {
+        await playOneChunk(next.text, Boolean(next.final), () => {
           // Guard the speaking state-set against a turn that was
           // cancelled mid-fetch. Without this, a cancelled chunk
           // whose fetch finally returned would flip state back to
@@ -679,9 +711,9 @@ export default function VoiceMode(props: VoiceModeProps) {
   }, [playOneChunk]);
 
   const enqueueTts = useCallback(
-    (text: string, onEnd?: () => void) => {
-      if (!text.trim()) return;
-      ttsQueueRef.current.push({ text, onEnd });
+    (text: string, onEnd?: () => void, final = false) => {
+      if (!text.trim() && !final) return;
+      ttsQueueRef.current.push({ text, onEnd, final });
       void runTtsWorker();
     },
     [runTtsWorker],
@@ -1279,43 +1311,18 @@ export default function VoiceMode(props: VoiceModeProps) {
     // tail-flush effect below.
     if (muted) return;
 
-    // Enqueue sentence-bounded chunks. Only the last chunk gets the
-    // state-transition callback, so long responses cannot cut off
-    // midway or restart listening between sentences.
-    // busyRef (not busy) so the state transition reflects the
-    // NOW-value when the callback actually runs, not the value
-    // captured when this chunk was enqueued.
-    chunks.forEach((chunk, index) =>
-      enqueueTts(
-        chunk,
-        index === chunks.length - 1
-          ? () => {
-              if (busyRef.current) {
-                setState("thinking");
-              } else if (hasUnspokenTail()) {
-                // A completed sentence finished before React's tail-flush
-                // effect had a chance to enqueue the final partial sentence.
-                // Don't restart the microphone yet, or Lumo can talk over
-                // its own tail and sound like it cut the sentence short.
-                setState("thinking");
-              } else if (wantHandsFreeRef.current && enabled) {
-                setState("idle");
-                scheduleHandsFreeListening();
-              } else {
-                setState("idle");
-              }
-            }
-          : undefined,
-      ),
-    );
+    // Enqueue sentence-bounded chunks as non-final appends. The
+    // tail-flush effect below is the only place that marks the
+    // stream final and lets MediaSource end. That prevents the
+    // first sentence's audio element from ending before sentence 2
+    // has a chance to append.
+    chunks.forEach((chunk) => enqueueTts(chunk));
   }, [
     spokenText,
     enabled,
     muted,
     enqueueTts,
     cancelTts,
-    hasUnspokenTail,
-    scheduleHandsFreeListening,
   ]);
 
   // Flush the tail once the agent turn ends (!busy) so we don't
@@ -1331,16 +1338,22 @@ export default function VoiceMode(props: VoiceModeProps) {
     const tail = spokenText.slice(spokenSoFarRef.current).trim();
     const tailChunks = finalSpeakableChunks(tail);
     if (tailChunks.length === 0) {
-      // Nothing to speak, but we may still need to resume the mic
-      // if all chunks are already done.
-      if (
-        !ttsWorkerRunningRef.current &&
-        wantHandsFreeRef.current &&
-        enabled
-      ) {
-        setState("idle");
-        scheduleHandsFreeListening();
-      }
+      // Nothing new to append, but an earlier sentence may still be
+      // playing from the open chunked MediaSource. Push a final
+      // sentinel through the same queue so endOfStream happens only
+      // after all previous appends drain.
+      enqueueTts(
+        "",
+        () => {
+          if (wantHandsFreeRef.current && enabled) {
+            setState("idle");
+            scheduleHandsFreeListening();
+          } else {
+            setState("idle");
+          }
+        },
+        true,
+      );
       return;
     }
 
@@ -1369,6 +1382,7 @@ export default function VoiceMode(props: VoiceModeProps) {
               }
             }
           : undefined,
+        index === tailChunks.length - 1,
       ),
     );
   }, [
@@ -1393,9 +1407,10 @@ export default function VoiceMode(props: VoiceModeProps) {
     if (state !== "speaking" && state !== "thinking") return;
     const noQueue = ttsQueueRef.current.length === 0;
     const noWorker = !ttsWorkerRunningRef.current;
+    const noPremiumAudio = activeStreamRef.current === null;
     const noRec = recognitionRef.current === null;
     const noRecorded = recorderRef.current === null;
-    if (noQueue && noWorker && noRec && noRecorded) {
+    if (noQueue && noWorker && noPremiumAudio && noRec && noRecorded) {
       setState("idle");
       if (wantHandsFreeRef.current) {
         scheduleHandsFreeListening();
@@ -1409,6 +1424,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     if (
       busy &&
       typeof window !== "undefined" &&
+      !activeStreamRef.current &&
       !window.speechSynthesis?.speaking
     ) {
       setState("thinking");

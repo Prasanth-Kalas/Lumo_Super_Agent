@@ -27,9 +27,13 @@ import { getServerUser } from "@/lib/auth";
 import { getSetting, isFeatureEnabled } from "@/lib/admin-settings";
 import {
   DEFAULT_DEEPGRAM_TTS_VOICE,
-  deepgramSpeakRestUrl,
   normalizeDeepgramVoice,
 } from "@/lib/deepgram";
+import {
+  deepgramRequestId,
+  fetchDeepgramSpeechWithRetry,
+  isRetryableDeepgramStatus,
+} from "@/lib/deepgram-tts-retry";
 import {
   instrumentAudioStream,
   recordVoiceProviderCompare,
@@ -142,30 +146,14 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (provider === "deepgram" && deepgramApiKey) {
     const voice = normalizeDeepgramVoice(voiceId || modelId);
     const startedAt = Date.now();
-    let upstream: Response;
-    try {
-      upstream = await fetch(deepgramSpeakRestUrl(voice), {
-        method: "POST",
-        headers: {
-          authorization: `Token ${deepgramApiKey}`,
-          "content-type": "application/json",
-          accept: "audio/mpeg",
-        },
-        body: JSON.stringify({ text }),
-      });
-    } catch (err) {
-      console.error("[tts] network error reaching Deepgram:", err);
-      providerErrors.push({ provider: "deepgram", reason: "network_error" });
-      void recordVoiceProviderCompare({
-        provider: "deepgram",
-        direction: "tts",
-        total_audio_ms: Date.now() - startedAt,
-        error: "network_error",
-        session_id: sessionId,
-        user_id: authedUser?.id ?? null,
-      });
-      upstream = null as unknown as Response;
-    }
+    const upstream = await fetchDeepgramSpeechWithRetry({
+      apiKey: deepgramApiKey,
+      voice,
+      text,
+      sessionId,
+      userId: authedUser?.id ?? null,
+      startedAt,
+    });
 
     if (upstream?.ok && upstream.body) {
       return audio(
@@ -200,6 +188,21 @@ export async function POST(req: NextRequest): Promise<Response> {
         error: upstream.status === 401 ? "auth_failed" : "upstream_error",
         session_id: sessionId,
         user_id: authedUser?.id ?? null,
+      });
+      if (isRetryableDeepgramStatus(upstream.status)) {
+        return json(503, {
+          error: "tts_upstream_unavailable",
+          retryable: true,
+          deepgram_request_id: deepgramRequestId(upstream),
+          attempt: 2,
+        });
+      }
+    } else {
+      return json(503, {
+        error: "tts_upstream_unavailable",
+        retryable: true,
+        deepgram_request_id: null,
+        attempt: 2,
       });
     }
   }
