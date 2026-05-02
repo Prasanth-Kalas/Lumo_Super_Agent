@@ -31,9 +31,11 @@ Naming notes (for the paired codex lane that will build
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
+
+from ..core import Secret
 
 PlanningStep = Literal["clarification", "selection", "confirmation", "post_booking"]
 """Stages of the orchestrator's planning loop. Mirrors the union in
@@ -50,7 +52,11 @@ IntentBucket = Literal["fast_path", "tool_path", "reasoning_path"]
 
 class ChatTurn(BaseModel):
     role: Literal["user", "assistant"]
-    content: str = Field(max_length=20_000)
+    # PYTHON-OBSERVABILITY-1 §11.4 — chat content is user-derived
+    # and may include emails / phone numbers / payment hints. Layer-A
+    # redacted in logs via the Secret marker; serialization to the
+    # wire is unaffected.
+    content: Annotated[str, Secret] = Field(max_length=20_000)
 
 
 class SessionAppApproval(BaseModel):
@@ -157,31 +163,46 @@ class UserProfile(BaseModel):
     preferred_language, home_address, work_address, dietary_flags,
     allergies, preferred_cuisines, preferred_airline_class,
     preferred_airline_seat, preferred_hotel_chains, budget_tier,
-    preferred_payment_hint."""
+    preferred_payment_hint.
+
+    PYTHON-OBSERVABILITY-1 §11.4 — every user-derived field is
+    ``Secret``-annotated by default. The opt-out (regular ``str``)
+    is ``id``, ``timezone``, ``preferred_language``, and the
+    bucket-shaped lists (``dietary_flags``, ``allergies``,
+    ``preferred_cuisines``, ``preferred_hotel_chains``,
+    ``budget_tier``) — those are queryable telemetry dimensions, not
+    PII. Names, addresses, payment hints, and seat preferences carry
+    enough re-identification risk to redact by default.
+    """
 
     id: str
-    display_name: str | None = None
+    display_name: Annotated[str | None, Secret] = None
     timezone: str | None = None
     preferred_language: str | None = None
-    home_address: AddressPayload | None = None
-    work_address: AddressPayload | None = None
+    home_address: Annotated[AddressPayload | None, Secret] = None
+    work_address: Annotated[AddressPayload | None, Secret] = None
     dietary_flags: list[str] = Field(default_factory=list, max_length=32)
     allergies: list[str] = Field(default_factory=list, max_length=32)
     preferred_cuisines: list[str] = Field(default_factory=list, max_length=32)
     preferred_airline_class: str | None = None
-    preferred_airline_seat: str | None = None
+    preferred_airline_seat: Annotated[str | None, Secret] = None
     preferred_hotel_chains: list[str] = Field(default_factory=list, max_length=32)
     budget_tier: str | None = None
-    preferred_payment_hint: str | None = None
+    preferred_payment_hint: Annotated[str | None, Secret] = None
 
 
 class UserFact(BaseModel):
     """Mirrors apps/web/lib/memory.ts:UserFact. The prompt only renders
     ``[category] fact`` per row; other fields ride along for codex's
-    consumer-side selection logic."""
+    consumer-side selection logic.
+
+    PYTHON-OBSERVABILITY-1 §11.4 — the ``fact`` field will eventually
+    contain the most sensitive memory content (recurring travel
+    addresses, medical preferences, payment-method labels). Layer-A
+    redacted in logs."""
 
     id: str
-    fact: str = Field(min_length=1, max_length=2000)
+    fact: Annotated[str, Secret] = Field(min_length=1, max_length=2000)
     category: FactCategory
     source: FactSource | None = None
     confidence: float | None = None
@@ -267,7 +288,10 @@ class PlanRequest(BaseModel):
     history: list[ChatTurn] = Field(default_factory=list, max_length=50)
     approvals: list[SessionAppApproval] = Field(default_factory=list, max_length=64)
     planning_step_hint: PlanningStep | None = None
-    last_assistant_message: str | None = Field(default=None, max_length=20_000)
+    # PYTHON-OBSERVABILITY-1 §11.4 — the assistant text quotes back
+    # user content (greetings, addresses, dates, names) and may
+    # contain memory-fact echoes. Layer-A redacted in logs.
+    last_assistant_message: Annotated[str | None, Field(max_length=20_000), Secret] = None
     """The assistant's text from the prior turn (or the current turn at
     end-of-LLM call when the orchestrator wires up post-generation
     /plan calls). Required input for suggestion-chip generation —
@@ -282,7 +306,10 @@ class PlanRequest(BaseModel):
     # empty ``full_system_prompt`` in the response. Once codex's plan-
     # client lands the wire-side serialization, every classified turn
     # will carry the full set.
-    user_first_name: str | None = Field(default=None, max_length=120)
+    # PYTHON-OBSERVABILITY-1 §11.4 — user-derived fields carry the
+    # ``Secret`` marker so logs and span attributes redact them via
+    # Layer A. Wire-level serialization is unaffected.
+    user_first_name: Annotated[str | None, Field(max_length=120), Secret] = None
     user_region: str = Field(default="US", min_length=2, max_length=8)
     mode: InteractionMode = "text"
     agents: list[AgentManifestForPrompt] = Field(default_factory=list, max_length=80)

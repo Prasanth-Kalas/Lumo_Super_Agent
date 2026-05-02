@@ -43,6 +43,8 @@ from typing import TYPE_CHECKING, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
+from ..core import traced
+
 if TYPE_CHECKING:
     import numpy as np
     from numpy.typing import NDArray
@@ -236,6 +238,7 @@ class IntentClassifier:
         the first real classify() call doesn't pay the load cost."""
         self._ensure_loaded()
 
+    @traced("plan.classifier.classify", model="all-MiniLM-L6-v2")
     def classify(self, user_message: str, history: list[object] | None = None) -> IntentClassification:
         # ``history`` is accepted for forward-compat with the brief's
         # signature but ignored in this Phase 1 implementation — the TS

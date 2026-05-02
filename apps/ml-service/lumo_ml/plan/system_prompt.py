@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from ..core import traced
 from .schemas import (
     AddressPayload,
     AgentManifestForPrompt,
@@ -47,6 +48,7 @@ _BOOKING_FIELD_ORDER: tuple[str, ...] = (
 )
 
 
+@traced("plan.system_prompt.build")
 def build_system_prompt(
     *,
     agents: list[AgentManifestForPrompt],

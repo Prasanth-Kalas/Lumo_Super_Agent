@@ -26,6 +26,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+from ..core import traced
 from .schemas import Suggestion
 
 PlanningStep = Literal["clarification", "selection", "confirmation", "post_booking"]
@@ -104,6 +105,7 @@ _MIN_SUGGESTIONS = 2
 # ──────────────────────────────────────────────────────────────────────
 
 
+@traced("plan.suggestions.build")
 def build_assistant_suggestions(
     *,
     assistant_text: str,

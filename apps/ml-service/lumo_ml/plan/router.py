@@ -34,6 +34,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Response
 
 from ..auth import AuthContext, require_lumo_jwt
+from ..core import traced
 from .classifier import IntentClassifier
 from .schemas import PlanRequest, PlanResponse
 from .suggestions import build_assistant_suggestions
@@ -98,6 +99,7 @@ Auth = Annotated[AuthContext, Depends(require_lumo_jwt)]
     response_model=PlanResponse,
     openapi_extra=_plan_extra(),
 )
+@traced("plan.api")
 def route_plan(req: PlanRequest, response: Response, _auth: Auth) -> PlanResponse:
     response.headers[STUB_HEADER_NAME] = STUB_HEADER_VALUE
     classification = IntentClassifier.get_instance().classify(req.user_message)

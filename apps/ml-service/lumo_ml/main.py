@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, Request
 from . import tools
 from .auth import AuthContext, require_lumo_jwt
 from .config import get_settings
+from .core import init_observability
 from .plan.router import router as plan_router
 from .sandbox import sandbox_upstream_health
 from .schemas import (
@@ -52,6 +53,11 @@ app = FastAPI(
     version=settings.version,
     description="First-party Lumo system agent for planning, recall, marketplace ranking, risk scoring, and scoped Python computation.",
 )
+
+# PYTHON-OBSERVABILITY-1: OTel SDK + FastAPI auto-instrumentation +
+# stdlib log filter (Layer-B PII scrub). Reads LUMO_OTEL_ENDPOINT and
+# LUMO_OTEL_HEADERS from env; no-ops cleanly when unset.
+init_observability(app, service_version=settings.version)
 
 
 @app.get("/.well-known/agent.json", include_in_schema=False)

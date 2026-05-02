@@ -553,6 +553,15 @@ export interface MemorySnapshot {
  * allergies, preferred_cuisines, preferred_airline_class,
  * preferred_airline_seat, preferred_hotel_chains, budget_tier,
  * preferred_payment_hint.
+ *
+ * PYTHON-OBSERVABILITY-1 §11.4 — every user-derived field is
+ * ``Secret``-annotated by default. The opt-out (regular ``str``)
+ * is ``id``, ``timezone``, ``preferred_language``, and the
+ * bucket-shaped lists (``dietary_flags``, ``allergies``,
+ * ``preferred_cuisines``, ``preferred_hotel_chains``,
+ * ``budget_tier``) — those are queryable telemetry dimensions, not
+ * PII. Names, addresses, payment hints, and seat preferences carry
+ * enough re-identification risk to redact by default.
  */
 export interface UserProfile {
   id: string;
@@ -602,6 +611,11 @@ export interface AddressPayload {
  * Mirrors apps/web/lib/memory.ts:UserFact. The prompt only renders
  * ``[category] fact`` per row; other fields ride along for codex's
  * consumer-side selection logic.
+ *
+ * PYTHON-OBSERVABILITY-1 §11.4 — the ``fact`` field will eventually
+ * contain the most sensitive memory content (recurring travel
+ * addresses, medical preferences, payment-method labels). Layer-A
+ * redacted in logs.
  */
 export interface UserFact {
   id: string;
