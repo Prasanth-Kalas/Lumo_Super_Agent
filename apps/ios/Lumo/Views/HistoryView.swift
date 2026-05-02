@@ -10,8 +10,9 @@ import SwiftUI
 ///   2. Sessions — preview + relative time + trip-count badge.
 ///      Tap-row signals onSelectSession with the session_id.
 ///
-/// Merged sessions+trips timeline with day grouping + search are
-/// filed deferred as IOS-HISTORY-TIMELINE-1 / IOS-HISTORY-SEARCH-1 /
+/// IOS-HISTORY-SEARCH-1 added the filter chips + search field
+/// shipped here. The merged sessions+trips timeline with day
+/// grouping is still deferred as IOS-HISTORY-TIMELINE-1 /
 /// IOS-HISTORY-GROUPING-1.
 ///
 /// Tap-session → calls onSelectSession. The chat-side hand-off
@@ -21,6 +22,8 @@ import SwiftUI
 struct HistoryView: View {
     @StateObject private var viewModel: HistoryScreenViewModel
     var onSelectSession: (String) -> Void
+    @State private var query: String = ""
+    @State private var filter: HistoryFilter = .all
 
     init(
         viewModel: HistoryScreenViewModel,
@@ -38,7 +41,17 @@ struct HistoryView: View {
             case .loaded(let sessions) where sessions.isEmpty && viewModel.trips.isEmpty:
                 emptyState
             case .loaded(let sessions):
-                contentList(sessions: sessions, trips: viewModel.trips)
+                let filteredSessions = HistoryFilters.matching(
+                    sessions: sessions, query: query, filter: filter
+                )
+                let filteredTrips = HistoryFilters.matching(
+                    trips: viewModel.trips, query: query, filter: filter
+                )
+                if filteredSessions.isEmpty && filteredTrips.isEmpty {
+                    noMatchesState
+                } else {
+                    contentList(sessions: filteredSessions, trips: filteredTrips)
+                }
             case .error(let message):
                 errorState(message)
             }
@@ -47,8 +60,49 @@ struct HistoryView: View {
         .background(LumoColors.background.ignoresSafeArea())
         .navigationTitle("History")
         .navigationBarTitleDisplayMode(.large)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search history")
+        .toolbar {
+            // Filter picker as a navigation-bar-trailing menu so the
+            // segmented control doesn't push the chevron-affordance
+            // height around. Compact + accessible.
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Picker("Filter", selection: $filter) {
+                        ForEach(HistoryFilter.allCases) { f in
+                            Text(f.label).tag(f)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "line.3.horizontal.decrease.circle\(filter == .all ? "" : ".fill")")
+                        Text(filter.label)
+                    }
+                }
+                .accessibilityIdentifier("history.filter.menu")
+            }
+        }
         .task { await viewModel.load() }
         .refreshable { await viewModel.load() }
+    }
+
+    private var noMatchesState: some View {
+        VStack(spacing: LumoSpacing.lg) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 56, weight: .light))
+                .foregroundStyle(LumoColors.labelTertiary)
+            Text("No matches")
+                .font(LumoFonts.title)
+                .foregroundStyle(LumoColors.label)
+            Text(query.isEmpty
+                ? "Nothing in this view yet."
+                : "Nothing matches \"\(query)\" in \(filter.label).")
+                .font(LumoFonts.body)
+                .foregroundStyle(LumoColors.labelSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, LumoSpacing.xl)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("history.noMatches")
     }
 
     // MARK: - States
@@ -491,6 +545,58 @@ enum HistoryTripFormatter {
 
     static func shortID(_ id: String) -> String {
         id.count > 12 ? String(id.prefix(12)) + "…" : id
+    }
+}
+
+// MARK: - IOS-HISTORY-SEARCH-1 — filter + search helpers
+
+enum HistoryFilter: String, CaseIterable, Identifiable {
+    case all
+    case conversations
+    case trips
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .all: return "All"
+        case .conversations: return "Conversations"
+        case .trips: return "Trips"
+        }
+    }
+}
+
+enum HistoryFilters {
+    /// Returns the sessions that match both the active filter and
+    /// the (case-insensitive) query. Empty query passes everything
+    /// in the filter scope. Mirrors web's
+    /// `apps/web/app/history/page.tsx` filter behavior.
+    static func matching(
+        sessions: [HistorySessionDTO],
+        query: String,
+        filter: HistoryFilter
+    ) -> [HistorySessionDTO] {
+        if filter == .trips { return [] }
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty { return sessions }
+        return sessions.filter { session in
+            (session.preview ?? "").lowercased().contains(q)
+        }
+    }
+
+    static func matching(
+        trips: [HistoryTripDTO],
+        query: String,
+        filter: HistoryFilter
+    ) -> [HistoryTripDTO] {
+        if filter == .conversations { return [] }
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty { return trips }
+        return trips.filter { trip in
+            let title = (trip.payload.trip_title ?? "").lowercased()
+            let status = trip.status.lowercased()
+            return title.contains(q) || status.contains(q)
+        }
     }
 }
 

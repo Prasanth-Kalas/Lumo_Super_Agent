@@ -882,6 +882,105 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         XCTAssertFalse(vm.expandedTripIDs.contains("t1"))
     }
 
+    // MARK: - IOS-HISTORY-SEARCH-1
+
+    private static func makeSession(
+        id: String,
+        preview: String? = "preview"
+    ) -> HistorySessionDTO {
+        HistorySessionDTO(
+            session_id: id,
+            started_at: "2026-04-30T10:00:00Z",
+            last_activity_at: "2026-04-30T10:08:00Z",
+            user_message_count: 1,
+            preview: preview,
+            trip_ids: []
+        )
+    }
+
+    private static func makeTrip(
+        id: String,
+        title: String? = "Trip",
+        status: String = "committed"
+    ) -> HistoryTripDTO {
+        HistoryTripDTO(
+            trip_id: id,
+            session_id: "s",
+            status: status,
+            payload: HistoryTripPayloadDTO(trip_title: title),
+            created_at: "2026-04-29T10:00:00Z",
+            updated_at: "2026-04-30T10:08:00Z",
+            cancel_requested_at: nil
+        )
+    }
+
+    func test_historyFilters_all_emptyQuery_passesEverything() {
+        let sessions = [Self.makeSession(id: "s1"), Self.makeSession(id: "s2")]
+        let trips = [Self.makeTrip(id: "t1"), Self.makeTrip(id: "t2")]
+        XCTAssertEqual(
+            HistoryFilters.matching(sessions: sessions, query: "", filter: .all).map(\.id),
+            ["s1", "s2"]
+        )
+        XCTAssertEqual(
+            HistoryFilters.matching(trips: trips, query: "", filter: .all).map(\.id),
+            ["t1", "t2"]
+        )
+    }
+
+    func test_historyFilters_conversations_dropsTrips() {
+        let trips = [Self.makeTrip(id: "t1")]
+        XCTAssertTrue(
+            HistoryFilters.matching(trips: trips, query: "", filter: .conversations).isEmpty,
+            "Conversations filter must hide all trips"
+        )
+    }
+
+    func test_historyFilters_tripsFilter_dropsSessions() {
+        let sessions = [Self.makeSession(id: "s1")]
+        XCTAssertTrue(
+            HistoryFilters.matching(sessions: sessions, query: "", filter: .trips).isEmpty,
+            "Trips filter must hide all sessions"
+        )
+    }
+
+    func test_historyFilters_query_matchesSessionPreview_caseInsensitively() {
+        let sessions = [
+            Self.makeSession(id: "vegas", preview: "Plan a Vegas trip"),
+            Self.makeSession(id: "japan", preview: "Sushi place in Tokyo"),
+        ]
+        let r = HistoryFilters.matching(sessions: sessions, query: "VEGAS", filter: .all)
+        XCTAssertEqual(r.map(\.id), ["vegas"])
+    }
+
+    func test_historyFilters_query_matchesTripTitle() {
+        let trips = [
+            Self.makeTrip(id: "t1", title: "Vegas weekend"),
+            Self.makeTrip(id: "t2", title: "Tokyo dinner"),
+        ]
+        let r = HistoryFilters.matching(trips: trips, query: "tokyo", filter: .all)
+        XCTAssertEqual(r.map(\.id), ["t2"])
+    }
+
+    func test_historyFilters_query_matchesTripStatus() {
+        // "rolled_back" / "committed" / etc. — typing "refund" wouldn't
+        // match because the stored status is "rolled_back" not the
+        // pill's "refunded" label. iOS-v1 filters on the raw status
+        // string; mapping to display labels is a follow-up if the
+        // user feedback says it matters.
+        let trips = [
+            Self.makeTrip(id: "t1", title: "Trip A", status: "committed"),
+            Self.makeTrip(id: "t2", title: "Trip B", status: "rolled_back"),
+        ]
+        let r = HistoryFilters.matching(trips: trips, query: "rolled", filter: .all)
+        XCTAssertEqual(r.map(\.id), ["t2"])
+    }
+
+    func test_historyFilters_query_trimsWhitespace() {
+        let sessions = [Self.makeSession(id: "s1", preview: "Vegas")]
+        let r = HistoryFilters.matching(sessions: sessions, query: "  vegas  ", filter: .all)
+        XCTAssertEqual(r.map(\.id), ["s1"])
+    }
+
     func test_historyTripFormatter_statusStyle_knownAndUnknown() {
         XCTAssertEqual(HistoryTripFormatter.statusStyle("committed").label, "booked")
         XCTAssertEqual(HistoryTripFormatter.statusStyle("dispatching").label, "booking…")
