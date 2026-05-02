@@ -1,11 +1,17 @@
 """FastAPI router for ``POST /api/tools/plan``.
 
-Phase 0 ships a stub that returns a valid ``PlanResponse`` shape with
-neutral placeholder values. Phase 1 will replace the body with real
-intent classification, suggestion generation, and (later) compound
-mission planning. The wire shape stays stable; only the
-``X-Lumo-Plan-Stub: 1`` response header drops when the real classifier
-is wired.
+Phase 1 wires the real anchor-based intent classifier
+(:mod:`lumo_ml.plan.classifier`) into the route. The wire shape is
+unchanged from Phase 0 — only the ``intent_bucket`` and
+``system_prompt_addendum`` fields now carry meaningful data instead of
+placeholders, and the ``X-Lumo-Plan-Stub`` response header reports
+``0`` so codex's parallel-write telemetry can distinguish stub from
+real responses without parsing the body.
+
+``suggestions``, ``compound_graph``, and ``profile_summary_hints`` are
+still ``[]`` / ``None`` — they ship in their own follow-up lanes
+(``SUGGESTIONS-MIGRATE-PYTHON-1``, ``COMPOUND-MISSION-ROUTING-PYTHON-1``,
+plus a future booking-profile-hints migration).
 
 The brief asked for this file at ``apps/ml-service/app/routes/plan.py``.
 We put it here under ``lumo_ml/`` instead because ``app/`` is just a
@@ -21,12 +27,17 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Response
 
 from ..auth import AuthContext, require_lumo_jwt
+from .classifier import IntentClassifier
 from .schemas import PlanRequest, PlanResponse
 
 router = APIRouter()
 
 STUB_HEADER_NAME = "X-Lumo-Plan-Stub"
-STUB_HEADER_VALUE = "1"
+# Phase 1 sets this to "0" — the classifier ships, the rest of the
+# response (suggestions / compound_graph / profile_summary_hints) is
+# still placeholder. Once those fields land their own lanes the
+# header should drop entirely.
+STUB_HEADER_VALUE = "0"
 
 
 def _plan_extra() -> dict:
@@ -49,11 +60,16 @@ Auth = Annotated[AuthContext, Depends(require_lumo_jwt)]
 )
 def route_plan(req: PlanRequest, response: Response, _auth: Auth) -> PlanResponse:
     response.headers[STUB_HEADER_NAME] = STUB_HEADER_VALUE
+    classification = IntentClassifier.get_instance().classify(req.user_message)
     return PlanResponse(
-        intent_bucket="tool_path",
-        planning_step="clarification",
+        intent_bucket=classification.bucket,
+        planning_step=req.planning_step_hint or "clarification",
         suggestions=[],
-        system_prompt_addendum=None,
+        # Surface the classifier's reasoning as the prompt addendum —
+        # codex's parallel-write logs both sides side-by-side and this
+        # makes disagreement diagnosis possible without an extra debug
+        # endpoint.
+        system_prompt_addendum=classification.reasoning,
         compound_graph=None,
         profile_summary_hints=None,
     )

@@ -148,7 +148,7 @@ def test_plan_response_round_trip_full() -> None:
 # ────────────────────────────────────────────────────────────────────
 
 
-def test_plan_endpoint_returns_stub_with_header() -> None:
+def test_plan_endpoint_returns_classified_response() -> None:
     res = client.post(
         "/api/tools/plan",
         json={
@@ -159,13 +159,18 @@ def test_plan_endpoint_returns_stub_with_header() -> None:
         headers=_auth_headers(),
     )
     assert res.status_code == 200
+    # Phase 1: stub header reports "0" (intent_bucket is real, the
+    # rest of the response is still placeholder). The header lets
+    # codex's parallel-write distinguish without parsing the body.
     assert res.headers.get(STUB_HEADER_NAME) == STUB_HEADER_VALUE
     body = res.json()
-    # Stub shape — Phase 1 may change values, not keys.
-    assert body["intent_bucket"] == "tool_path"
+    assert body["intent_bucket"] in {"fast_path", "tool_path", "reasoning_path"}
     assert body["planning_step"] == "clarification"
     assert body["suggestions"] == []
-    assert body["system_prompt_addendum"] is None
+    # Phase 1 fills system_prompt_addendum with the classifier's
+    # reasoning string for parallel-write debug visibility.
+    assert isinstance(body["system_prompt_addendum"], str)
+    assert body["system_prompt_addendum"]
     assert body["compound_graph"] is None
     assert body["profile_summary_hints"] is None
 
