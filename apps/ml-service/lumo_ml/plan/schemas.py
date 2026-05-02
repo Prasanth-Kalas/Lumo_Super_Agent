@@ -104,6 +104,160 @@ class ProfileSummaryHints(BaseModel):
     prefill_summary: str | None = Field(default=None, max_length=1000)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# System-prompt builder inputs (SYSTEM-PROMPT-MIGRATE-PYTHON-1).
+# These mirror TS-side shapes from apps/web/lib/{system-prompt,memory,
+# booking-profile-core}.ts so codex's plan-client can serialize each
+# directly. Reviewer Q11.2 answered A.2 — extend PlanRequest with these
+# as optional inputs rather than have the brain reach into Supabase.
+# ──────────────────────────────────────────────────────────────────────
+
+InteractionMode = Literal["text", "voice"]
+"""``text`` → card-first behaviour. ``voice`` → appends the 350-line
+VOICE_MODE_PROMPT block (apps/web/lib/voice-format.ts:330)."""
+
+
+class AgentManifestForPrompt(BaseModel):
+    """Slim subset of ``RegistryEntry`` needed by ``buildSystemPrompt``
+    — the prompt only renders display_name, agent_id, one_liner, and
+    up to 3 example utterances per agent. ``health_score`` gates the
+    CURRENTLY UNAVAILABLE block."""
+
+    display_name: str = Field(min_length=1, max_length=200)
+    agent_id: str = Field(min_length=1, max_length=120)
+    one_liner: str = Field(min_length=1, max_length=400)
+    example_utterances: list[str] = Field(default_factory=list, max_length=12)
+    health_score: float = Field(default=1.0, ge=0, le=1)
+
+
+class AddressPayload(BaseModel):
+    """Mirrors apps/web/lib/memory.ts:AddressPayload — every field
+    optional; ``addressToLine`` formatter joins ``line1, city, region,
+    country`` with ``label`` prefix when present."""
+
+    label: str | None = None
+    line1: str | None = None
+    line2: str | None = None
+    city: str | None = None
+    region: str | None = None
+    country: str | None = None
+    postal_code: str | None = None
+
+
+FactCategory = Literal[
+    "preference", "identity", "habit", "location",
+    "constraint", "context", "milestone", "other",
+]
+FactSource = Literal["explicit", "inferred", "behavioral"]
+
+
+class UserProfile(BaseModel):
+    """Mirrors apps/web/lib/memory.ts:UserProfile. The 13 whitelisted
+    fields surfaced by ``profileToLines`` are: display_name, timezone,
+    preferred_language, home_address, work_address, dietary_flags,
+    allergies, preferred_cuisines, preferred_airline_class,
+    preferred_airline_seat, preferred_hotel_chains, budget_tier,
+    preferred_payment_hint."""
+
+    id: str
+    display_name: str | None = None
+    timezone: str | None = None
+    preferred_language: str | None = None
+    home_address: AddressPayload | None = None
+    work_address: AddressPayload | None = None
+    dietary_flags: list[str] = Field(default_factory=list, max_length=32)
+    allergies: list[str] = Field(default_factory=list, max_length=32)
+    preferred_cuisines: list[str] = Field(default_factory=list, max_length=32)
+    preferred_airline_class: str | None = None
+    preferred_airline_seat: str | None = None
+    preferred_hotel_chains: list[str] = Field(default_factory=list, max_length=32)
+    budget_tier: str | None = None
+    preferred_payment_hint: str | None = None
+
+
+class UserFact(BaseModel):
+    """Mirrors apps/web/lib/memory.ts:UserFact. The prompt only renders
+    ``[category] fact`` per row; other fields ride along for codex's
+    consumer-side selection logic."""
+
+    id: str
+    fact: str = Field(min_length=1, max_length=2000)
+    category: FactCategory
+    source: FactSource | None = None
+    confidence: float | None = None
+
+
+class BehaviorPattern(BaseModel):
+    """Mirrors apps/web/lib/memory.ts:BehaviorPattern. The prompt
+    renders ``description (observed N×)`` per row."""
+
+    id: str
+    description: str = Field(min_length=1, max_length=2000)
+    evidence_count: int = Field(ge=0)
+
+
+class MemorySnapshot(BaseModel):
+    """The bag the orchestrator hands ``buildSystemPrompt`` for memory
+    context. Mirrors the inline TS shape ``{profile, facts[],
+    patterns[]}`` declared on ``BuildSystemPromptOpts.memory``."""
+
+    profile: UserProfile | None = None
+    facts: list[UserFact] = Field(default_factory=list, max_length=64)
+    patterns: list[BehaviorPattern] = Field(default_factory=list, max_length=32)
+
+
+class AmbientCoords(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    accuracy_m: float | None = Field(default=None, ge=0)
+
+
+class AmbientContext(BaseModel):
+    """Mirrors apps/web/lib/system-prompt.ts:AmbientContext — browser-
+    sent right-now signals, never persisted."""
+
+    local_time: str | None = Field(default=None, max_length=64)
+    timezone: str | None = Field(default=None, max_length=64)
+    coords: AmbientCoords | None = None
+    location_label: str | None = Field(default=None, max_length=200)
+    device_kind: str | None = Field(default=None, max_length=32)
+
+
+# ── Booking profile (mirrors apps/web/lib/booking-profile-core.ts) ──
+
+
+BookingProfileFieldStatus = Literal["present", "missing", "not_in_scope"]
+BookingProfileFieldName = Literal[
+    "name", "email", "phone", "payment_method_id",
+    "traveler_profile", "passport", "passport_optional", "dob",
+]
+
+
+class BookingProfileFieldSlim(BaseModel):
+    """Slim view of ``BookingProfileField<T>``. The prompt only reads
+    ``status`` and the optional ``label`` — never the typed value — so
+    the wire shape doesn't have to discriminate on the field's type
+    parameter."""
+
+    status: BookingProfileFieldStatus
+    label: str | None = Field(default=None, max_length=200)
+
+
+class BookingProfileSnapshot(BaseModel):
+    """Mirrors apps/web/lib/booking-profile-core.ts:BookingProfileSnapshot
+    — pruned to the subset the prompt actually reads. Codex's plan-
+    client serializes only ``status`` + ``label`` per field; the typed
+    payload values stay TS-side."""
+
+    user_id: str = Field(min_length=1, max_length=200)
+    granted_scopes: list[str] = Field(default_factory=list, max_length=64)
+    fields: dict[str, BookingProfileFieldSlim] = Field(default_factory=dict)
+    required_missing_fields: list[BookingProfileFieldName] = Field(
+        default_factory=list, max_length=8,
+    )
+    prefill_summary: str | None = Field(default=None, max_length=2000)
+
+
 class PlanRequest(BaseModel):
     user_message: str = Field(min_length=1, max_length=4000)
     session_id: str = Field(min_length=1, max_length=200)
@@ -123,11 +277,36 @@ class PlanRequest(BaseModel):
     pre-LLM /plan call); the brain returns ``suggestions=[]`` in that
     case."""
 
+    # System-prompt inputs (SYSTEM-PROMPT-MIGRATE-PYTHON-1). All
+    # optional + additive: TS callers that don't send these get an
+    # empty ``full_system_prompt`` in the response. Once codex's plan-
+    # client lands the wire-side serialization, every classified turn
+    # will carry the full set.
+    user_first_name: str | None = Field(default=None, max_length=120)
+    user_region: str = Field(default="US", min_length=2, max_length=8)
+    mode: InteractionMode = "text"
+    agents: list[AgentManifestForPrompt] = Field(default_factory=list, max_length=80)
+    memory: MemorySnapshot | None = None
+    ambient: AmbientContext | None = None
+    booking_profile: BookingProfileSnapshot | None = None
+
 
 class PlanResponse(BaseModel):
     intent_bucket: IntentBucket
     planning_step: PlanningStep
     suggestions: list[Suggestion] = Field(default_factory=list, max_length=4)
     system_prompt_addendum: str | None = Field(default=None, max_length=8000)
+    """Diagnostic / classifier-reasoning string, e.g. ``"anchor-
+    similarity tool_path (top=0.245, gap=0.081)"``. Used by codex's
+    parallel-write capture for classifier-disagreement diagnosis. NOT
+    a system-prompt fragment — for the actual prompt, see
+    ``full_system_prompt``."""
+    full_system_prompt: str | None = Field(default=None, max_length=30_000)
+    """Python-built canonical system prompt string mirroring TS's
+    ``apps/web/lib/system-prompt.ts:buildSystemPrompt``. ``None`` when
+    the request didn't carry the inputs (``agents``, ``user_region``,
+    etc.) needed to build it; the orchestrator falls back to the TS
+    output in that case. 30 KB cap accommodates ~2500-token text-mode
+    prompt + 350-line voice-mode block + comfortable headroom."""
     compound_graph: CompoundMissionPlan | None = None
     profile_summary_hints: ProfileSummaryHints | None = None

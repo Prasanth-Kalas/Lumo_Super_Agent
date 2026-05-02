@@ -472,6 +472,16 @@ export interface PlanRequest {
   approvals?: SessionAppApproval[];
   planning_step_hint?: ("clarification" | "selection" | "confirmation" | "post_booking") | null;
   last_assistant_message?: string | null;
+  user_first_name?: string | null;
+  user_region?: string;
+  mode?: "text" | "voice";
+  /**
+   * @maxItems 80
+   */
+  agents?: AgentManifestForPrompt[];
+  memory?: MemorySnapshot | null;
+  ambient?: AmbientContext | null;
+  booking_profile?: BookingProfileSnapshot | null;
 }
 /**
  * Pre-bootstrapped per-session approval record. Mirrors
@@ -489,6 +499,482 @@ export interface SessionAppApproval {
   connected_at?: string | null;
   connection_provider?: string | null;
 }
+/**
+ * Slim subset of ``RegistryEntry`` needed by ``buildSystemPrompt``
+ * — the prompt only renders display_name, agent_id, one_liner, and
+ * up to 3 example utterances per agent. ``health_score`` gates the
+ * CURRENTLY UNAVAILABLE block.
+ */
+export interface AgentManifestForPrompt {
+  display_name: string;
+  agent_id: string;
+  one_liner: string;
+  /**
+   * @maxItems 12
+   */
+  example_utterances?:
+    | []
+    | [string]
+    | [string, string]
+    | [string, string, string]
+    | [string, string, string, string]
+    | [string, string, string, string, string]
+    | [string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string, string, string, string];
+  health_score?: number;
+  [k: string]: unknown;
+}
+/**
+ * The bag the orchestrator hands ``buildSystemPrompt`` for memory
+ * context. Mirrors the inline TS shape ``{profile, facts[],
+ * patterns[]}`` declared on ``BuildSystemPromptOpts.memory``.
+ */
+export interface MemorySnapshot {
+  profile?: UserProfile | null;
+  /**
+   * @maxItems 64
+   */
+  facts?: UserFact[];
+  /**
+   * @maxItems 32
+   */
+  patterns?: BehaviorPattern[];
+  [k: string]: unknown;
+}
+/**
+ * Mirrors apps/web/lib/memory.ts:UserProfile. The 13 whitelisted
+ * fields surfaced by ``profileToLines`` are: display_name, timezone,
+ * preferred_language, home_address, work_address, dietary_flags,
+ * allergies, preferred_cuisines, preferred_airline_class,
+ * preferred_airline_seat, preferred_hotel_chains, budget_tier,
+ * preferred_payment_hint.
+ */
+export interface UserProfile {
+  id: string;
+  display_name?: string | null;
+  timezone?: string | null;
+  preferred_language?: string | null;
+  home_address?: AddressPayload | null;
+  work_address?: AddressPayload | null;
+  /**
+   * @maxItems 32
+   */
+  dietary_flags?: string[];
+  /**
+   * @maxItems 32
+   */
+  allergies?: string[];
+  /**
+   * @maxItems 32
+   */
+  preferred_cuisines?: string[];
+  preferred_airline_class?: string | null;
+  preferred_airline_seat?: string | null;
+  /**
+   * @maxItems 32
+   */
+  preferred_hotel_chains?: string[];
+  budget_tier?: string | null;
+  preferred_payment_hint?: string | null;
+  [k: string]: unknown;
+}
+/**
+ * Mirrors apps/web/lib/memory.ts:AddressPayload — every field
+ * optional; ``addressToLine`` formatter joins ``line1, city, region,
+ * country`` with ``label`` prefix when present.
+ */
+export interface AddressPayload {
+  label?: string | null;
+  line1?: string | null;
+  line2?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  postal_code?: string | null;
+  [k: string]: unknown;
+}
+/**
+ * Mirrors apps/web/lib/memory.ts:UserFact. The prompt only renders
+ * ``[category] fact`` per row; other fields ride along for codex's
+ * consumer-side selection logic.
+ */
+export interface UserFact {
+  id: string;
+  fact: string;
+  category: "preference" | "identity" | "habit" | "location" | "constraint" | "context" | "milestone" | "other";
+  source?: ("explicit" | "inferred" | "behavioral") | null;
+  confidence?: number | null;
+  [k: string]: unknown;
+}
+/**
+ * Mirrors apps/web/lib/memory.ts:BehaviorPattern. The prompt
+ * renders ``description (observed N×)`` per row.
+ */
+export interface BehaviorPattern {
+  id: string;
+  description: string;
+  evidence_count: number;
+  [k: string]: unknown;
+}
+/**
+ * Mirrors apps/web/lib/system-prompt.ts:AmbientContext — browser-
+ * sent right-now signals, never persisted.
+ */
+export interface AmbientContext {
+  local_time?: string | null;
+  timezone?: string | null;
+  coords?: AmbientCoords | null;
+  location_label?: string | null;
+  device_kind?: string | null;
+  [k: string]: unknown;
+}
+export interface AmbientCoords {
+  lat: number;
+  lng: number;
+  accuracy_m?: number | null;
+  [k: string]: unknown;
+}
+/**
+ * Mirrors apps/web/lib/booking-profile-core.ts:BookingProfileSnapshot
+ * — pruned to the subset the prompt actually reads. Codex's plan-
+ * client serializes only ``status`` + ``label`` per field; the typed
+ * payload values stay TS-side.
+ */
+export interface BookingProfileSnapshot {
+  user_id: string;
+  /**
+   * @maxItems 64
+   */
+  granted_scopes?: string[];
+  fields?: {
+    [k: string]: BookingProfileFieldSlim;
+  };
+  /**
+   * @maxItems 8
+   */
+  required_missing_fields?:
+    | []
+    | ["name" | "email" | "phone" | "payment_method_id" | "traveler_profile" | "passport" | "passport_optional" | "dob"]
+    | [
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        "name" | "email" | "phone" | "payment_method_id" | "traveler_profile" | "passport" | "passport_optional" | "dob"
+      ]
+    | [
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        "name" | "email" | "phone" | "payment_method_id" | "traveler_profile" | "passport" | "passport_optional" | "dob"
+      ]
+    | [
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        "name" | "email" | "phone" | "payment_method_id" | "traveler_profile" | "passport" | "passport_optional" | "dob"
+      ]
+    | [
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        "name" | "email" | "phone" | "payment_method_id" | "traveler_profile" | "passport" | "passport_optional" | "dob"
+      ]
+    | [
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        "name" | "email" | "phone" | "payment_method_id" | "traveler_profile" | "passport" | "passport_optional" | "dob"
+      ]
+    | [
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        "name" | "email" | "phone" | "payment_method_id" | "traveler_profile" | "passport" | "passport_optional" | "dob"
+      ]
+    | [
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        (
+          | "name"
+          | "email"
+          | "phone"
+          | "payment_method_id"
+          | "traveler_profile"
+          | "passport"
+          | "passport_optional"
+          | "dob"
+        ),
+        "name" | "email" | "phone" | "payment_method_id" | "traveler_profile" | "passport" | "passport_optional" | "dob"
+      ];
+  prefill_summary?: string | null;
+  [k: string]: unknown;
+}
+/**
+ * Slim view of ``BookingProfileField<T>``. The prompt only reads
+ * ``status`` and the optional ``label`` — never the typed value — so
+ * the wire shape doesn't have to discriminate on the field's type
+ * parameter.
+ */
+export interface BookingProfileFieldSlim {
+  status: "present" | "missing" | "not_in_scope";
+  label?: string | null;
+  [k: string]: unknown;
+}
 export interface PlanResponse {
   intent_bucket: "fast_path" | "tool_path" | "reasoning_path";
   planning_step: "clarification" | "selection" | "confirmation" | "post_booking";
@@ -502,6 +988,7 @@ export interface PlanResponse {
     | [Suggestion, Suggestion, Suggestion]
     | [Suggestion, Suggestion, Suggestion, Suggestion];
   system_prompt_addendum?: string | null;
+  full_system_prompt?: string | null;
   compound_graph?: CompoundMissionPlan | null;
   profile_summary_hints?: ProfileSummaryHints | null;
 }
