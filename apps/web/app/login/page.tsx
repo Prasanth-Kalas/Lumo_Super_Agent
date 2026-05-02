@@ -66,12 +66,28 @@ function Header() {
         <Link href="/" className="flex items-center gap-2 text-lumo-fg">
           <LumoWordmark height={22} />
         </Link>
-        <Link
-          href="/signup"
-          className="h-9 px-4 rounded-full text-[13px] font-semibold border border-lumo-hair text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge transition-colors inline-flex items-center"
-        >
-          Create account
-        </Link>
+        <nav className="flex items-center gap-1">
+          <Link
+            href="/developer"
+            className="h-9 px-3 rounded-full text-[13px] font-medium text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors inline-flex items-center"
+          >
+            Developer
+          </Link>
+          <a
+            href="https://docs.lumo.rentals"
+            target="_blank"
+            rel="noreferrer"
+            className="h-9 px-3 rounded-full text-[13px] font-medium text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors inline-flex items-center"
+          >
+            Docs
+          </a>
+          <Link
+            href="/signup"
+            className="ml-1 h-9 px-4 rounded-full text-[13px] font-semibold border border-lumo-hair text-lumo-fg-mid hover:text-lumo-fg hover:border-lumo-edge transition-colors inline-flex items-center"
+          >
+            Create account
+          </Link>
+        </nav>
       </div>
     </header>
   );

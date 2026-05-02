@@ -72,12 +72,28 @@ export default function LandingPage() {
               · one app, any task
             </span>
           </Link>
-          <Link
-            href="/"
-            className="h-9 px-4 rounded-full text-[13px] font-semibold bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors inline-flex items-center"
-          >
-            Open Lumo
-          </Link>
+          <nav className="flex items-center gap-1">
+            <Link
+              href="/developer"
+              className="h-9 px-3 rounded-full text-[13px] font-medium text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors inline-flex items-center"
+            >
+              Developer
+            </Link>
+            <a
+              href="https://docs.lumo.rentals"
+              target="_blank"
+              rel="noreferrer"
+              className="h-9 px-3 rounded-full text-[13px] font-medium text-lumo-fg-mid hover:text-lumo-fg hover:bg-lumo-elevated transition-colors inline-flex items-center"
+            >
+              Docs
+            </a>
+            <Link
+              href="/"
+              className="ml-1 h-9 px-4 rounded-full text-[13px] font-semibold bg-lumo-fg text-lumo-bg hover:bg-lumo-accent hover:text-lumo-accent-ink transition-colors inline-flex items-center"
+            >
+              Open Lumo
+            </Link>
+          </nav>
         </div>
       </header>
 
