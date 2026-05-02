@@ -37,6 +37,15 @@ export interface ConnectionMeta {
   provider_account_id: string | null;
   connected_at: string;
   last_refreshed_at: string | null;
+  /**
+   * Last time an OAuth refresh attempt failed. NULL means no failure
+   * since the last successful refresh. The connection stays
+   * status='active' across transient failures (migration 068); this
+   * field + refresh_failure_count let the UI surface a "Reconnect"
+   * hint without flipping the row off active.
+   */
+  last_refresh_failed_at: string | null;
+  refresh_failure_count: number;
   last_used_at: string | null;
   revoked_at: string | null;
   updated_at: string;
@@ -239,7 +248,7 @@ export async function listConnectionsForUser(
   const { data, error } = await db
     .from("agent_connections")
     .select(
-      "id, user_id, agent_id, status, scopes, expires_at, provider_account_id, connected_at, last_refreshed_at, last_used_at, revoked_at, updated_at",
+      "id, user_id, agent_id, status, scopes, expires_at, provider_account_id, connected_at, last_refreshed_at, last_refresh_failed_at, refresh_failure_count, last_used_at, revoked_at, updated_at",
     )
     .eq("user_id", user_id)
     .order("updated_at", { ascending: false });
@@ -301,18 +310,28 @@ export async function getDispatchableConnection(args: {
   }
 
   if (!refresh) {
-    await markExpired(row.id);
+    // No refresh token to work with means we genuinely can't recover —
+    // this is a "user explicitly didn't grant offline access" scenario,
+    // not a transient blip. Record the failure but keep the row
+    // active so the orchestrator's [CONNECTED] tag stays on; the
+    // router will surface the dispatch failure once and the
+    // marketplace can prompt a reconnect via the same Connect button.
+    await recordRefreshFailure(row.id);
     return null;
   }
 
-  // Refresh inline. If it fails we mark expired and return null so the
-  // router surfaces `connection_required`.
+  // Refresh inline. On success: clear failure tracking. On failure:
+  // record it but DO NOT flip status to 'expired'. The user connected
+  // once and shouldn't have to reconnect over a network blip; we'll
+  // re-attempt on the next call. Status only flips to non-active on
+  // explicit revoke (UI Disconnect button → revokeConnection).
   try {
     const fresh = await refreshAccessToken({
       refresh_token: refresh,
       oauth2_config: args.oauth2_config,
     });
     const updated = await rewrapTokens(row.id, fresh);
+    await clearRefreshFailure(row.id);
     return {
       ...toConnectionMeta(updated),
       access_token: fresh.access_token,
@@ -323,7 +342,7 @@ export async function getDispatchableConnection(args: {
       `[connections] refresh failed for conn=${row.id} agent=${args.agent_id}:`,
       err instanceof Error ? err.message : err,
     );
-    await markExpired(row.id);
+    await recordRefreshFailure(row.id);
     return null;
   }
 }
@@ -410,6 +429,8 @@ interface RowFromDb {
   provider_account_id: string | null;
   connected_at: string;
   last_refreshed_at: string | null;
+  last_refresh_failed_at?: string | null;
+  refresh_failure_count?: number | null;
   last_used_at: string | null;
   revoked_at: string | null;
   updated_at: string;
@@ -426,6 +447,11 @@ function toConnectionMeta(row: RowFromDb): ConnectionMeta {
     provider_account_id: row.provider_account_id,
     connected_at: row.connected_at,
     last_refreshed_at: row.last_refreshed_at,
+    last_refresh_failed_at: row.last_refresh_failed_at ?? null,
+    refresh_failure_count:
+      typeof row.refresh_failure_count === "number"
+        ? row.refresh_failure_count
+        : 0,
     last_used_at: row.last_used_at,
     revoked_at: row.revoked_at,
     updated_at: row.updated_at,
@@ -486,6 +512,61 @@ function coerceBytes(v: Buffer | Uint8Array | string): Buffer {
   return Buffer.isBuffer(v) ? v : Buffer.from(v);
 }
 
+/**
+ * Increment the consecutive-refresh-failure counter and stamp the
+ * timestamp. Leaves status='active' so the connection keeps showing
+ * up in `connectedAgentIds` and the system prompt's [CONNECTED]
+ * tag — the user shouldn't lose their connection on a transient
+ * upstream hiccup.
+ */
+async function recordRefreshFailure(connection_id: string): Promise<void> {
+  const db = getSupabase();
+  if (!db) return;
+  // Read current count then increment. Two writes is fine — the
+  // contention window is the same row at the same moment, which is
+  // bounded by the router's single-flight refresh per (user, agent).
+  const { data } = await db
+    .from("agent_connections")
+    .select("refresh_failure_count")
+    .eq("id", connection_id)
+    .maybeSingle();
+  const current =
+    typeof (data as { refresh_failure_count?: number } | null)
+      ?.refresh_failure_count === "number"
+      ? ((data as { refresh_failure_count?: number }).refresh_failure_count ??
+        0)
+      : 0;
+  await db
+    .from("agent_connections")
+    .update({
+      refresh_failure_count: current + 1,
+      last_refresh_failed_at: new Date().toISOString(),
+    })
+    .eq("id", connection_id);
+}
+
+/**
+ * Reset failure tracking after a successful refresh. Counter back
+ * to 0, timestamp back to null.
+ */
+async function clearRefreshFailure(connection_id: string): Promise<void> {
+  const db = getSupabase();
+  if (!db) return;
+  await db
+    .from("agent_connections")
+    .update({
+      refresh_failure_count: 0,
+      last_refresh_failed_at: null,
+    })
+    .eq("id", connection_id);
+}
+
+/**
+ * Hard-flip the row to status='expired'. Kept for the explicit
+ * revocation path and for any future "auto-expire after N sustained
+ * failures" heuristic. The hot path of getDispatchableConnection no
+ * longer calls this — see migration 068's commentary.
+ */
 async function markExpired(connection_id: string): Promise<void> {
   const db = getSupabase();
   if (!db) return;
