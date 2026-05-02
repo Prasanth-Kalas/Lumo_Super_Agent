@@ -10,9 +10,10 @@ import Foundation
 /// response, and surfaces typed errors.
 ///
 /// The brief is iOS-v1 scope: we only consume the fields the iOS UX
-/// actually renders. Web's richer schemas (memory facts + patterns,
-/// marketplace risk badges + OAuth, history sessions+trips merged
-/// timeline) are filed deferred — see the lane's progress note.
+/// actually renders. Memory facts + patterns landed in
+/// IOS-MEMORY-FACTS-1; marketplace risk badges + OAuth and the
+/// history sessions+trips merged timeline are still deferred — see
+/// the lane's progress note.
 
 // MARK: - DTOs
 
@@ -99,11 +100,59 @@ struct MemoryAddressDTO: Codable, Equatable {
     }
 }
 
-/// Web returns `{ profile, facts, patterns }`. iOS-v1 only renders
-/// the profile section; facts + patterns drop on the floor here and
-/// IOS-MEMORY-FACTS-1 will pick them up.
+/// Web returns `{ profile, facts, patterns }`; iOS now consumes all
+/// three. Facts default to [] and patterns default to [] so older
+/// snapshots from before facts/patterns shipped still decode.
 struct MemoryResponseDTO: Codable, Equatable {
     let profile: MemoryProfileDTO?
+    let facts: [MemoryFactDTO]
+    let patterns: [MemoryPatternDTO]
+
+    init(
+        profile: MemoryProfileDTO? = nil,
+        facts: [MemoryFactDTO] = [],
+        patterns: [MemoryPatternDTO] = []
+    ) {
+        self.profile = profile
+        self.facts = facts
+        self.patterns = patterns
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case profile, facts, patterns
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.profile = try c.decodeIfPresent(MemoryProfileDTO.self, forKey: .profile)
+        self.facts = (try c.decodeIfPresent([MemoryFactDTO].self, forKey: .facts)) ?? []
+        self.patterns = (try c.decodeIfPresent([MemoryPatternDTO].self, forKey: .patterns)) ?? []
+    }
+}
+
+/// Mirrors web's `UserFact` shape returned from `GET /api/memory`. A
+/// soft-deleted fact (web's "Forget" action) is filtered server-side,
+/// so iOS only ever sees live facts.
+struct MemoryFactDTO: Codable, Equatable, Identifiable {
+    let id: String
+    let fact: String
+    let category: String
+    let source: String
+    let confidence: Double
+    let first_seen_at: String
+    let last_confirmed_at: String
+}
+
+/// Mirrors web's `BehaviorPattern`. Patterns are read-only — derived
+/// nightly by the pattern detector. iOS surfaces them so the user
+/// understands what inferences Lumo is drawing.
+struct MemoryPatternDTO: Codable, Equatable, Identifiable {
+    let id: String
+    let pattern_kind: String
+    let description: String
+    let evidence_count: Int
+    let confidence: Double
+    let last_observed_at: String
 }
 
 /// Subset of web's `/api/marketplace` agent shape that iOS-v1 lists.
@@ -192,6 +241,7 @@ protocol DrawerScreensFetching: AnyObject {
     func fetchMarketplace() async throws -> MarketplaceResponseDTO
     func fetchHistory(limitSessions: Int) async throws -> HistoryResponseDTO
     func updateMemoryProfile(_ patch: MemoryProfilePatchDTO) async throws -> MemoryProfileDTO
+    func forgetMemoryFact(id: String) async throws
 }
 
 /// PATCH body for `/api/memory/profile`. Only fields the iOS-v1 edit
@@ -265,6 +315,29 @@ final class DrawerScreensClient: DrawerScreensFetching {
 
     func fetchHistory(limitSessions: Int = 30) async throws -> HistoryResponseDTO {
         try await get(path: "api/history?limit_sessions=\(limitSessions)", as: HistoryResponseDTO.self)
+    }
+
+    func forgetMemoryFact(id: String) async throws {
+        guard !id.isEmpty else {
+            throw DrawerScreensError.transport("missing fact id")
+        }
+        let url = baseURL.appendingPathComponent("api/memory/facts/\(id)")
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let userID = userIDProvider(), !userID.isEmpty {
+            req.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw DrawerScreensError.transport("\(error)")
+        }
+        try Self.expectOK(response, data: data)
     }
 
     func updateMemoryProfile(_ patch: MemoryProfilePatchDTO) async throws -> MemoryProfileDTO {
@@ -346,11 +419,13 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
         .success(HistoryResponseDTO(sessions: []))
     var memoryUpdateResult: Result<MemoryProfileDTO, Error> =
         .success(MemoryProfileDTO())
+    var forgetFactResult: Result<Void, Error> = .success(())
 
     private(set) var memoryFetchCount = 0
     private(set) var marketplaceFetchCount = 0
     private(set) var historyFetchCount = 0
     private(set) var memoryUpdateCalls: [MemoryProfilePatchDTO] = []
+    private(set) var forgetFactCalls: [String] = []
 
     func fetchMemory() async throws -> MemoryResponseDTO {
         memoryFetchCount += 1
@@ -380,6 +455,14 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
         memoryUpdateCalls.append(patch)
         switch memoryUpdateResult {
         case .success(let r): return r
+        case .failure(let e): throw e
+        }
+    }
+
+    func forgetMemoryFact(id: String) async throws {
+        forgetFactCalls.append(id)
+        switch forgetFactResult {
+        case .success: return
         case .failure(let e): throw e
         }
     }

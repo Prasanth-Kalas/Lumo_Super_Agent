@@ -20,6 +20,15 @@ final class MemoryScreenViewModel: ObservableObject {
     @Published var state: DrawerLoadState<MemoryProfileDTO> = .idle
     @Published var saveError: String? = nil
     @Published var isSaving: Bool = false
+    /// IOS-MEMORY-FACTS-1 — facts and patterns sit alongside the
+    /// profile state rather than inside it so existing view bindings
+    /// (the 5-category list) keep working unchanged.
+    @Published var facts: [MemoryFactDTO] = []
+    @Published var patterns: [MemoryPatternDTO] = []
+    /// Non-nil while a Forget request is in flight for that fact.
+    /// Drives the row's "Forgetting…" affordance + disabled button.
+    @Published var forgettingFactID: String? = nil
+    @Published var factError: String? = nil
 
     private let fetcher: DrawerScreensFetching
 
@@ -36,6 +45,9 @@ final class MemoryScreenViewModel: ObservableObject {
             // this in" empty state on the view side, so pass a
             // default-empty profile rather than nil.
             state = .loaded(resp.profile ?? MemoryProfileDTO())
+            facts = resp.facts
+            patterns = resp.patterns
+            factError = nil
         } catch {
             state = .error(Self.message(for: error))
         }
@@ -53,9 +65,36 @@ final class MemoryScreenViewModel: ObservableObject {
         }
     }
 
+    /// Optimistic "Forget this memory" — removes from the local list
+    /// immediately; on transport/server error, restores the row and
+    /// surfaces a one-shot error message via `factError`.
+    func forgetFact(id: String) async {
+        guard forgettingFactID == nil else { return }
+        guard let removedIndex = facts.firstIndex(where: { $0.id == id }) else { return }
+        let removed = facts[removedIndex]
+        forgettingFactID = id
+        facts.remove(at: removedIndex)
+        defer { forgettingFactID = nil }
+        do {
+            try await fetcher.forgetMemoryFact(id: id)
+            factError = nil
+        } catch {
+            // Roll back at the same index so the user doesn't see
+            // their fact teleport to a different position on retry.
+            let safeIndex = min(removedIndex, facts.count)
+            facts.insert(removed, at: safeIndex)
+            factError = Self.message(for: error)
+        }
+    }
+
     /// DEBUG seed used by RootView's -LumoSeedDrawerScreens fixture.
     func _seedForTest(state: DrawerLoadState<MemoryProfileDTO>) {
         self.state = state
+    }
+
+    func _seedForTest(facts: [MemoryFactDTO], patterns: [MemoryPatternDTO]) {
+        self.facts = facts
+        self.patterns = patterns
     }
 
     static func message(for error: Error) -> String {

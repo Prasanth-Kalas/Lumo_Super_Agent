@@ -53,6 +53,53 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         let json = #"{"profile": null}"#.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(MemoryResponseDTO.self, from: json)
         XCTAssertNil(decoded.profile)
+        XCTAssertEqual(decoded.facts, [])
+        XCTAssertEqual(decoded.patterns, [])
+    }
+
+    func test_memoryResponse_decodes_factsAndPatterns() throws {
+        let json = """
+        {
+          "profile": null,
+          "facts": [
+            {
+              "id": "f1",
+              "fact": "Window seat preference on long-haul.",
+              "category": "preference",
+              "source": "explicit",
+              "confidence": 0.9,
+              "first_seen_at": "2026-04-01T10:00:00Z",
+              "last_confirmed_at": "2026-05-02T08:00:00Z"
+            }
+          ],
+          "patterns": [
+            {
+              "id": "p1",
+              "pattern_kind": "frequent_destination",
+              "description": "Books LAS roughly monthly.",
+              "evidence_count": 4,
+              "confidence": 0.82,
+              "last_observed_at": "2026-05-01T00:00:00Z"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(MemoryResponseDTO.self, from: json)
+        XCTAssertEqual(decoded.facts.count, 1)
+        XCTAssertEqual(decoded.facts[0].id, "f1")
+        XCTAssertEqual(decoded.facts[0].category, "preference")
+        XCTAssertEqual(decoded.patterns.count, 1)
+        XCTAssertEqual(decoded.patterns[0].evidence_count, 4)
+    }
+
+    func test_memoryResponse_decodes_oldSnapshotWithoutFactsKey() throws {
+        // Backwards-compat: a response missing facts/patterns must
+        // still decode (e.g. an older server build, or a cached
+        // payload from before facts shipped).
+        let json = #"{"profile": null}"#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(MemoryResponseDTO.self, from: json)
+        XCTAssertEqual(decoded.facts, [])
+        XCTAssertEqual(decoded.patterns, [])
     }
 
     func test_marketplaceResponse_decodes_subsetOfWebSchema() throws {
@@ -174,6 +221,119 @@ final class DrawerScreenViewModelsTests: XCTestCase {
             return XCTFail("loaded profile must survive a failed save")
         }
         XCTAssertEqual(p.display_name, "Alex", "failed save must not blank the loaded profile")
+    }
+
+    func test_memoryVM_load_populatesFactsAndPatterns() async {
+        let fake = FakeDrawerScreensFetcher()
+        let f = MemoryFactDTO(
+            id: "f1",
+            fact: "Likes window seats",
+            category: "preference",
+            source: "explicit",
+            confidence: 0.9,
+            first_seen_at: "2026-04-01T10:00:00Z",
+            last_confirmed_at: "2026-05-02T08:00:00Z"
+        )
+        let p = MemoryPatternDTO(
+            id: "p1",
+            pattern_kind: "frequent_destination",
+            description: "Books LAS roughly monthly",
+            evidence_count: 4,
+            confidence: 0.82,
+            last_observed_at: "2026-05-01T00:00:00Z"
+        )
+        fake.memoryResult = .success(MemoryResponseDTO(profile: nil, facts: [f], patterns: [p]))
+        let vm = MemoryScreenViewModel(fetcher: fake)
+        await vm.load()
+        XCTAssertEqual(vm.facts.count, 1)
+        XCTAssertEqual(vm.facts[0].id, "f1")
+        XCTAssertEqual(vm.patterns.count, 1)
+        XCTAssertEqual(vm.patterns[0].id, "p1")
+    }
+
+    func test_memoryVM_forgetFact_optimisticallyRemovesAndCallsDelete() async {
+        let fake = FakeDrawerScreensFetcher()
+        let facts = (1...3).map {
+            MemoryFactDTO(
+                id: "f\($0)",
+                fact: "fact \($0)",
+                category: "preference",
+                source: "explicit",
+                confidence: 0.8,
+                first_seen_at: "2026-04-01T10:00:00Z",
+                last_confirmed_at: "2026-04-01T10:00:00Z"
+            )
+        }
+        fake.memoryResult = .success(MemoryResponseDTO(profile: nil, facts: facts))
+        let vm = MemoryScreenViewModel(fetcher: fake)
+        await vm.load()
+        XCTAssertEqual(vm.facts.count, 3)
+
+        await vm.forgetFact(id: "f2")
+
+        XCTAssertEqual(vm.facts.map(\.id), ["f1", "f3"], "f2 should be removed")
+        XCTAssertEqual(fake.forgetFactCalls, ["f2"])
+        XCTAssertNil(vm.forgettingFactID)
+        XCTAssertNil(vm.factError)
+    }
+
+    func test_memoryVM_forgetFact_failureRestoresFactAtSameIndex() async {
+        let fake = FakeDrawerScreensFetcher()
+        let facts = (1...3).map {
+            MemoryFactDTO(
+                id: "f\($0)",
+                fact: "fact \($0)",
+                category: "preference",
+                source: "explicit",
+                confidence: 0.8,
+                first_seen_at: "2026-04-01T10:00:00Z",
+                last_confirmed_at: "2026-04-01T10:00:00Z"
+            )
+        }
+        fake.memoryResult = .success(MemoryResponseDTO(profile: nil, facts: facts))
+        fake.forgetFactResult = .failure(DrawerScreensError.transport("offline"))
+        let vm = MemoryScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.forgetFact(id: "f2")
+
+        XCTAssertEqual(vm.facts.map(\.id), ["f1", "f2", "f3"], "rolled-back fact must return to its original slot")
+        XCTAssertNotNil(vm.factError, "user-facing error must surface on failure")
+    }
+
+    func test_memoryUI_confidenceTone_thresholdsMatchWeb() {
+        XCTAssertEqual(MemoryUI.confidenceTone(0.81), .high)
+        XCTAssertEqual(MemoryUI.confidenceTone(0.80), .high)
+        XCTAssertEqual(MemoryUI.confidenceTone(0.79), .medium)
+        XCTAssertEqual(MemoryUI.confidenceTone(0.55), .medium)
+        XCTAssertEqual(MemoryUI.confidenceTone(0.54), .low)
+        XCTAssertEqual(MemoryUI.confidenceTone(0.0), .low)
+    }
+
+    func test_memoryUI_confidenceLabel_reportsPercentAndFraming() {
+        XCTAssertEqual(MemoryUI.confidenceLabel(0.92), "92% confidence")
+        XCTAssertEqual(MemoryUI.confidenceLabel(0.60), "60% confidence")
+        XCTAssertEqual(MemoryUI.confidenceLabel(0.30), "30% needs review")
+        XCTAssertEqual(MemoryUI.confidenceLabel(2.0), "100% confidence", "values >1 must clamp")
+    }
+
+    func test_memoryUI_sourceLabel_matchesWebStrings() {
+        XCTAssertEqual(MemoryUI.sourceLabel("explicit"), "Told by you")
+        XCTAssertEqual(MemoryUI.sourceLabel("inferred"), "Inferred")
+        XCTAssertEqual(MemoryUI.sourceLabel("behavioral"), "Learned from activity")
+        XCTAssertEqual(MemoryUI.sourceLabel("custom_source"), "Custom Source", "unknown sources should titleize")
+    }
+
+    func test_memoryUI_groupedAndSorted_isDeterministic() {
+        let facts = [
+            MemoryFactDTO(id: "f1", fact: "a", category: "habit", source: "x", confidence: 1, first_seen_at: "", last_confirmed_at: ""),
+            MemoryFactDTO(id: "f2", fact: "b", category: "preference", source: "x", confidence: 1, first_seen_at: "", last_confirmed_at: ""),
+            MemoryFactDTO(id: "f3", fact: "c", category: "habit", source: "x", confidence: 1, first_seen_at: "", last_confirmed_at: ""),
+        ]
+        let grouped = MemoryUI.groupedAndSorted(facts)
+        XCTAssertEqual(grouped.map(\.0), ["habit", "preference"])
+        XCTAssertEqual(grouped[0].1.map(\.id), ["f1", "f3"])
+        XCTAssertEqual(grouped[1].1.map(\.id), ["f2"])
     }
 
     func test_marketplaceVM_load_success_listsAgents() async {

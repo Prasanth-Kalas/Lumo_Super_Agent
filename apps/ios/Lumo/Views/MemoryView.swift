@@ -1,18 +1,17 @@
 import SwiftUI
 
 /// Memory destination — what Lumo knows about the user, fetched from
-/// `GET /api/memory` (we only consume the `profile` field for iOS-v1
-/// per IOS-COMPOSER-AND-DRAWER-SCREENS-1 Phase B1).
+/// `GET /api/memory`.
 ///
-/// The brief asks for five categories (Preferences, Addresses,
-/// Dietary, Traveler Profiles, Frequent Flyer). We map the structured
-/// profile fields onto those buckets — recon flagged that web's
-/// schema is richer (profile + facts + patterns); the facts +
-/// patterns sections are filed deferred as IOS-MEMORY-FACTS-1.
-///
-/// Tap a category row → inline edit form. Save calls
-/// `PATCH /api/memory/profile` (NOT `PUT /api/memory` as the brief
-/// stated; recon found web only exposes PATCH on the profile path).
+/// Three sections, mirroring web's `/memory` page:
+///   1. Profile categories (Preferences, Addresses, Dietary, Traveler,
+///      Frequent flyer) — taps open an inline edit form. Save calls
+///      `PATCH /api/memory/profile`.
+///   2. Facts — free-text memories grouped by category. Each row has
+///      a "Forget" action that calls `DELETE /api/memory/facts/{id}`.
+///      Soft-delete; recoverable for 30 days server-side.
+///   3. Patterns — read-only inferences from the nightly pattern
+///      detector. Only shown when the patterns array is non-empty.
 
 struct MemoryView: View {
     @StateObject private var viewModel: MemoryScreenViewModel
@@ -81,23 +80,105 @@ struct MemoryView: View {
 
     private func profileList(_ profile: MemoryProfileDTO) -> some View {
         ScrollView {
-            VStack(spacing: LumoSpacing.sm) {
-                ForEach(MemoryCategory.allCases) { category in
-                    Button {
-                        editingCategory = category
-                    } label: {
-                        MemoryCategoryRow(
-                            category: category,
-                            summary: category.summary(from: profile)
-                        )
+            VStack(alignment: .leading, spacing: LumoSpacing.lg) {
+                VStack(spacing: LumoSpacing.sm) {
+                    ForEach(MemoryCategory.allCases) { category in
+                        Button {
+                            editingCategory = category
+                        } label: {
+                            MemoryCategoryRow(
+                                category: category,
+                                summary: category.summary(from: profile)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("memory.row.\(category.rawValue)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("memory.row.\(category.rawValue)")
+                }
+
+                factsSection
+                patternsSection
+
+                if !viewModel.facts.isEmpty || !viewModel.patterns.isEmpty {
+                    Text("Soft-deleted facts are recoverable for 30 days. To permanently erase everything Lumo knows about you, email support.")
+                        .font(LumoFonts.caption)
+                        .foregroundStyle(LumoColors.labelTertiary)
+                        .padding(.top, LumoSpacing.xs)
+                        .accessibilityIdentifier("memory.softDeleteFooter")
                 }
             }
             .padding(LumoSpacing.md)
         }
         .accessibilityIdentifier("memory.list")
+    }
+
+    @ViewBuilder
+    private var factsSection: some View {
+        if !viewModel.facts.isEmpty {
+            VStack(alignment: .leading, spacing: LumoSpacing.sm) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("What Lumo remembers")
+                        .font(LumoFonts.headline)
+                        .foregroundStyle(LumoColors.label)
+                    Spacer()
+                    Text("\(viewModel.facts.count) fact\(viewModel.facts.count == 1 ? "" : "s")")
+                        .font(LumoFonts.caption)
+                        .foregroundStyle(LumoColors.labelTertiary)
+                }
+                if let err = viewModel.factError {
+                    Text(err)
+                        .font(LumoFonts.caption)
+                        .foregroundStyle(LumoColors.warning)
+                        .accessibilityIdentifier("memory.facts.error")
+                }
+                ForEach(MemoryUI.groupedAndSorted(viewModel.facts), id: \.0) { entry in
+                    let (categoryKey, factsInCategory) = entry
+                    VStack(alignment: .leading, spacing: LumoSpacing.xxs) {
+                        Text(MemoryUI.categoryLabel(for: categoryKey).uppercased())
+                            .font(LumoFonts.caption)
+                            .tracking(1.2)
+                            .foregroundStyle(LumoColors.labelTertiary)
+                        VStack(spacing: 0) {
+                            ForEach(factsInCategory) { fact in
+                                MemoryFactRow(
+                                    fact: fact,
+                                    isForgetting: viewModel.forgettingFactID == fact.id,
+                                    onForget: { Task { await viewModel.forgetFact(id: fact.id) } }
+                                )
+                                if fact.id != factsInCategory.last?.id {
+                                    Divider().background(LumoColors.separator)
+                                }
+                            }
+                        }
+                        .background(
+                            RoundedRectangle(cornerRadius: LumoRadius.md).fill(LumoColors.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: LumoRadius.md)
+                                .stroke(LumoColors.separator, lineWidth: 1)
+                        )
+                    }
+                }
+            }
+            .accessibilityIdentifier("memory.facts.section")
+        }
+    }
+
+    @ViewBuilder
+    private var patternsSection: some View {
+        if !viewModel.patterns.isEmpty {
+            VStack(alignment: .leading, spacing: LumoSpacing.sm) {
+                Text("Observed patterns")
+                    .font(LumoFonts.headline)
+                    .foregroundStyle(LumoColors.label)
+                VStack(spacing: LumoSpacing.sm) {
+                    ForEach(viewModel.patterns) { pattern in
+                        MemoryPatternRow(pattern: pattern)
+                    }
+                }
+            }
+            .accessibilityIdentifier("memory.patterns.section")
+        }
     }
 
     private func errorState(_ message: String) -> some View {
@@ -328,5 +409,210 @@ struct MemoryEditForm: View {
         raw.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
             .filter { !$0.isEmpty }
+    }
+}
+
+// MARK: - Facts + Patterns rows
+
+private struct MemoryFactRow: View {
+    let fact: MemoryFactDTO
+    let isForgetting: Bool
+    let onForget: () -> Void
+    @State private var showConfirm = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: LumoSpacing.md) {
+            VStack(alignment: .leading, spacing: LumoSpacing.xxs) {
+                Text(fact.fact)
+                    .font(LumoFonts.body)
+                    .foregroundStyle(LumoColors.label)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: LumoSpacing.xxs) {
+                    MemoryPill(label: MemoryUI.sourceLabel(fact.source))
+                    MemoryPill(
+                        label: MemoryUI.confidenceLabel(fact.confidence),
+                        tone: MemoryUI.confidenceTone(fact.confidence)
+                    )
+                    MemoryPill(label: "confirmed \(MemoryUI.formatRelative(fact.last_confirmed_at))")
+                }
+            }
+            Spacer(minLength: LumoSpacing.sm)
+            Button(role: .destructive) {
+                showConfirm = true
+            } label: {
+                Text(isForgetting ? "Forgetting" : "Forget")
+                    .font(LumoFonts.caption.weight(.medium))
+                    .padding(.horizontal, LumoSpacing.sm)
+                    .padding(.vertical, LumoSpacing.xxs)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isForgetting)
+            .accessibilityLabel("Forget memory: \(fact.fact)")
+            .accessibilityIdentifier("memory.fact.forget.\(fact.id)")
+        }
+        .padding(LumoSpacing.md)
+        .alert("Forget this memory?", isPresented: $showConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Forget", role: .destructive) { onForget() }
+        } message: {
+            Text("Lumo will stop using \"\(fact.fact)\" in chat.")
+        }
+    }
+}
+
+private struct MemoryPatternRow: View {
+    let pattern: MemoryPatternDTO
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LumoSpacing.xxs) {
+            HStack(alignment: .top) {
+                Text(pattern.description)
+                    .font(LumoFonts.body)
+                    .foregroundStyle(LumoColors.label)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: LumoSpacing.sm)
+                MemoryPill(
+                    label: MemoryUI.confidenceLabel(pattern.confidence),
+                    tone: MemoryUI.confidenceTone(pattern.confidence)
+                )
+            }
+            HStack(spacing: LumoSpacing.xxs) {
+                MemoryPill(label: pattern.pattern_kind.replacingOccurrences(of: "_", with: " "))
+                MemoryPill(label: "seen \(pattern.evidence_count)x")
+                MemoryPill(label: "observed \(MemoryUI.formatRelative(pattern.last_observed_at))")
+            }
+        }
+        .padding(LumoSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: LumoRadius.md).fill(LumoColors.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LumoRadius.md)
+                .stroke(LumoColors.separator, lineWidth: 1)
+        )
+    }
+}
+
+private struct MemoryPill: View {
+    let label: String
+    var tone: MemoryUI.ConfidenceTone? = nil
+
+    var body: some View {
+        Text(label)
+            .font(LumoFonts.caption)
+            .foregroundStyle(foreground)
+            .padding(.horizontal, LumoSpacing.xs + 2)
+            .padding(.vertical, LumoSpacing.xxs)
+            .background(Capsule().fill(background))
+            .overlay(Capsule().stroke(border, lineWidth: 1))
+    }
+
+    private var foreground: Color {
+        switch tone {
+        case .high: return LumoColors.cyan
+        case .medium: return LumoColors.warning
+        case .low: return LumoColors.error
+        case nil: return LumoColors.labelSecondary
+        }
+    }
+
+    private var background: Color {
+        switch tone {
+        case .high: return LumoColors.cyan.opacity(0.10)
+        case .medium: return LumoColors.warning.opacity(0.10)
+        case .low: return LumoColors.error.opacity(0.10)
+        case nil: return LumoColors.background
+        }
+    }
+
+    private var border: Color {
+        switch tone {
+        case .high: return LumoColors.cyan.opacity(0.30)
+        case .medium: return LumoColors.warning.opacity(0.30)
+        case .low: return LumoColors.error.opacity(0.30)
+        case nil: return LumoColors.separator
+        }
+    }
+}
+
+// MARK: - UI helpers — mirror of apps/web/lib/memory-ui.ts
+
+enum MemoryUI {
+    enum ConfidenceTone { case high, medium, low }
+
+    static func confidenceTone(_ confidence: Double) -> ConfidenceTone {
+        if confidence >= 0.8 { return .high }
+        if confidence >= 0.55 { return .medium }
+        return .low
+    }
+
+    static func confidenceLabel(_ confidence: Double) -> String {
+        let clamped = max(0, min(1, confidence))
+        let pct = Int((clamped * 100).rounded())
+        return confidenceTone(confidence) == .low
+            ? "\(pct)% needs review"
+            : "\(pct)% confidence"
+    }
+
+    static func sourceLabel(_ source: String) -> String {
+        switch source {
+        case "explicit": return "Told by you"
+        case "inferred": return "Inferred"
+        case "behavioral": return "Learned from activity"
+        default:
+            return source.isEmpty ? "Unknown source" : titleize(source)
+        }
+    }
+
+    /// Mirrors web's `formatMemoryRelative` — minutes/hours/days/months/years.
+    /// Distinct from `HistoryTimeFormatter` which serves a different
+    /// (chat-history) tone. Keeping the two separate keeps each
+    /// surface in lockstep with its web counterpart.
+    static func formatRelative(_ iso: String, now: Date = Date()) -> String {
+        guard let then = HistoryTimeFormatter.parseISO(iso) else { return "unknown" }
+        let diff = max(0, now.timeIntervalSince(then))
+        let minutes = Int(diff / 60)
+        if minutes < 1 { return "just now" }
+        if minutes < 60 { return "\(minutes)m ago" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)h ago" }
+        let days = hours / 24
+        if days == 1 { return "yesterday" }
+        if days < 30 { return "\(days)d ago" }
+        if days < 365 { return "\(days / 30)mo ago" }
+        return "\(days / 365)y ago"
+    }
+
+    static func categoryLabel(for key: String) -> String {
+        switch key {
+        case "preference": return "Preferences"
+        case "identity": return "About you"
+        case "habit": return "Habits"
+        case "location": return "Places"
+        case "constraint": return "Dietary & accessibility"
+        case "context": return "Current context"
+        case "milestone": return "Dates & milestones"
+        case "other": return "Other"
+        default: return titleize(key)
+        }
+    }
+
+    /// Bucket facts by category and emit deterministic ordering so
+    /// the UI doesn't reshuffle on every render. Tuple form keeps
+    /// the call site simple in a `ForEach`.
+    static func groupedAndSorted(_ facts: [MemoryFactDTO]) -> [(String, [MemoryFactDTO])] {
+        var buckets: [String: [MemoryFactDTO]] = [:]
+        for f in facts { buckets[f.category, default: []].append(f) }
+        return buckets.keys.sorted().map { key in (key, buckets[key] ?? []) }
+    }
+
+    private static func titleize(_ s: String) -> String {
+        let cleaned = s.replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+        return cleaned
+            .split(separator: " ")
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
     }
 }
