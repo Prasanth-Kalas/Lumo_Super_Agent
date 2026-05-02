@@ -153,7 +153,11 @@ def _segments_from_words(words: Any) -> list[TranscriptSegment]:
         if not isinstance(word, str) or not word.strip():
             continue
         speaker = raw.get("speaker")
-        speaker_label = f"SPEAKER_{speaker}" if isinstance(speaker, int) else None
+        # Match the SPEAKER_NN zero-padded convention asserted by
+        # tests/test_transcription.py (also matches pyannote / whisper-
+        # diarization output). Caught by SUGGESTIONS-MIGRATE-PYTHON-1's
+        # CI; the DEEPGRAM-MIGRATION-1 lane shipped without padding.
+        speaker_label = f"SPEAKER_{speaker:02d}" if isinstance(speaker, int) else None
         if current is None or current["speaker"] != speaker_label:
             if current is not None:
                 segments.append(_segment_from_current(current))
