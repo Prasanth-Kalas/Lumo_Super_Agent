@@ -39,6 +39,17 @@ STUB_HEADER_NAME = "X-Lumo-Plan-Stub"
 # header should drop entirely.
 STUB_HEADER_VALUE = "0"
 
+# First-class telemetry headers for codex's parallel-write
+# ``agent_plan_compare`` capture. Top score is the mean cosine of the
+# message embedding against the winning bucket's anchors; gap is the
+# margin to the runner-up. Both omitted when the deterministic flight-
+# search guard short-circuits — the guard is a binary signal, not a
+# score-based decision, and a NULL row in agent_plan_compare records
+# that distinction.
+TOP_SCORE_HEADER_NAME = "X-Lumo-Plan-Top-Score"
+GAP_HEADER_NAME = "X-Lumo-Plan-Gap"
+CONFIDENCE_HEADER_NAME = "X-Lumo-Plan-Confidence"
+
 
 def _plan_extra() -> dict:
     return {
@@ -61,6 +72,11 @@ Auth = Annotated[AuthContext, Depends(require_lumo_jwt)]
 def route_plan(req: PlanRequest, response: Response, _auth: Auth) -> PlanResponse:
     response.headers[STUB_HEADER_NAME] = STUB_HEADER_VALUE
     classification = IntentClassifier.get_instance().classify(req.user_message)
+    response.headers[CONFIDENCE_HEADER_NAME] = f"{classification.confidence:.4f}"
+    if classification.top_score is not None:
+        response.headers[TOP_SCORE_HEADER_NAME] = f"{classification.top_score:.4f}"
+    if classification.gap is not None:
+        response.headers[GAP_HEADER_NAME] = f"{classification.gap:.4f}"
     return PlanResponse(
         intent_bucket=classification.bucket,
         planning_step=req.planning_step_hint or "clarification",

@@ -166,6 +166,15 @@ class IntentClassification(BaseModel):
     bucket: Bucket
     confidence: float = Field(ge=0, le=1)
     reasoning: str = Field(max_length=240)
+    # ``top_score`` and ``gap`` are the raw similarity signals the
+    # router lifts into ``X-Lumo-Plan-*`` response headers so codex's
+    # parallel-write ``agent_plan_compare`` capture has first-class
+    # telemetry fields instead of regex-parsing the reasoning string.
+    # Both are ``None`` when the deterministic flight-search guard
+    # short-circuits the embedding step (the guard is a binary signal,
+    # not a score-based decision).
+    top_score: float | None = Field(default=None, ge=0, le=1)
+    gap: float | None = Field(default=None, ge=0, le=1)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -277,6 +286,11 @@ class IntentClassifier:
         # is "clear winner". Calibrated empirically against the eval
         # harness; doesn't gate routing.
         confidence = max(0.0, min(1.0, top_score * 2 + gap * 2))
+        # Clamp the raw signals to [0, 1] for the IntentClassification
+        # contract — anchor cosine means are bounded but can dip
+        # slightly negative on adversarial inputs.
+        top_score_clamped = max(0.0, min(1.0, top_score))
+        gap_clamped = max(0.0, min(1.0, gap))
 
         if top_score < MIN_TOP_SCORE:
             return IntentClassification(
@@ -286,10 +300,14 @@ class IntentClassifier:
                     f"weak top match {top_bucket} (top={top_score:.3f} "
                     f"< {MIN_TOP_SCORE}); defaulted to reasoning_path"
                 ),
+                top_score=top_score_clamped,
+                gap=gap_clamped,
             )
 
         return IntentClassification(
             bucket=top_bucket,
             confidence=confidence,
             reasoning=f"anchor-similarity {top_bucket} (top={top_score:.3f}, gap={gap:.3f})",
+            top_score=top_score_clamped,
+            gap=gap_clamped,
         )

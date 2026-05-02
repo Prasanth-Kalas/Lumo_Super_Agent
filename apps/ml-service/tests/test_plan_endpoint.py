@@ -22,7 +22,13 @@ os.environ.setdefault("LUMO_ML_SERVICE_JWT_SECRET", TEST_SECRET)
 os.environ.setdefault("LUMO_ML_PUBLIC_BASE_URL", "http://localhost:3010")
 
 from lumo_ml.main import app  # noqa: E402
-from lumo_ml.plan.router import STUB_HEADER_NAME, STUB_HEADER_VALUE  # noqa: E402
+from lumo_ml.plan.router import (  # noqa: E402
+    CONFIDENCE_HEADER_NAME,
+    GAP_HEADER_NAME,
+    STUB_HEADER_NAME,
+    STUB_HEADER_VALUE,
+    TOP_SCORE_HEADER_NAME,
+)
 from lumo_ml.plan.schemas import (  # noqa: E402
     ChatTurn,
     CompoundMissionLeg,
@@ -173,6 +179,35 @@ def test_plan_endpoint_returns_classified_response() -> None:
     assert body["system_prompt_addendum"]
     assert body["compound_graph"] is None
     assert body["profile_summary_hints"] is None
+    # Telemetry headers populated for similarity-based decisions —
+    # 'hi' goes through the embedding path, not the flight guard.
+    assert res.headers.get(CONFIDENCE_HEADER_NAME) is not None
+    assert 0.0 <= float(res.headers[CONFIDENCE_HEADER_NAME]) <= 1.0
+    assert res.headers.get(TOP_SCORE_HEADER_NAME) is not None
+    assert res.headers.get(GAP_HEADER_NAME) is not None
+
+
+def test_plan_endpoint_omits_score_headers_on_guard_path() -> None:
+    """Flight-search guard short-circuits before embedding, so
+    top_score / gap are NULL — codex's agent_plan_compare row should
+    capture that absence rather than synthetic values."""
+    res = client.post(
+        "/api/tools/plan",
+        json={
+            "user_message": "book me a flight to Vegas",
+            "session_id": "sess_guard",
+            "user_id": "anon",
+        },
+        headers=_auth_headers(),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["intent_bucket"] == "tool_path"
+    # Confidence is still set (the guard reports 1.0); but the score
+    # signals are absent because they don't apply.
+    assert res.headers.get(CONFIDENCE_HEADER_NAME) is not None
+    assert TOP_SCORE_HEADER_NAME not in res.headers
+    assert GAP_HEADER_NAME not in res.headers
 
 
 def test_plan_endpoint_rejects_missing_jwt() -> None:
