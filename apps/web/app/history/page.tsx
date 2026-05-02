@@ -139,7 +139,7 @@ export default function HistoryPage() {
   return (
     <div className="min-h-dvh bg-lumo-bg text-lumo-fg-high flex flex-col">
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/85 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-5 py-3">
+        <div className="flex w-full items-center justify-between px-6 py-3">
           <div className="flex items-center gap-2.5">
             <Link
               href="/"
@@ -166,12 +166,12 @@ export default function HistoryPage() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-4xl px-5 py-8 flex-1">
-        <div className="mb-6 space-y-2">
-          <h1 className="text-[24px] sm:text-[28px] font-semibold tracking-[-0.02em] text-lumo-fg">
-            Your history
+      <div className="mx-auto w-full max-w-4xl px-6 py-12 flex-1">
+        <div className="mb-10 space-y-3">
+          <h1 className="font-display text-[44px] md:text-[64px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
+            Your <span className="italic text-lumo-accent">history.</span>
           </h1>
-          <p className="text-[13.5px] text-lumo-fg-mid">
+          <p className="text-[15px] text-lumo-fg-mid leading-[1.65] max-w-xl">
             Every conversation and every booking, newest first.
           </p>
         </div>
@@ -231,8 +231,8 @@ export default function HistoryPage() {
           <div className="space-y-8">
             {grouped.map((g) => (
               <section key={g.label} className="space-y-2">
-                <div className="text-[10.5px] uppercase tracking-[0.14em] text-lumo-fg-low sticky top-[60px] bg-lumo-bg/80 backdrop-blur-sm py-1 z-[5]">
-                  {g.label}
+                <div className="font-display italic text-[20px] tracking-[-0.01em] text-lumo-fg-mid sticky top-[60px] bg-lumo-bg/85 backdrop-blur-sm py-2 z-[5]">
+                  {g.label}.
                 </div>
                 <ul className="space-y-2">
                   {g.items.map((it) =>
@@ -313,22 +313,11 @@ function SessionRowCard({ row }: { row: SessionRow }) {
     <li>
       <a
         href={href}
-        className="group block rounded-xl border border-lumo-hair bg-lumo-surface px-4 py-3 hover:border-lumo-edge transition-colors"
+        className="group block rounded-2xl border border-lumo-hair bg-lumo-surface px-5 py-4 hover:border-lumo-edge hover:shadow-card-lift transition-all"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1 text-[10.5px] uppercase tracking-[0.14em] text-lumo-fg-low">
-                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
-                  <path
-                    d="M2 3h8v5H5L2.5 10V8H2V3Z"
-                    stroke="currentColor"
-                    strokeWidth="1.3"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                Conversation
-              </span>
               {row.trip_ids.length > 0 ? (
                 <span className="inline-flex items-center text-[10.5px] text-lumo-accent border border-lumo-accent/30 bg-lumo-accent/5 rounded-full px-1.5 py-0.5">
                   {row.trip_ids.length} trip{row.trip_ids.length === 1 ? "" : "s"}
@@ -382,28 +371,16 @@ function TripRowCard({
 }) {
   return (
     <li>
-      <div className="rounded-xl border border-lumo-hair bg-lumo-surface hover:border-lumo-edge transition-colors">
+      <div className="rounded-2xl border border-lumo-hair bg-lumo-surface hover:border-lumo-edge transition-all">
         <button
           type="button"
           onClick={onToggle}
-          className="w-full text-left px-4 py-3"
+          className="w-full text-left px-5 py-4"
           aria-expanded={expanded}
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 text-[10.5px] uppercase tracking-[0.14em] text-lumo-fg-low">
-                  <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
-                    <path
-                      d="M1.5 6h9M7 2.5 10.5 6 7 9.5"
-                      stroke="currentColor"
-                      strokeWidth="1.3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  Trip
-                </span>
                 <StatusPill status={row.status} />
               </div>
               <div className="mt-1 text-[14px] text-lumo-fg truncate">

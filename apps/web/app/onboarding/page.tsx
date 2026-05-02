@@ -75,7 +75,7 @@ function OnboardingShell() {
   return (
     <main className="min-h-dvh bg-lumo-bg text-lumo-fg-high">
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/80 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-3">
+        <div className="flex w-full items-center justify-between px-6 py-3">
           <div className="flex items-center">
             <LumoWordmark height={22} />
           </div>
@@ -282,7 +282,7 @@ function OnboardingFlow() {
           in the corner, just the wordmark and the Skip escape hatch.
           The goal is to feel like a finishing step, not a subpage. */}
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/85 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-3">
+        <div className="flex w-full items-center justify-between px-6 py-3">
           <div className="flex items-center gap-2.5">
             <LumoWordmark height={22} />
             <span className="hidden sm:inline text-lumo-fg-low text-[12px]">

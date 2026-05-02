@@ -17,7 +17,7 @@ export default function DeveloperLayout({ children }: { children: ReactNode }) {
   return (
     <main className="flex min-h-dvh flex-col bg-lumo-bg text-lumo-fg-high">
       <header className="sticky top-0 z-20 border-b border-lumo-hair bg-lumo-bg/90 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-3">
+        <div className="flex w-full items-center justify-between px-6 py-3">
           <Link href="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-90">
             <LumoWordmark height={22} />
             <span className="hidden text-[12px] text-lumo-fg-low sm:inline">/</span>
