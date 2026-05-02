@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code Python | Lumo_Super_Agent_python | claude-code-python/suggestions-migrate-python-1 | 2026-05-02 | SUGGESTIONS-MIGRATE-PYTHON-1 (recon-first) — migrate per-turn suggestion-chip generation from TS to Python behind parallel-write telemetry; recon TS canonical function + paths + propose `X-Lumo-Suggestions-*` header names, then stop for reviewer approval before scope work |
 
 ## Closed lanes
 
