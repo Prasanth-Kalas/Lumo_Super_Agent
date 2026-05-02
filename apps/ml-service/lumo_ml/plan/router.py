@@ -28,6 +28,7 @@ real route lives in the type-checked surface.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
@@ -36,6 +37,7 @@ from ..auth import AuthContext, require_lumo_jwt
 from .classifier import IntentClassifier
 from .schemas import PlanRequest, PlanResponse
 from .suggestions import build_assistant_suggestions
+from .system_prompt import build_system_prompt
 
 router = APIRouter()
 
@@ -67,6 +69,15 @@ CONFIDENCE_HEADER_NAME = "X-Lumo-Plan-Confidence"
 SUGGESTIONS_SOURCE_HEADER_NAME = "X-Lumo-Suggestions-Source"
 SUGGESTIONS_SOURCE_HEADER_VALUE = "python"
 SUGGESTIONS_COUNT_HEADER_NAME = "X-Lumo-Suggestions-Count"
+
+# Per-turn system-prompt telemetry (SYSTEM-PROMPT-MIGRATE-PYTHON-1).
+# ``Source: python`` is constant for this lane; widens to ``both`` /
+# ``python-only`` when SYSTEM-PROMPT-CUTOVER-1 fires. ``Length`` is
+# emitted in chars (not tokens) so codex's logger can spot length
+# divergence without re-running a tokenizer.
+SYSTEM_PROMPT_SOURCE_HEADER_NAME = "X-Lumo-System-Prompt-Source"
+SYSTEM_PROMPT_SOURCE_HEADER_VALUE = "python"
+SYSTEM_PROMPT_LENGTH_HEADER_NAME = "X-Lumo-System-Prompt-Length"
 
 
 def _plan_extra() -> dict:
@@ -114,6 +125,28 @@ def route_plan(req: PlanRequest, response: Response, _auth: Auth) -> PlanRespons
     response.headers[SUGGESTIONS_SOURCE_HEADER_NAME] = SUGGESTIONS_SOURCE_HEADER_VALUE
     response.headers[SUGGESTIONS_COUNT_HEADER_NAME] = str(len(suggestions))
 
+    # The system-prompt builder needs ``user_region`` (always present
+    # via PlanRequest's "US" default) plus optional memory / ambient /
+    # booking_profile / agents. Pre-LLM /plan calls without those bits
+    # still produce a valid (smaller) prompt; full parity with TS only
+    # arrives when codex's plan-client serializes the orchestrator
+    # state into the new fields. We emit ``full_system_prompt = None``
+    # only if the caller passed no ``user_region`` — but the field has
+    # a "US" default so this is effectively always populated post-Phase
+    # 1.
+    full_system_prompt = build_system_prompt(
+        agents=req.agents,
+        now=datetime.now(tz=timezone.utc),
+        user_region=req.user_region,
+        user_first_name=req.user_first_name,
+        mode=req.mode,
+        memory=req.memory,
+        ambient=req.ambient,
+        booking_profile=req.booking_profile,
+    )
+    response.headers[SYSTEM_PROMPT_SOURCE_HEADER_NAME] = SYSTEM_PROMPT_SOURCE_HEADER_VALUE
+    response.headers[SYSTEM_PROMPT_LENGTH_HEADER_NAME] = str(len(full_system_prompt))
+
     return PlanResponse(
         intent_bucket=classification.bucket,
         planning_step=planning_step,
@@ -123,6 +156,7 @@ def route_plan(req: PlanRequest, response: Response, _auth: Auth) -> PlanRespons
         # makes disagreement diagnosis possible without an extra debug
         # endpoint.
         system_prompt_addendum=classification.reasoning,
+        full_system_prompt=full_system_prompt,
         compound_graph=None,
         profile_summary_hints=None,
     )

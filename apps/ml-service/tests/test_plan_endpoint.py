@@ -112,7 +112,13 @@ def test_plan_request_maximal_round_trip() -> None:
     }
     req = PlanRequest.model_validate(maximal)
     dumped = req.model_dump(mode="json")
-    assert dumped == maximal
+    # Subset assertion (rather than equality) — newer lanes add
+    # optional fields with non-None defaults (e.g. user_region="US",
+    # mode="text", agents=[]) that show up in the dump even when not
+    # in the input. Round-trip invariant: every key the caller
+    # explicitly set must appear in the dump with the same value.
+    for key, value in maximal.items():
+        assert dumped[key] == value, f"round-trip mismatch on {key!r}"
 
 
 def test_plan_response_round_trip_full() -> None:
