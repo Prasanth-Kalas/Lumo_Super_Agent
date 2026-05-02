@@ -24,7 +24,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
   const { data, error } = await sb
     .from("partner_agents")
     .select(
-      "id, publisher_email, manifest_url, status, certification_status, certification_report, certified_at, submitted_at, reviewed_at, reviewer_note, publisher_key",
+      "id, publisher_email, manifest_url, version, is_published, status, certification_status, certification_report, certified_at, submitted_at, reviewed_at, reviewer_note, publisher_key",
     )
     .eq("publisher_email", user.email!.toLowerCase())
     .order("submitted_at", { ascending: false });

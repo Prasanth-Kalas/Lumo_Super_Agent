@@ -22,6 +22,8 @@ interface Submission {
   id: string;
   publisher_email: string;
   manifest_url: string;
+  version: string;
+  is_published: boolean;
   parsed_manifest: Record<string, unknown> | null;
   status: "pending" | "certification_failed" | "approved" | "rejected" | "revoked";
   certification_status: "passed" | "needs_review" | "failed" | null;
@@ -105,7 +107,12 @@ export default function AdminReviewQueuePage() {
 
   async function decide(
     id: string,
-    decision: "approved" | "rejected" | "revoked",
+    decision:
+      | "approved"
+      | "rejected"
+      | "revoked"
+      | "published"
+      | "unpublished",
   ) {
     if (busyId) return;
     setBusyId(id);
@@ -216,8 +223,16 @@ export default function AdminReviewQueuePage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <div className="text-[13.5px] text-lumo-fg">
-                        {displayNameOf(s)}
+                      <div className="text-[13.5px] text-lumo-fg flex items-center gap-2">
+                        <span>{displayNameOf(s)}</span>
+                        <span className="text-[11px] text-lumo-fg-low num">
+                          v{s.version}
+                        </span>
+                        {s.is_published ? (
+                          <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                            Live
+                          </span>
+                        ) : null}
                       </div>
                       <div className="text-[11.5px] text-lumo-fg-low num mt-0.5 truncate">
                         {s.publisher_email} · {s.manifest_url}
@@ -266,6 +281,28 @@ export default function AdminReviewQueuePage() {
                       >
                         Reject
                       </button>
+                      {s.status === "approved" && !s.is_published ? (
+                        <button
+                          type="button"
+                          onClick={() => void decide(s.id, "published")}
+                          disabled={busyId === s.id}
+                          className="h-8 px-3 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[12.5px] hover:bg-emerald-500/25 disabled:opacity-50"
+                          title="Make this the version live on the marketplace. Replaces the currently published version, if any."
+                        >
+                          Publish
+                        </button>
+                      ) : null}
+                      {s.is_published ? (
+                        <button
+                          type="button"
+                          onClick={() => void decide(s.id, "unpublished")}
+                          disabled={busyId === s.id}
+                          className="h-8 px-3 rounded-md border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 text-[12.5px] disabled:opacity-50"
+                          title="Pull this version off the marketplace. The agent disappears from users until another version is published."
+                        >
+                          Unpublish
+                        </button>
+                      ) : null}
                       {s.status === "approved" ? (
                         <button
                           type="button"

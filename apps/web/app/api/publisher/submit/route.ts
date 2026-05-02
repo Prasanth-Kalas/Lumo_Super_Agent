@@ -65,22 +65,39 @@ export async function POST(req: NextRequest): Promise<Response> {
   const nextStatus =
     report.status === "passed" ? "pending" : "certification_failed";
 
+  // App Store framing: each (publisher_email, manifest_url, version)
+  // is a separate, immutable submission. The certifier always parses
+  // a manifest with a required semver `version`, so for a passing
+  // submission we always have one. Failing submissions may not have
+  // a parseable manifest — store the legacy sentinel so the row
+  // still lands and the publisher can see the failure report.
+  const submitted_version =
+    (manifest && typeof manifest.version === "string" && manifest.version) ||
+    "0.0.0-unparsed";
+
   const { data, error } = await sb
     .from("partner_agents")
     .upsert(
       {
         publisher_email: user.email!.toLowerCase(),
         manifest_url,
+        version: submitted_version,
         parsed_manifest: manifest,
         certification_status: report.status,
         certification_report: report,
         certified_at: report.checked_at,
         status: nextStatus,
         submitted_at: new Date().toISOString(),
+        // is_published is intentionally NOT set here. Even on a
+        // passing first submission, the row stays unpublished until
+        // an admin promotes it from /admin/review-queue. The
+        // App Store equivalent: passing review ≠ live on the store
+        // — the publisher (or in our v1, the Lumo admin) decides
+        // when to flip the switch.
       },
-      { onConflict: "publisher_email,manifest_url" },
+      { onConflict: "publisher_email,manifest_url,version" },
     )
-    .select("id, publisher_email, manifest_url, status, certification_status, certification_report, submitted_at")
+    .select("id, publisher_email, manifest_url, version, is_published, status, certification_status, certification_report, submitted_at")
     .single();
 
   if (error) return json({ error: error.message }, 500);

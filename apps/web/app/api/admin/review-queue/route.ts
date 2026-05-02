@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
   const { data, error } = await sb
     .from("partner_agents")
     .select(
-      "id, publisher_email, manifest_url, parsed_manifest, status, certification_status, certification_report, certified_at, submitted_at, reviewed_at, reviewed_by, reviewer_note",
+      "id, publisher_email, manifest_url, version, is_published, parsed_manifest, status, certification_status, certification_report, certified_at, submitted_at, reviewed_at, reviewed_by, reviewer_note",
     )
     .order("status", { ascending: true })
     .order("submitted_at", { ascending: false });
@@ -63,12 +63,15 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (
     decision !== "approved" &&
     decision !== "rejected" &&
-    decision !== "revoked"
+    decision !== "revoked" &&
+    decision !== "published" &&
+    decision !== "unpublished"
   ) {
     return json(
       {
         error: "invalid_decision",
-        detail: "decision must be one of approved | rejected | revoked.",
+        detail:
+          "decision must be one of approved | rejected | revoked | published | unpublished.",
       },
       400,
     );
@@ -76,6 +79,75 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const sb = getSupabase();
   if (!sb) return json({ error: "db_unavailable" }, 503);
+
+  // App Store equivalent of "make this build the current version on
+  // the store." Flips is_published=true on this row and false on any
+  // other row for the same (publisher_email, manifest_url) pair. The
+  // partial unique index `partner_agents_one_published_per_url_idx`
+  // is the hard guarantee that this invariant holds even under
+  // concurrent admin clicks.
+  if (decision === "published") {
+    const { data: target, error: readError } = await sb
+      .from("partner_agents")
+      .select("id, publisher_email, manifest_url, version, status")
+      .eq("id", submission_id)
+      .single();
+    if (readError || !target) {
+      return json({ error: readError?.message ?? "submission_not_found" }, 404);
+    }
+    if ((target as { status?: string }).status !== "approved") {
+      return json(
+        {
+          error: "not_approvable",
+          detail: "Only approved versions can be published. Approve first, then publish.",
+        },
+        409,
+      );
+    }
+    const { publisher_email, manifest_url } = target as {
+      publisher_email: string;
+      manifest_url: string;
+    };
+    const unpublishOthers = await sb
+      .from("partner_agents")
+      .update({ is_published: false })
+      .eq("publisher_email", publisher_email)
+      .eq("manifest_url", manifest_url)
+      .eq("is_published", true)
+      .neq("id", submission_id);
+    if (unpublishOthers.error) {
+      return json({ error: unpublishOthers.error.message }, 500);
+    }
+    const { data, error } = await sb
+      .from("partner_agents")
+      .update({
+        is_published: true,
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: user.email,
+        reviewer_note: note,
+      })
+      .eq("id", submission_id)
+      .select("id, version, is_published, status, reviewed_at, reviewed_by, reviewer_note")
+      .single();
+    if (error) return json({ error: error.message }, 500);
+    return json({ submission: data });
+  }
+
+  if (decision === "unpublished") {
+    const { data, error } = await sb
+      .from("partner_agents")
+      .update({
+        is_published: false,
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: user.email,
+        reviewer_note: note,
+      })
+      .eq("id", submission_id)
+      .select("id, version, is_published, status, reviewed_at, reviewed_by, reviewer_note")
+      .single();
+    if (error) return json({ error: error.message }, 500);
+    return json({ submission: data });
+  }
 
   if (decision === "approved") {
     const { data: existing, error: readError } = await sb
@@ -132,16 +204,20 @@ export async function POST(req: NextRequest): Promise<Response> {
     return json({ submission: data, certification: report });
   }
 
+  // rejected or revoked. A revoked row was previously live, so flip
+  // is_published off — App Store pulling a binary from the store
+  // shouldn't leave the binary listed.
   const { data, error } = await sb
     .from("partner_agents")
     .update({
       status: decision,
+      is_published: false,
       reviewed_at: new Date().toISOString(),
       reviewed_by: user.email,
       reviewer_note: note,
     })
     .eq("id", submission_id)
-    .select("id, status, reviewed_at, reviewed_by, reviewer_note")
+    .select("id, status, is_published, reviewed_at, reviewed_by, reviewer_note")
     .single();
 
   if (error) return json({ error: error.message }, 500);

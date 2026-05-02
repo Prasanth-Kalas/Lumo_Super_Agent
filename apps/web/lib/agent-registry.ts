@@ -327,12 +327,21 @@ async function loadApprovedPartnerAgents(): Promise<RegistryEntry[]> {
     id: string;
     manifest_url: string;
     parsed_manifest: unknown;
+    version: string;
   }> = [];
   try {
+    // Mental model: the App Store. Each (manifest_url, version) is
+    // an immutable, separately-reviewable artifact, but only the
+    // single `is_published=true` row per URL is what the
+    // marketplace actually serves to users. Filtering here is the
+    // hard guarantee that Claude's tool list never sees a stale
+    // version even if multiple are sitting in `approved` (e.g., new
+    // version cleared review while the prior one is still live).
     const { data, error } = await sb
       .from("partner_agents")
-      .select("id, manifest_url, parsed_manifest")
-      .eq("status", "approved");
+      .select("id, manifest_url, parsed_manifest, version")
+      .eq("status", "approved")
+      .eq("is_published", true);
     if (error) {
       console.warn("[registry] partner_agents read failed:", error.message);
       return [];
