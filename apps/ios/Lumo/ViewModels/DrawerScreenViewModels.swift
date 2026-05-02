@@ -103,12 +103,15 @@ final class MemoryScreenViewModel: ObservableObject {
             case .badStatus(let code): return "Server returned \(code). Pull to retry."
             case .decode: return "Couldn't read the response. Pull to retry."
             case .transport: return "Network error. Pull to retry."
-            // The two cases below are install-only on the marketplace
-            // path, but the shared formatter must remain exhaustive
-            // — the catalog-load surface should never see them, but
-            // we route them to a generic message rather than crash.
+            // The cases below are action-specific (marketplace install,
+            // trip cancel) but the shared formatter must remain
+            // exhaustive — the catalog-load surface should never see
+            // them, but we route them to a generic message rather
+            // than crash.
             case .oauthRequired: return "OAuth is required. Use the web app for this action."
             case .unknownAgent: return "This item is no longer available. Pull to retry."
+            case .unknownTrip: return "This trip is no longer available. Pull to retry."
+            case .tripAlreadyTerminal: return "This trip is already finalized."
             }
         }
         return "Something went wrong. Pull to retry."
@@ -177,6 +180,10 @@ final class MarketplaceScreenViewModel: ObservableObject {
                 installError = "Install failed (\(code)). Please try again."
             case .decode, .transport:
                 installError = "Network hiccup. Please try again."
+            case .unknownTrip, .tripAlreadyTerminal:
+                // Not reachable from install; route to a generic so
+                // the switch stays exhaustive.
+                installError = "Install failed. Please try again."
             }
         } catch {
             installError = "Install failed. Please try again."
@@ -199,6 +206,15 @@ final class HistoryScreenViewModel: ObservableObject {
     @Published var trips: [HistoryTripDTO] = []
     /// Per-trip expanded flag for inline leg-list reveal.
     @Published var expandedTripIDs: Set<String> = []
+    /// IOS-TRIP-CANCEL-1 — non-nil while a cancel is in flight for
+    /// that trip_id; drives the "Cancelling…" affordance and gates
+    /// concurrent taps.
+    @Published var cancellingTripID: String? = nil
+    /// One-shot success message after a cancel succeeds, keyed to
+    /// the trip_id it concerns. Cleared when the user dismisses or
+    /// loads again.
+    @Published var tripCancelMessage: (tripID: String, text: String)? = nil
+    @Published var tripCancelError: (tripID: String, text: String)? = nil
 
     private let fetcher: DrawerScreensFetching
 
@@ -223,6 +239,62 @@ final class HistoryScreenViewModel: ObservableObject {
             expandedTripIDs.remove(id)
         } else {
             expandedTripIDs.insert(id)
+        }
+    }
+
+    /// True when the trip is in a status the cancel endpoint
+    /// supports a non-409 path for. Mirrors the four branches in
+    /// `apps/web/app/api/trip/[trip_id]/cancel/route.ts`.
+    static func canCancel(status: String) -> Bool {
+        switch status {
+        case "draft", "confirmed", "dispatching", "committed":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// IOS-TRIP-CANCEL-1 — user-initiated cancel/refund. Calls
+    /// `POST /api/trip/{id}/cancel` and refreshes the catalog on
+    /// success so the trip's new status surfaces. Confirmation UI
+    /// is the caller's responsibility — this VM trusts the call.
+    func cancelTrip(id: String, reason: String? = nil) async {
+        guard cancellingTripID == nil else { return }
+        guard let trip = trips.first(where: { $0.trip_id == id }) else { return }
+        guard Self.canCancel(status: trip.status) else { return }
+        cancellingTripID = id
+        tripCancelError = nil
+        defer { cancellingTripID = nil }
+        do {
+            let result = try await fetcher.cancelTrip(id: id, reason: reason)
+            tripCancelMessage = (
+                tripID: id,
+                text: result.message ?? "Cancellation \(result.action.replacingOccurrences(of: "_", with: " "))."
+            )
+            // Pull a fresh catalog so the new_status / leg states
+            // surface in the row without reconstructing payload by hand.
+            await load()
+        } catch let e as DrawerScreensError {
+            switch e {
+            case .tripAlreadyTerminal(let status):
+                let suffix = status.map { " (\($0))" } ?? ""
+                tripCancelError = (
+                    tripID: id,
+                    text: "This trip is already finalized\(suffix). Refresh to see the latest state."
+                )
+            case .unknownTrip:
+                tripCancelError = (id, "This trip is no longer available. Pull to refresh.")
+            case .badStatus(let code):
+                tripCancelError = (id, "Cancel failed (\(code)). Please try again.")
+            case .decode, .transport:
+                tripCancelError = (id, "Network hiccup. Please try again.")
+            case .oauthRequired, .unknownAgent:
+                // Not reachable from cancel; route to a generic so
+                // the switch stays exhaustive.
+                tripCancelError = (id, "Cancel failed. Please try again.")
+            }
+        } catch {
+            tripCancelError = (id, "Cancel failed. Please try again.")
         }
     }
 

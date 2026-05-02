@@ -96,7 +96,8 @@ struct HistoryView: View {
                                 trip: trip,
                                 isExpanded: viewModel.expandedTripIDs.contains(trip.trip_id),
                                 onToggle: { viewModel.toggleTripExpanded(trip.trip_id) },
-                                onOpenSession: { onSelectSession(trip.session_id) }
+                                onOpenSession: { onSelectSession(trip.session_id) },
+                                viewModel: viewModel
                             )
                         }
                     }
@@ -192,6 +193,7 @@ private struct HistoryTripRow: View {
     let isExpanded: Bool
     let onToggle: () -> Void
     let onOpenSession: () -> Void
+    @ObservedObject var viewModel: HistoryScreenViewModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -247,7 +249,7 @@ private struct HistoryTripRow: View {
 
             if isExpanded {
                 Divider().background(LumoColors.separator)
-                HistoryTripDetail(trip: trip, onOpenSession: onOpenSession)
+                HistoryTripDetail(trip: trip, onOpenSession: onOpenSession, viewModel: viewModel)
                     .padding(LumoSpacing.md)
                     .accessibilityIdentifier("history.trip.detail.\(trip.trip_id)")
             }
@@ -265,6 +267,16 @@ private struct HistoryTripRow: View {
 private struct HistoryTripDetail: View {
     let trip: HistoryTripDTO
     let onOpenSession: () -> Void
+    @ObservedObject var viewModel: HistoryScreenViewModel
+    @State private var showCancelConfirm: Bool = false
+
+    private var isCanceling: Bool {
+        viewModel.cancellingTripID == trip.trip_id
+    }
+
+    private var canCancel: Bool {
+        HistoryScreenViewModel.canCancel(status: trip.status)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: LumoSpacing.sm) {
@@ -305,22 +317,82 @@ private struct HistoryTripDetail: View {
                 )
             }
 
-            Button(action: onOpenSession) {
-                HStack(spacing: LumoSpacing.xs) {
-                    Image(systemName: "bubble.left.and.bubble.right")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Open conversation")
-                        .font(LumoFonts.caption.weight(.medium))
+            HStack(spacing: LumoSpacing.xs) {
+                Button(action: onOpenSession) {
+                    HStack(spacing: LumoSpacing.xs) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Open conversation")
+                            .font(LumoFonts.caption.weight(.medium))
+                    }
+                    .padding(.horizontal, LumoSpacing.sm)
+                    .padding(.vertical, LumoSpacing.xs)
+                    .foregroundStyle(LumoColors.labelSecondary)
+                    .background(
+                        RoundedRectangle(cornerRadius: LumoRadius.sm)
+                            .stroke(LumoColors.separator, lineWidth: 1)
+                    )
                 }
-                .padding(.horizontal, LumoSpacing.sm)
-                .padding(.vertical, LumoSpacing.xs)
-                .foregroundStyle(LumoColors.labelSecondary)
-                .background(
-                    RoundedRectangle(cornerRadius: LumoRadius.sm)
-                        .stroke(LumoColors.separator, lineWidth: 1)
-                )
+                .accessibilityIdentifier("history.trip.openConversation.\(trip.trip_id)")
+
+                if canCancel {
+                    Button(role: .destructive) {
+                        showCancelConfirm = true
+                    } label: {
+                        HStack(spacing: LumoSpacing.xs) {
+                            if isCanceling {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            }
+                            Text(isCanceling ? "Cancelling…" : "Cancel / refund")
+                                .font(LumoFonts.caption.weight(.medium))
+                        }
+                        .padding(.horizontal, LumoSpacing.sm)
+                        .padding(.vertical, LumoSpacing.xs)
+                        .foregroundStyle(LumoColors.error)
+                        .background(
+                            RoundedRectangle(cornerRadius: LumoRadius.sm)
+                                .stroke(LumoColors.error.opacity(0.4), lineWidth: 1)
+                        )
+                    }
+                    .disabled(isCanceling)
+                    .accessibilityIdentifier("history.trip.cancel.\(trip.trip_id)")
+                }
             }
-            .accessibilityIdentifier("history.trip.openConversation.\(trip.trip_id)")
+
+            if let msg = viewModel.tripCancelMessage, msg.tripID == trip.trip_id {
+                Text(msg.text)
+                    .font(LumoFonts.caption)
+                    .foregroundStyle(LumoColors.success)
+                    .accessibilityIdentifier("history.trip.cancel.success.\(trip.trip_id)")
+            }
+            if let err = viewModel.tripCancelError, err.tripID == trip.trip_id {
+                Text(err.text)
+                    .font(LumoFonts.caption)
+                    .foregroundStyle(LumoColors.warning)
+                    .accessibilityIdentifier("history.trip.cancel.error.\(trip.trip_id)")
+            }
+        }
+        .alert("Cancel this trip?", isPresented: $showCancelConfirm) {
+            Button("Keep trip", role: .cancel) {}
+            Button("Cancel trip", role: .destructive) {
+                Task { await viewModel.cancelTrip(id: trip.trip_id) }
+            }
+        } message: {
+            Text(cancelConfirmMessage(for: trip.status))
+        }
+    }
+
+    private func cancelConfirmMessage(for status: String) -> String {
+        switch status {
+        case "draft", "confirmed":
+            return "Nothing has been booked yet, but the cancel intent will be recorded."
+        case "dispatching":
+            return "Lumo is booking this trip right now. Cancelling stops it at the next leg boundary and rolls back any committed legs."
+        case "committed":
+            return "This trip is already booked. Cancelling runs a refund through each provider where possible."
+        default:
+            return "This will cancel the trip."
         }
     }
 }

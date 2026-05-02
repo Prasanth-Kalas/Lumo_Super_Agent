@@ -589,6 +589,163 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         XCTAssertEqual(HistoryMoneyFormatter.formatMoney("not-a-number", currency: "USD"), "not-a-number USD")
     }
 
+    // MARK: - IOS-TRIP-CANCEL-1
+
+    func test_historyVM_canCancel_branchesMatchWebRoute() {
+        XCTAssertTrue(HistoryScreenViewModel.canCancel(status: "draft"))
+        XCTAssertTrue(HistoryScreenViewModel.canCancel(status: "confirmed"))
+        XCTAssertTrue(HistoryScreenViewModel.canCancel(status: "dispatching"))
+        XCTAssertTrue(HistoryScreenViewModel.canCancel(status: "committed"))
+        XCTAssertFalse(HistoryScreenViewModel.canCancel(status: "rolled_back"))
+        XCTAssertFalse(HistoryScreenViewModel.canCancel(status: "rollback_failed"))
+        XCTAssertFalse(HistoryScreenViewModel.canCancel(status: "anything-else"))
+    }
+
+    func test_historyVM_cancelTrip_success_recordsMessageAndReloads() async {
+        let fake = FakeDrawerScreensFetcher()
+        let trip = HistoryTripDTO(
+            trip_id: "t1",
+            session_id: "s1",
+            status: "committed",
+            payload: HistoryTripPayloadDTO(),
+            created_at: "2026-04-29T10:00:00Z",
+            updated_at: "2026-04-30T10:08:00Z",
+            cancel_requested_at: nil
+        )
+        fake.historyResult = .success(HistoryResponseDTO(sessions: [], trips: [trip]))
+        fake.cancelTripResult = .success(CancelTripResultDTO(
+            trip_id: "t1",
+            prior_status: "committed",
+            action: "compensation_dispatched",
+            new_status: "rolled_back",
+            message: "Refund issued for 2 of 2 legs."
+        ))
+        let vm = HistoryScreenViewModel(fetcher: fake)
+        await vm.load()
+        XCTAssertEqual(fake.historyFetchCount, 1)
+
+        await vm.cancelTrip(id: "t1", reason: "changed plans")
+
+        XCTAssertEqual(fake.cancelTripCalls.count, 1)
+        XCTAssertEqual(fake.cancelTripCalls[0].id, "t1")
+        XCTAssertEqual(fake.cancelTripCalls[0].reason, "changed plans")
+        XCTAssertEqual(vm.tripCancelMessage?.tripID, "t1")
+        XCTAssertEqual(vm.tripCancelMessage?.text, "Refund issued for 2 of 2 legs.")
+        XCTAssertNil(vm.tripCancelError)
+        XCTAssertNil(vm.cancellingTripID, "cancelling flag must clear after the call")
+        XCTAssertEqual(fake.historyFetchCount, 2, "successful cancel must trigger a reload")
+    }
+
+    func test_historyVM_cancelTrip_skipsTerminalStatusWithoutCallingAPI() async {
+        let fake = FakeDrawerScreensFetcher()
+        let trip = HistoryTripDTO(
+            trip_id: "t1",
+            session_id: "s1",
+            status: "rolled_back",
+            payload: HistoryTripPayloadDTO(),
+            created_at: "2026-04-29T10:00:00Z",
+            updated_at: "2026-04-30T10:08:00Z",
+            cancel_requested_at: nil
+        )
+        fake.historyResult = .success(HistoryResponseDTO(sessions: [], trips: [trip]))
+        let vm = HistoryScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.cancelTrip(id: "t1")
+
+        XCTAssertTrue(fake.cancelTripCalls.isEmpty, "must not POST cancel for terminal trips")
+    }
+
+    func test_historyVM_cancelTrip_409_surfacesAlreadyFinalizedMessage() async {
+        let fake = FakeDrawerScreensFetcher()
+        let trip = HistoryTripDTO(
+            trip_id: "t1",
+            session_id: "s1",
+            status: "committed",
+            payload: HistoryTripPayloadDTO(),
+            created_at: "2026-04-29T10:00:00Z",
+            updated_at: "2026-04-30T10:08:00Z",
+            cancel_requested_at: nil
+        )
+        fake.historyResult = .success(HistoryResponseDTO(sessions: [], trips: [trip]))
+        fake.cancelTripResult = .failure(DrawerScreensError.tripAlreadyTerminal(currentStatus: "rolled_back"))
+        let vm = HistoryScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.cancelTrip(id: "t1")
+
+        XCTAssertNil(vm.tripCancelMessage)
+        XCTAssertNotNil(vm.tripCancelError)
+        XCTAssertEqual(vm.tripCancelError?.tripID, "t1")
+        XCTAssertTrue(vm.tripCancelError!.text.lowercased().contains("finalized"))
+    }
+
+    func test_historyVM_cancelTrip_404_surfacesUnknownTripMessage() async {
+        let fake = FakeDrawerScreensFetcher()
+        let trip = HistoryTripDTO(
+            trip_id: "t1",
+            session_id: "s1",
+            status: "committed",
+            payload: HistoryTripPayloadDTO(),
+            created_at: "2026-04-29T10:00:00Z",
+            updated_at: "2026-04-30T10:08:00Z",
+            cancel_requested_at: nil
+        )
+        fake.historyResult = .success(HistoryResponseDTO(sessions: [], trips: [trip]))
+        fake.cancelTripResult = .failure(DrawerScreensError.unknownTrip)
+        let vm = HistoryScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.cancelTrip(id: "t1")
+
+        XCTAssertNotNil(vm.tripCancelError)
+    }
+
+    func test_historyVM_cancelTrip_falsesNetworkError() async {
+        let fake = FakeDrawerScreensFetcher()
+        let trip = HistoryTripDTO(
+            trip_id: "t1",
+            session_id: "s1",
+            status: "committed",
+            payload: HistoryTripPayloadDTO(),
+            created_at: "2026-04-29T10:00:00Z",
+            updated_at: "2026-04-30T10:08:00Z",
+            cancel_requested_at: nil
+        )
+        fake.historyResult = .success(HistoryResponseDTO(sessions: [], trips: [trip]))
+        fake.cancelTripResult = .failure(DrawerScreensError.transport("offline"))
+        let vm = HistoryScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.cancelTrip(id: "t1")
+
+        XCTAssertNotNil(vm.tripCancelError)
+        XCTAssertNil(vm.tripCancelMessage)
+    }
+
+    func test_cancelTripResultDTO_decodes_committedRolledBack() throws {
+        let json = """
+        {
+          "trip_id": "t1",
+          "prior_status": "committed",
+          "action": "compensation_dispatched",
+          "new_status": "rolled_back",
+          "message": "Refund issued.",
+          "legs": [
+            {"order": 1, "status": "rolled_back"},
+            {"order": 2, "status": "rolled_back"}
+          ]
+        }
+        """.data(using: .utf8)!
+        // legs is on the wire but iOS-v1 doesn't model it (the
+        // post-cancel reload reflects each leg's status anyway).
+        let decoded = try JSONDecoder().decode(CancelTripResultDTO.self, from: json)
+        XCTAssertEqual(decoded.trip_id, "t1")
+        XCTAssertEqual(decoded.action, "compensation_dispatched")
+        XCTAssertEqual(decoded.new_status, "rolled_back")
+        XCTAssertEqual(decoded.message, "Refund issued.")
+    }
+
     func test_historyVM_load_failure_surfacesError() async {
         let fake = FakeDrawerScreensFetcher()
         fake.historyResult = .failure(DrawerScreensError.transport("offline"))

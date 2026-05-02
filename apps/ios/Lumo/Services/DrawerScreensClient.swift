@@ -270,6 +270,17 @@ struct HistoryTripLegDTO: Codable, Equatable, Identifiable {
     var id: Int { order }
 }
 
+/// Response from `POST /api/trip/{id}/cancel`. iOS surfaces
+/// `message` on success and uses `new_status` to know whether the
+/// cancel was synchronous (rolled_back) vs queued (dispatching).
+struct CancelTripResultDTO: Codable, Equatable {
+    let trip_id: String
+    let prior_status: String
+    let action: String
+    let new_status: String
+    let message: String?
+}
+
 struct HistoryResponseDTO: Codable, Equatable {
     let sessions: [HistorySessionDTO]
     let trips: [HistoryTripDTO]
@@ -302,6 +313,13 @@ enum DrawerScreensError: Error, Equatable {
     case oauthRequired
     /// 404 unknown_agent — the agent_id wasn't in the registry.
     case unknownAgent
+    /// 404 trip_not_found — the trip_id is unknown.
+    case unknownTrip
+    /// 409 from `POST /api/trip/{id}/cancel` — the trip is already
+    /// in a terminal state (rolled_back / rollback_failed) so cancel
+    /// is a no-op. UI should fall through to escalation messaging
+    /// rather than acting like the request failed.
+    case tripAlreadyTerminal(currentStatus: String?)
 }
 
 // MARK: - Protocol
@@ -317,6 +335,11 @@ protocol DrawerScreensFetching: AnyObject {
     /// minus the mission/session context — for standalone catalog
     /// installs. Returns the ISO timestamp the install was committed.
     func installAgent(id: String) async throws -> String
+    /// User-initiated trip cancel/refund. Behavior depends on the
+    /// trip's current status (see web's `/api/trip/{id}/cancel`
+    /// route doc). Returns the server's structured response so
+    /// the UI can surface the right message + new status.
+    func cancelTrip(id: String, reason: String?) async throws -> CancelTripResultDTO
 }
 
 /// PATCH body for `/api/memory/profile`. Only fields the iOS-v1 edit
@@ -390,6 +413,59 @@ final class DrawerScreensClient: DrawerScreensFetching {
 
     func fetchHistory(limitSessions: Int = 30) async throws -> HistoryResponseDTO {
         try await get(path: "api/history?limit_sessions=\(limitSessions)", as: HistoryResponseDTO.self)
+    }
+
+    func cancelTrip(id: String, reason: String?) async throws -> CancelTripResultDTO {
+        guard !id.isEmpty else { throw DrawerScreensError.transport("missing trip id") }
+        let url = baseURL.appendingPathComponent("api/trip/\(id)/cancel")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let userID = userIDProvider(), !userID.isEmpty {
+            req.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        if let reason, !reason.isEmpty {
+            let body: [String: Any] = ["reason": reason]
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        } else {
+            // The endpoint accepts an empty POST; an explicit empty
+            // body keeps proxies/CDNs that demand Content-Length happy.
+            req.httpBody = Data("{}".utf8)
+        }
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw DrawerScreensError.transport("\(error)")
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw DrawerScreensError.transport("non-http response")
+        }
+        // 202 (cancel_requested for dispatching) is a success.
+        if (200..<300).contains(http.statusCode) {
+            do {
+                return try JSONDecoder().decode(CancelTripResultDTO.self, from: data)
+            } catch {
+                throw DrawerScreensError.decode("\(error)")
+            }
+        }
+        switch http.statusCode {
+        case 404: throw DrawerScreensError.unknownTrip
+        case 409:
+            // Pull current status out of the response when present so
+            // the UI can show "Already cancelled" rather than a
+            // generic error.
+            struct TerminalBody: Decodable { let new_status: String? }
+            let parsed = try? JSONDecoder().decode(TerminalBody.self, from: data)
+            throw DrawerScreensError.tripAlreadyTerminal(currentStatus: parsed?.new_status)
+        default:
+            throw DrawerScreensError.badStatus(http.statusCode)
+        }
     }
 
     func installAgent(id: String) async throws -> String {
@@ -540,6 +616,14 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     var forgetFactResult: Result<Void, Error> = .success(())
     var installAgentResult: Result<String, Error> =
         .success("2026-05-03T00:00:00Z")
+    var cancelTripResult: Result<CancelTripResultDTO, Error> =
+        .success(CancelTripResultDTO(
+            trip_id: "t1",
+            prior_status: "draft",
+            action: "cancel_recorded",
+            new_status: "draft",
+            message: "Cancellation recorded."
+        ))
 
     private(set) var memoryFetchCount = 0
     private(set) var marketplaceFetchCount = 0
@@ -547,6 +631,7 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     private(set) var memoryUpdateCalls: [MemoryProfilePatchDTO] = []
     private(set) var forgetFactCalls: [String] = []
     private(set) var installAgentCalls: [String] = []
+    private(set) var cancelTripCalls: [(id: String, reason: String?)] = []
 
     func fetchMemory() async throws -> MemoryResponseDTO {
         memoryFetchCount += 1
@@ -591,6 +676,14 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     func installAgent(id: String) async throws -> String {
         installAgentCalls.append(id)
         switch installAgentResult {
+        case .success(let r): return r
+        case .failure(let e): throw e
+        }
+    }
+
+    func cancelTrip(id: String, reason: String?) async throws -> CancelTripResultDTO {
+        cancelTripCalls.append((id, reason))
+        switch cancelTripResult {
         case .success(let r): return r
         case .failure(let e): throw e
         }
