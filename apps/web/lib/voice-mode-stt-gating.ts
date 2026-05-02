@@ -1,5 +1,7 @@
 export const DEFAULT_VOICE_TTS_TAIL_GUARD_MS = 300;
 export const MAX_VOICE_TTS_TAIL_GUARD_MS = 2_000;
+export const MIN_VOICE_SPEAKING_WATCHDOG_MS = 30_000;
+export const MAX_VOICE_EXPECTED_AUDIO_MS = 120_000;
 
 export type VoiceModeMachinePhase =
   | "AGENT_THINKING"
@@ -99,4 +101,20 @@ export function voiceModeActionForState(
     case "off":
       return { kind: "disabled", label: "Voice off", disabled: true };
   }
+}
+
+export function estimateVoiceAudioDurationMs(textLength: number): number {
+  const safeLength = Math.max(0, Math.floor(textLength));
+  if (safeLength === 0) return 0;
+  return Math.min(
+    MAX_VOICE_EXPECTED_AUDIO_MS,
+    Math.max(1_000, safeLength * 90),
+  );
+}
+
+export function voiceSpeakingWatchdogMs(textLength: number): number {
+  return Math.max(
+    estimateVoiceAudioDurationMs(textLength) + 500,
+    MIN_VOICE_SPEAKING_WATCHDOG_MS,
+  );
 }

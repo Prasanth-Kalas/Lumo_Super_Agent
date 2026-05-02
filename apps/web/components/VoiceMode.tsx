@@ -62,6 +62,7 @@ import {
   isMicPausedForVoicePhase,
   normalizeVoiceTtsTailGuardMs,
   voiceModeActionForState,
+  voiceSpeakingWatchdogMs,
   type VoiceModeMachinePhase,
 } from "@/lib/voice-mode-stt-gating";
 
@@ -385,6 +386,9 @@ export default function VoiceMode(props: VoiceModeProps) {
   const ttsTailGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const speakingWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const voicePhaseRef = useRef<VoiceModeMachinePhase>("LISTENING");
   const ttsMicPausedRef = useRef<boolean>(false);
   useEffect(() => {
@@ -419,6 +423,13 @@ export default function VoiceMode(props: VoiceModeProps) {
     if (ttsTailGuardTimerRef.current) {
       clearTimeout(ttsTailGuardTimerRef.current);
       ttsTailGuardTimerRef.current = null;
+    }
+  }, []);
+
+  const clearSpeakingWatchdog = useCallback(() => {
+    if (speakingWatchdogTimerRef.current) {
+      clearTimeout(speakingWatchdogTimerRef.current);
+      speakingWatchdogTimerRef.current = null;
     }
   }, []);
 
@@ -843,6 +854,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     ttsTurnIdRef.current += 1;
     ttsQueueRef.current.length = 0;
     clearTtsTailGuard();
+    clearSpeakingWatchdog();
     setVoiceMachinePhase("LISTENING");
     try {
       ttsAbortControllerRef.current?.abort();
@@ -859,7 +871,12 @@ export default function VoiceMode(props: VoiceModeProps) {
       }
     }
     activeUtteranceRef.current = null;
-  }, [clearTtsTailGuard, setVoiceMachinePhase, stopPremiumAudio]);
+  }, [
+    clearSpeakingWatchdog,
+    clearTtsTailGuard,
+    setVoiceMachinePhase,
+    stopPremiumAudio,
+  ]);
 
   // ─── STT lifecycle ───────────────────────────────────────────
   //
@@ -1387,8 +1404,37 @@ export default function VoiceMode(props: VoiceModeProps) {
     [startListening],
   );
 
+  const recoverFromStuckSpeaking = useCallback(
+    (trigger: string, timeoutMs: number) => {
+      console.warn("[lumo-voice]", {
+        event: "state_watchdog_timeout",
+        state,
+        trigger,
+        timeout_ms: timeoutMs,
+        spoken_text_length: spokenText.length,
+        queue_length: ttsQueueRef.current.length,
+        has_active_stream: activeStreamRef.current !== null,
+        ts: new Date().toISOString(),
+      });
+      cancelTts();
+      transitionVoiceState("idle", trigger);
+      if (wantHandsFreeRef.current) {
+        userStoppedListeningRef.current = false;
+        scheduleHandsFreeListening(0);
+      }
+    },
+    [
+      cancelTts,
+      scheduleHandsFreeListening,
+      spokenText.length,
+      state,
+      transitionVoiceState,
+    ],
+  );
+
   const completeTtsWithTailGuard = useCallback(() => {
     clearTtsTailGuard();
+    clearSpeakingWatchdog();
     setVoiceMachinePhase("POST_SPEAKING_GUARD");
     transitionVoiceState("post_speaking_guard", "tts_playback_finished");
     ttsTailGuardTimerRef.current = setTimeout(() => {
@@ -1399,9 +1445,36 @@ export default function VoiceMode(props: VoiceModeProps) {
     }, TTS_TAIL_GUARD_MS);
   }, [
     clearTtsTailGuard,
+    clearSpeakingWatchdog,
     scheduleHandsFreeListening,
     setVoiceMachinePhase,
     transitionVoiceState,
+  ]);
+
+  useEffect(() => {
+    clearSpeakingWatchdog();
+    if (state === "speaking") {
+      const timeoutMs = voiceSpeakingWatchdogMs(toSpeakable(spokenText).length);
+      speakingWatchdogTimerRef.current = setTimeout(() => {
+        speakingWatchdogTimerRef.current = null;
+        recoverFromStuckSpeaking("speaking_watchdog_timeout", timeoutMs);
+      }, timeoutMs);
+      return clearSpeakingWatchdog;
+    }
+    if (state === "post_speaking_guard") {
+      const timeoutMs = Math.max(TTS_TAIL_GUARD_MS + 500, 2_000);
+      speakingWatchdogTimerRef.current = setTimeout(() => {
+        speakingWatchdogTimerRef.current = null;
+        recoverFromStuckSpeaking("post_speaking_guard_watchdog_timeout", timeoutMs);
+      }, timeoutMs);
+      return clearSpeakingWatchdog;
+    }
+    return undefined;
+  }, [
+    clearSpeakingWatchdog,
+    recoverFromStuckSpeaking,
+    spokenText,
+    state,
   ]);
 
   const stopListening = useCallback(() => {

@@ -8,10 +8,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   DEFAULT_VOICE_TTS_TAIL_GUARD_MS,
+  MIN_VOICE_SPEAKING_WATCHDOG_MS,
   canResumeListeningAfterTts,
+  estimateVoiceAudioDurationMs,
   expectedTtsResumeSequence,
   isMicPausedForVoicePhase,
   normalizeVoiceTtsTailGuardMs,
+  voiceSpeakingWatchdogMs,
   voiceModeActionForState,
 } from "../lib/voice-mode-stt-gating.ts";
 
@@ -100,6 +103,12 @@ await t("voice action button has a visible action for every interactive state", 
   });
 });
 
+await t("speaking watchdog is at least 30s and extends for long audio", () => {
+  assert.equal(estimateVoiceAudioDurationMs(0), 0);
+  assert.equal(voiceSpeakingWatchdogMs(20), MIN_VOICE_SPEAKING_WATCHDOG_MS);
+  assert.ok(voiceSpeakingWatchdogMs(1_000) > MIN_VOICE_SPEAKING_WATCHDOG_MS);
+});
+
 await t("tail guard env parsing defaults to 300ms and clamps bad values", () => {
   assert.equal(
     normalizeVoiceTtsTailGuardMs(undefined),
@@ -140,6 +149,14 @@ await t("VoiceMode renders one stable action button and wires cancel to chat abo
   assert.match(source, />\s*\{voiceAction\.label\}\s*<\/button>/);
   assert.match(pageSource, /chatAbortControllerRef\.current\?\.abort\(\)/);
   assert.match(pageSource, /onCancelTurn=\{cancelActiveChatTurn\}/);
+});
+
+await t("VoiceMode has watchdog fallback for stuck speaking states", () => {
+  const source = readFileSync("components/VoiceMode.tsx", "utf8");
+  assert.match(source, /voiceSpeakingWatchdogMs\(toSpeakable\(spokenText\)\.length\)/);
+  assert.match(source, /event: "state_watchdog_timeout"/);
+  assert.match(source, /"speaking_watchdog_timeout"/);
+  assert.match(source, /"post_speaking_guard_watchdog_timeout"/);
 });
 
 await t("five speakable sentences stay eligible for five TTS appends", () => {
