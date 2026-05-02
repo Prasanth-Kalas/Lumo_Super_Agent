@@ -39,6 +39,12 @@ struct MemoryProfileDTO: Codable, Equatable {
     let preferred_hotel_chains: [String]
     let budget_tier: String?
     let preferred_payment_hint: String?
+    /// IOS-ONBOARDING-1 — narrow shape for the only `extra` keys
+    /// iOS reads (the onboarded marker). Web's `extra` is an
+    /// open record; iOS only consumes onboarded_at + onboarded_via.
+    /// Every field optional so the doc decodes whether or not
+    /// the user has been onboarded.
+    let extra: MemoryProfileExtraDTO?
 
     init(
         display_name: String? = nil,
@@ -52,7 +58,8 @@ struct MemoryProfileDTO: Codable, Equatable {
         preferred_airline_seat: String? = nil,
         preferred_hotel_chains: [String] = [],
         budget_tier: String? = nil,
-        preferred_payment_hint: String? = nil
+        preferred_payment_hint: String? = nil,
+        extra: MemoryProfileExtraDTO? = nil
     ) {
         self.display_name = display_name
         self.timezone = timezone
@@ -66,6 +73,30 @@ struct MemoryProfileDTO: Codable, Equatable {
         self.preferred_hotel_chains = preferred_hotel_chains
         self.budget_tier = budget_tier
         self.preferred_payment_hint = preferred_payment_hint
+        self.extra = extra
+    }
+
+    /// Convenience for the AppRootView onboarding gate. Mirrors
+    /// the web onboarding page's idempotency check.
+    var isOnboarded: Bool {
+        guard let value = extra?.onboarded_at else { return false }
+        return !value.isEmpty
+    }
+}
+
+struct MemoryProfileExtraDTO: Codable, Equatable {
+    let onboarded_at: String?
+    let onboarded_via: String?
+    let connectors_at_onboarding: Int?
+
+    init(
+        onboarded_at: String? = nil,
+        onboarded_via: String? = nil,
+        connectors_at_onboarding: Int? = nil
+    ) {
+        self.onboarded_at = onboarded_at
+        self.onboarded_via = onboarded_via
+        self.connectors_at_onboarding = connectors_at_onboarding
     }
 }
 
@@ -409,6 +440,10 @@ protocol DrawerScreensFetching: AnyObject {
     /// `system:`) are not revocable on the server; iOS gates this
     /// at the UI layer to avoid the 404 round-trip.
     func disconnectConnection(id: String) async throws
+    /// IOS-ONBOARDING-1 — PATCH the onboarded marker. Web sets
+    /// `extra.onboarded_at` on the user_profile so the next
+    /// /onboarding visit redirects out; iOS uses the same field.
+    func markUserOnboarded(via: String) async throws
 }
 
 /// PATCH body for `/api/memory/profile`. Only fields the iOS-v1 edit
@@ -482,6 +517,34 @@ final class DrawerScreensClient: DrawerScreensFetching {
 
     func fetchHistory(limitSessions: Int = 30) async throws -> HistoryResponseDTO {
         try await get(path: "api/history?limit_sessions=\(limitSessions)", as: HistoryResponseDTO.self)
+    }
+
+    func markUserOnboarded(via: String) async throws {
+        let url = baseURL.appendingPathComponent("api/memory/profile")
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let userID = userIDProvider(), !userID.isEmpty {
+            req.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let extra: [String: Any] = [
+            "onboarded_at": ISO8601DateFormatter().string(from: Date()),
+            "onboarded_via": via,
+        ]
+        let body: [String: Any] = ["extra": extra]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw DrawerScreensError.transport("\(error)")
+        }
+        try Self.expectOK(response, data: data)
     }
 
     func fetchConnections() async throws -> ConnectionsResponseDTO {
@@ -725,6 +788,7 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     var connectionsResult: Result<ConnectionsResponseDTO, Error> =
         .success(ConnectionsResponseDTO(connections: []))
     var disconnectResult: Result<Void, Error> = .success(())
+    var markOnboardedResult: Result<Void, Error> = .success(())
 
     private(set) var memoryFetchCount = 0
     private(set) var marketplaceFetchCount = 0
@@ -735,6 +799,7 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     private(set) var cancelTripCalls: [(id: String, reason: String?)] = []
     private(set) var connectionsFetchCount = 0
     private(set) var disconnectCalls: [String] = []
+    private(set) var markOnboardedCalls: [String] = []
 
     func fetchMemory() async throws -> MemoryResponseDTO {
         memoryFetchCount += 1
@@ -803,6 +868,14 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     func disconnectConnection(id: String) async throws {
         disconnectCalls.append(id)
         switch disconnectResult {
+        case .success: return
+        case .failure(let e): throw e
+        }
+    }
+
+    func markUserOnboarded(via: String) async throws {
+        markOnboardedCalls.append(via)
+        switch markOnboardedResult {
         case .success: return
         case .failure(let e): throw e
         }

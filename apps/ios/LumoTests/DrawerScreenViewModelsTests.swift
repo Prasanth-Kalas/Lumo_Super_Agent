@@ -57,6 +57,127 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         XCTAssertEqual(decoded.patterns, [])
     }
 
+    // MARK: - IOS-ONBOARDING-1
+
+    func test_memoryProfile_isOnboarded_trueWhenExtraOnboardedAtPresent() {
+        let p = MemoryProfileDTO(
+            extra: MemoryProfileExtraDTO(onboarded_at: "2026-05-03T10:00:00Z", onboarded_via: "continue")
+        )
+        XCTAssertTrue(p.isOnboarded)
+    }
+
+    func test_memoryProfile_isOnboarded_falseWhenExtraMissing() {
+        let p = MemoryProfileDTO()
+        XCTAssertFalse(p.isOnboarded)
+    }
+
+    func test_memoryProfile_isOnboarded_falseWhenOnboardedAtEmptyString() {
+        let p = MemoryProfileDTO(extra: MemoryProfileExtraDTO(onboarded_at: ""))
+        XCTAssertFalse(p.isOnboarded)
+    }
+
+    func test_memoryProfile_extraDecodes_fromWebShape() throws {
+        let json = """
+        {
+          "profile": {
+            "display_name": "Alex",
+            "timezone": null,
+            "preferred_language": null,
+            "home_address": null,
+            "work_address": null,
+            "dietary_flags": [],
+            "allergies": [],
+            "preferred_airline_class": null,
+            "preferred_airline_seat": null,
+            "preferred_hotel_chains": [],
+            "budget_tier": null,
+            "preferred_payment_hint": null,
+            "extra": {
+              "onboarded_at": "2026-05-03T10:00:00Z",
+              "onboarded_via": "continue",
+              "connectors_at_onboarding": 3
+            }
+          }
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(MemoryResponseDTO.self, from: json)
+        XCTAssertTrue(decoded.profile?.isOnboarded == true)
+        XCTAssertEqual(decoded.profile?.extra?.connectors_at_onboarding, 3)
+    }
+
+    func test_onboardingVM_check_onboardedProfile_transitionsToComplete() async {
+        let fake = FakeDrawerScreensFetcher()
+        fake.memoryResult = .success(MemoryResponseDTO(profile: MemoryProfileDTO(
+            extra: MemoryProfileExtraDTO(onboarded_at: "2026-05-03T10:00:00Z")
+        )))
+        let vm = OnboardingViewModel(fetcher: fake)
+        await vm.check()
+        XCTAssertEqual(vm.state, .complete)
+    }
+
+    func test_onboardingVM_check_freshProfile_transitionsToNeedsOnboarding() async {
+        let fake = FakeDrawerScreensFetcher()
+        fake.memoryResult = .success(MemoryResponseDTO(profile: MemoryProfileDTO()))
+        let vm = OnboardingViewModel(fetcher: fake)
+        await vm.check()
+        XCTAssertEqual(vm.state, .needsOnboarding)
+    }
+
+    func test_onboardingVM_check_networkFailure_biasesToComplete() async {
+        let fake = FakeDrawerScreensFetcher()
+        fake.memoryResult = .failure(DrawerScreensError.transport("offline"))
+        let vm = OnboardingViewModel(fetcher: fake)
+        await vm.check()
+        XCTAssertEqual(vm.state, .complete,
+                       "network failures must NOT trap the user on the welcome screen")
+    }
+
+    func test_onboardingVM_finish_callsMarkAndTransitions() async {
+        let fake = FakeDrawerScreensFetcher()
+        fake.memoryResult = .success(MemoryResponseDTO(profile: MemoryProfileDTO()))
+        let vm = OnboardingViewModel(fetcher: fake)
+        await vm.check()
+        XCTAssertEqual(vm.state, .needsOnboarding)
+
+        await vm.finish(via: "continue")
+
+        XCTAssertEqual(fake.markOnboardedCalls, ["continue"])
+        XCTAssertEqual(vm.state, .complete)
+    }
+
+    func test_onboardingVM_finish_failedPATCH_stillTransitions() async {
+        // Web's "best-effort PATCH" posture — a dropped write
+        // shouldn't trap the user on the welcome screen.
+        let fake = FakeDrawerScreensFetcher()
+        fake.memoryResult = .success(MemoryResponseDTO(profile: MemoryProfileDTO()))
+        fake.markOnboardedResult = .failure(DrawerScreensError.transport("offline"))
+        let vm = OnboardingViewModel(fetcher: fake)
+        await vm.check()
+
+        await vm.finish(via: "skip")
+
+        XCTAssertEqual(vm.state, .complete)
+        XCTAssertEqual(fake.markOnboardedCalls, ["skip"])
+    }
+
+    func test_onboardingVM_check_isReentrantAfterUserSwitch() async {
+        // Sign out → sign in as different user must re-check.
+        // The first user is onboarded, the second isn't.
+        let fake = FakeDrawerScreensFetcher()
+        fake.memoryResult = .success(MemoryResponseDTO(profile: MemoryProfileDTO(
+            extra: MemoryProfileExtraDTO(onboarded_at: "2026-05-03T10:00:00Z")
+        )))
+        let vm = OnboardingViewModel(fetcher: fake)
+        await vm.check()
+        XCTAssertEqual(vm.state, .complete)
+
+        // User switch — fetcher now returns a fresh profile.
+        fake.memoryResult = .success(MemoryResponseDTO(profile: MemoryProfileDTO()))
+        await vm.check()
+        XCTAssertEqual(vm.state, .needsOnboarding,
+                       "re-check must surface the second user's missing flag")
+    }
+
     func test_memoryResponse_decodes_factsAndPatterns() throws {
         let json = """
         {

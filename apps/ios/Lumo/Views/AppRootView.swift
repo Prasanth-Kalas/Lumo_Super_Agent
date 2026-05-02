@@ -6,6 +6,7 @@ import SwiftUI
 
 struct AppRootView: View {
     @StateObject private var authViewModel: AuthViewModel
+    @StateObject private var onboardingViewModel: OnboardingViewModel
     private let authService: AuthServicing
     private let chatService: ChatService
     private let tts: TextToSpeechServicing
@@ -16,6 +17,10 @@ struct AppRootView: View {
     private let proactiveClient: ProactiveMomentsFetching
     private let drawerScreensFetcher: DrawerScreensFetching
     private let deepgramTokenService: DeepgramTokenServicing
+    /// Tracks the user_id we last triggered an onboarding check for,
+    /// so a sign-out → sign-in cycle re-checks (the new user might
+    /// have a different onboarded flag).
+    @State private var checkedOnboardingForUserID: String? = nil
 
     init(
         authService: AuthServicing,
@@ -40,26 +45,26 @@ struct AppRootView: View {
         self.drawerScreensFetcher = drawerScreensFetcher
         self.deepgramTokenService = deepgramTokenService
         _authViewModel = StateObject(wrappedValue: AuthViewModel(auth: authService))
+        _onboardingViewModel = StateObject(
+            wrappedValue: OnboardingViewModel(fetcher: drawerScreensFetcher)
+        )
     }
 
     var body: some View {
         Group {
             switch authViewModel.state {
             case .signedIn(let user):
-                RootView(
-                    chatService: chatService,
-                    tts: tts,
-                    paymentService: paymentService,
-                    receiptStore: receiptStore,
-                    appConfig: appConfig,
-                    proactiveCache: proactiveCache,
-                    proactiveClient: proactiveClient,
-                    drawerScreensFetcher: drawerScreensFetcher,
-                    deepgramTokenService: deepgramTokenService,
-                    onSignOut: handleSignOut
-                )
+                signedInGate(user: user)
                     .environment(\.signedInUser, user)
                     .transition(.opacity)
+                    .task(id: user.id) {
+                        // Trigger the onboarding check the first time
+                        // we see this user_id; reset on user switch.
+                        if checkedOnboardingForUserID != user.id {
+                            checkedOnboardingForUserID = user.id
+                            await onboardingViewModel.check()
+                        }
+                    }
             case .needsBiometric(let user):
                 BiometricUnlockView(
                     user: user,
@@ -75,6 +80,38 @@ struct AppRootView: View {
         }
         .animation(LumoAnimation.standard, value: authViewModel.state)
         .task { await bootstrap() }
+    }
+
+    @ViewBuilder
+    private func signedInGate(user: LumoUser) -> some View {
+        switch onboardingViewModel.state {
+        case .checking:
+            // Match RootView's chrome so there's no flash of content
+            // before the gate decides. A simple background + spinner
+            // is enough — the check is a single GET that finishes
+            // in <100ms on a warm cache.
+            ZStack {
+                LumoColors.background.ignoresSafeArea()
+                ProgressView()
+                    .controlSize(.regular)
+            }
+            .accessibilityIdentifier("appRoot.onboardingCheck")
+        case .needsOnboarding:
+            OnboardingView(viewModel: onboardingViewModel)
+        case .complete:
+            RootView(
+                chatService: chatService,
+                tts: tts,
+                paymentService: paymentService,
+                receiptStore: receiptStore,
+                appConfig: appConfig,
+                proactiveCache: proactiveCache,
+                proactiveClient: proactiveClient,
+                drawerScreensFetcher: drawerScreensFetcher,
+                deepgramTokenService: deepgramTokenService,
+                onSignOut: handleSignOut
+            )
+        }
     }
 
     private func bootstrap() async {
