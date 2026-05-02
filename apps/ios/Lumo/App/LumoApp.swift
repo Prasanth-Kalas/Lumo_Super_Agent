@@ -37,7 +37,7 @@ struct LumoApp: App {
         // can share the same cached short-lived token. Memory-only.
         let dgToken = DeepgramTokenService(baseURL: config.apiBaseURL)
         self.deepgramTokenService = dgToken
-        self.tts = TextToSpeechService(config: config)
+        self.tts = TextToSpeechService(tokenService: dgToken)
         // PaymentService reads the current user id from AuthService each
         // call (closure capture so the value reflects sign-in/sign-out
         // transitions without re-instantiating the service).
