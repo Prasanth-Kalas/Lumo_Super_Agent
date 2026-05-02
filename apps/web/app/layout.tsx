@@ -38,12 +38,12 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Lumo — one app, any task",
   description:
-    "Lumo is a conversational agent that books flights, orders food, reserves hotels, and strings them together into one trip.",
+    "Lumo's specialist agents do what your other apps do — order food, book flights, grab tickets, plan trips, post to your channels — all in one chat.",
   icons: { icon: "/icon.svg" },
   openGraph: {
     title: "Lumo — one app, any task",
     description:
-      "One conversation. Flights, food, hotels — booked by specialist agents working together.",
+      "One conversation. Order, book, post, plan — handled by specialist agents working together.",
     type: "website",
   },
 };

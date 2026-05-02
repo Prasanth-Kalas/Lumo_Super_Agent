@@ -21,42 +21,42 @@ import { BrandMark, LumoWordmark } from "@/components/BrandMark";
 export const metadata = {
   title: "Lumo — one app, any task",
   description:
-    "Lumo plans and books your trip in one conversation. Flights, hotels, dinner — across specialist agents, one confirmation.",
+    "Lumo's specialist agents do what your other apps do — order food, book flights, grab tickets, plan trips, post to your channels — all in one chat.",
 };
 
 const VALUE_PROPS: Array<{ eyebrow: string; title: string; emphasis: string; body: string }> = [
   {
-    eyebrow: "Flights",
-    title: "One sentence,",
-    emphasis: "a real fare.",
-    body: "Describe the trip. Lumo prices against a live offer pool, shows the itinerary, and only books when you say so.",
+    eyebrow: "Errands",
+    title: "Order food,",
+    emphasis: "without seven apps.",
+    body: "Groceries, delivery, take-out, household basics. Lumo reads menus and shelves, builds the order, places it through the fastest merchant.",
   },
   {
-    eyebrow: "Food",
-    title: "Skip",
-    emphasis: "the app tax.",
-    body: "No switching between seven delivery apps. Lumo reads the menu, builds your order, places it through the fastest merchant.",
+    eyebrow: "Tickets & travel",
+    title: "Book the flight,",
+    emphasis: "the movie, the hotel.",
+    body: "Lumo prices a flight, picks the seat, books the room, reserves the dinner — and grabs the movie ticket on the way home.",
   },
   {
-    eyebrow: "Compound",
-    title: "One confirmation,",
-    emphasis: "all legs.",
-    body: "Flight, hotel, dinner on Friday. Specialist agents work together; the Saga rolls back partial failures.",
+    eyebrow: "Channels",
+    title: "Post to your",
+    emphasis: "Meta, LinkedIn, X.",
+    body: "Draft the caption, schedule the cross-post, reply to the comments. The same conversation that booked your flight runs your launch.",
   },
 ];
 
 const HOW_IT_WORKS: Array<{ step: string; body: string }> = [
   {
     step: "Ask",
-    body: "Type a complete intent: 'Flight to Vegas next Friday under $300, hotel near the strip, dinner Friday night.'",
+    body: "Type a complete intent: 'Order Thai for two by 7, book the IMAX showing of Dune at 9:30, and post the launch teaser to LinkedIn at 8.'",
   },
   {
     step: "Review",
-    body: "Lumo prices every leg and surfaces one compound card with the full total. Nothing is booked yet — the card is a tamper-resistant summary.",
+    body: "Lumo plans the work, picks the right specialist agent for each step, and surfaces one card with the full breakdown. Nothing is committed yet — the card is a tamper-resistant summary.",
   },
   {
     step: "Confirm",
-    body: "One click. Lumo dispatches each booking in dependency order. If a leg fails, the Saga rolls back committed legs so you never end up half-booked.",
+    body: "One click. Lumo dispatches each agent in dependency order. If a step fails, the Saga rolls back committed steps so you never end up half-done.",
   },
 ];
 
@@ -91,10 +91,10 @@ export default function LandingPage() {
             <span className="italic text-lumo-accent">in one sentence.</span>
           </h1>
           <p className="mt-9 text-[17px] md:text-[19px] text-lumo-fg-mid max-w-2xl leading-[1.6]">
-            Lumo is a conversational layer over specialist agents — flights,
-            hotels, food, more on the way. One confirmation books everything;
-            if a leg fails, Lumo rolls the rest back so you&apos;re never
-            half-paid.
+            Lumo&apos;s specialist agents do what your other apps do — order
+            food, book a flight, grab tickets, plan a trip, post to your
+            channels. One conversation handles them all; if any step fails,
+            Lumo rolls the rest back so you&apos;re never half-done.
           </p>
           <div className="mt-10 flex flex-wrap items-center gap-3">
             <Link
@@ -129,7 +129,7 @@ export default function LandingPage() {
           <div className="px-6 py-10 md:px-12 md:py-14 space-y-6">
             <div className="flex justify-end">
               <div className="max-w-[82%] rounded-2xl border border-lumo-hair bg-lumo-elevated px-4 py-2.5 text-[14.5px] text-lumo-fg leading-relaxed">
-                Flight to Vegas next Friday, under $300.
+                Order Thai for two by 7, and post the launch teaser to LinkedIn at 8.
               </div>
             </div>
             <div>
@@ -140,10 +140,11 @@ export default function LandingPage() {
                 </span>
               </div>
               <div className="pl-[18px] text-[15px] text-lumo-fg-high leading-[1.65]">
-                Found 12 offers SFO → LAS next Friday. Cheapest nonstop is{" "}
-                <span className="text-lumo-fg num">Spirit NK 1202</span> at{" "}
-                <span className="text-lumo-fg num">$147</span>. Want the
-                breakdown, or should I pick the best direct?
+                Pad thai + green curry from{" "}
+                <span className="text-lumo-fg">Lotus of Siam</span>, ETA{" "}
+                <span className="text-lumo-fg num">6:54 PM</span> · LinkedIn
+                post drafted with last week&apos;s preview reel — review
+                before I schedule?
               </div>
             </div>
           </div>

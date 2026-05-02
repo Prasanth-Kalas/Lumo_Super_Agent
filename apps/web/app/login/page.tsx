@@ -83,14 +83,15 @@ function EditorialCopy({ next }: { next: string }) {
       <h1 className="font-display text-[56px] md:text-[88px] leading-[0.95] tracking-[-0.02em] text-lumo-fg">
         One conversation,
         <br />
-        <span className="italic text-lumo-accent">any task.</span>
+        <span className="italic text-lumo-accent">every app.</span>
       </h1>
       <p className="mt-7 text-[15px] md:text-[16px] text-lumo-fg-mid leading-[1.65] max-w-md">
-        Lumo plans flights, hotels, dinners, and the rest of your week —
-        all in one chat. Sign in to keep your trips and memory connected.
+        Order food, book a flight, grab movie tickets, plan a trip,
+        post to Meta or LinkedIn — Lumo&apos;s specialist agents do
+        what your other apps do, all in one chat.
       </p>
       <p className="mt-3 text-[13.5px] text-lumo-fg-low max-w-md">
-        New here?{" "}
+        Sign in to keep your tasks and memory connected. New here?{" "}
         <Link
           href={`/signup${next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`}
           className="text-lumo-accent hover:underline underline-offset-4"

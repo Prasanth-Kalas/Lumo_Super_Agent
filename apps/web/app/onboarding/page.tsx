@@ -314,14 +314,14 @@ function OnboardingFlow() {
 
       <div className="mx-auto w-full max-w-5xl px-5 py-10 flex-1">
         <div className="mb-8 space-y-3 max-w-2xl">
-          <h1 className="text-[28px] sm:text-[32px] font-semibold tracking-[-0.022em] text-lumo-fg leading-[1.1]">
-            Connect the apps Lumo can book for you.
+          <h1 className="font-display text-[44px] md:text-[60px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
+            Connect the apps <span className="italic text-lumo-accent">Lumo can act on.</span>
           </h1>
-          <p className="text-[14.5px] text-lumo-fg-mid leading-relaxed">
-            Each connection lets Lumo act on your behalf — reserve a
-            table, book a flight, place a food order. You can add or
-            remove these anytime from Memory. Nothing is shared
-            without a confirmation card you see first.
+          <p className="text-[15px] text-lumo-fg-mid leading-[1.65] max-w-xl">
+            Each connection lets Lumo act on your behalf — order food,
+            book a flight, grab tickets, post to your channels, and more.
+            You can add or remove these anytime from Memory. Nothing is
+            shared without a confirmation card you see first.
           </p>
         </div>
 
