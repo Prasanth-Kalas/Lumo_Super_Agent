@@ -349,6 +349,118 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         XCTAssertEqual(agents.count, 1)
     }
 
+    func test_marketplaceVM_install_success_marksAgentInstalled() async {
+        let fake = FakeDrawerScreensFetcher()
+        let agent = MarketplaceAgentDTO(
+            agent_id: "lumo-flights",
+            display_name: "Lumo Flights",
+            one_liner: "Search and book flights.",
+            domain: "flights",
+            install: nil
+        )
+        fake.marketplaceResult = .success(MarketplaceResponseDTO(agents: [agent]))
+        fake.installAgentResult = .success("2026-05-03T12:00:00Z")
+        let vm = MarketplaceScreenViewModel(fetcher: fake)
+        await vm.load()
+        XCTAssertEqual(vm.state, .loaded([agent]))
+
+        await vm.installAgent(id: "lumo-flights")
+
+        XCTAssertEqual(fake.installAgentCalls, ["lumo-flights"])
+        XCTAssertNil(vm.installError)
+        guard case .loaded(let updated) = vm.state else {
+            return XCTFail("expected loaded state; got \(vm.state)")
+        }
+        XCTAssertEqual(updated.count, 1)
+        XCTAssertTrue(updated[0].isInstalled, "agent must flip to installed")
+        XCTAssertEqual(updated[0].install?.installed_at, "2026-05-03T12:00:00Z")
+    }
+
+    func test_marketplaceVM_install_alreadyInstalled_isNoOp() async {
+        let fake = FakeDrawerScreensFetcher()
+        let agent = MarketplaceAgentDTO(
+            agent_id: "lumo-flights",
+            display_name: "Lumo Flights",
+            one_liner: "x",
+            domain: "flights",
+            install: MarketplaceInstallStateDTO(status: "installed", installed_at: "2026-04-01T00:00:00Z")
+        )
+        fake.marketplaceResult = .success(MarketplaceResponseDTO(agents: [agent]))
+        let vm = MarketplaceScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.installAgent(id: "lumo-flights")
+
+        XCTAssertEqual(fake.installAgentCalls, [], "must not call install for an already-installed agent")
+    }
+
+    func test_marketplaceVM_install_oauthRequired_surfacesWebOnlyMessage() async {
+        let fake = FakeDrawerScreensFetcher()
+        let agent = MarketplaceAgentDTO(
+            agent_id: "lumo-google",
+            display_name: "Lumo Google",
+            one_liner: "x",
+            domain: "calendar",
+            install: nil
+        )
+        fake.marketplaceResult = .success(MarketplaceResponseDTO(agents: [agent]))
+        fake.installAgentResult = .failure(DrawerScreensError.oauthRequired)
+        let vm = MarketplaceScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.installAgent(id: "lumo-google")
+
+        XCTAssertNotNil(vm.installError)
+        XCTAssertTrue(vm.installError?.contains("OAuth") == true,
+                      "OAuth-required error must mention OAuth")
+        guard case .loaded(let agents) = vm.state else {
+            return XCTFail("loaded state must survive a failed install")
+        }
+        XCTAssertFalse(agents[0].isInstalled, "failed install must not flip the local state")
+    }
+
+    func test_marketplaceVM_install_unknownAgent_surfacesRefreshMessage() async {
+        let fake = FakeDrawerScreensFetcher()
+        let agent = MarketplaceAgentDTO(
+            agent_id: "removed",
+            display_name: "Removed",
+            one_liner: "x",
+            domain: "flights",
+            install: nil
+        )
+        fake.marketplaceResult = .success(MarketplaceResponseDTO(agents: [agent]))
+        fake.installAgentResult = .failure(DrawerScreensError.unknownAgent)
+        let vm = MarketplaceScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.installAgent(id: "removed")
+
+        XCTAssertNotNil(vm.installError)
+        XCTAssertTrue(vm.installError?.lowercased().contains("refresh") == true)
+    }
+
+    func test_marketplaceVM_install_transportError_surfacesNetworkMessage() async {
+        let fake = FakeDrawerScreensFetcher()
+        let agent = MarketplaceAgentDTO(
+            agent_id: "a",
+            display_name: "A",
+            one_liner: "x",
+            domain: "flights",
+            install: nil
+        )
+        fake.marketplaceResult = .success(MarketplaceResponseDTO(agents: [agent]))
+        fake.installAgentResult = .failure(DrawerScreensError.transport("offline"))
+        let vm = MarketplaceScreenViewModel(fetcher: fake)
+        await vm.load()
+
+        await vm.installAgent(id: "a")
+
+        XCTAssertNotNil(vm.installError)
+        guard case .loaded = vm.state else {
+            return XCTFail("loaded state must survive a failed install")
+        }
+    }
+
     func test_marketplaceVM_load_emptyAgents_loadsEmptyArray() async {
         // Empty array distinct from .loading — the view's empty-state
         // branch keys off `loaded([])`, not `loaded(_) where isEmpty`.

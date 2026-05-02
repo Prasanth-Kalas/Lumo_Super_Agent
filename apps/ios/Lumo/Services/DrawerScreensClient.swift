@@ -232,6 +232,14 @@ enum DrawerScreensError: Error, Equatable {
     case badStatus(Int)
     case decode(String)
     case transport(String)
+    /// 409 from `POST /api/lumo/mission/install` — agent's
+    /// `connect.model === "oauth2"` and Lumo isn't a first-party
+    /// connection provider for it. iOS marketplace doesn't yet have
+    /// the OAuth start flow (`IOS-MARKETPLACE-RICH-CARDS-1`), so we
+    /// route this to a "install via web for now" UX.
+    case oauthRequired
+    /// 404 unknown_agent — the agent_id wasn't in the registry.
+    case unknownAgent
 }
 
 // MARK: - Protocol
@@ -242,6 +250,11 @@ protocol DrawerScreensFetching: AnyObject {
     func fetchHistory(limitSessions: Int) async throws -> HistoryResponseDTO
     func updateMemoryProfile(_ patch: MemoryProfilePatchDTO) async throws -> MemoryProfileDTO
     func forgetMemoryFact(id: String) async throws
+    /// Install the marketplace agent for the current user. Mirrors
+    /// the chat install-card flow (`POST /api/lumo/mission/install`)
+    /// minus the mission/session context — for standalone catalog
+    /// installs. Returns the ISO timestamp the install was committed.
+    func installAgent(id: String) async throws -> String
 }
 
 /// PATCH body for `/api/memory/profile`. Only fields the iOS-v1 edit
@@ -315,6 +328,49 @@ final class DrawerScreensClient: DrawerScreensFetching {
 
     func fetchHistory(limitSessions: Int = 30) async throws -> HistoryResponseDTO {
         try await get(path: "api/history?limit_sessions=\(limitSessions)", as: HistoryResponseDTO.self)
+    }
+
+    func installAgent(id: String) async throws -> String {
+        guard !id.isEmpty else { throw DrawerScreensError.transport("missing agent id") }
+        let url = baseURL.appendingPathComponent("api/lumo/mission/install")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let userID = userIDProvider(), !userID.isEmpty {
+            req.setValue(userID, forHTTPHeaderField: "x-lumo-user-id")
+        }
+        if let token = accessTokenProvider(), !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        // Standalone marketplace install — no mission/session context.
+        // The endpoint requires `user_approved: true`; iOS surfaces
+        // the confirm via the Install button itself.
+        let body: [String: Any] = ["agent_id": id, "user_approved": true]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw DrawerScreensError.transport("\(error)")
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw DrawerScreensError.transport("non-http response")
+        }
+        if (200..<300).contains(http.statusCode) {
+            struct Wrapped: Decodable {
+                struct Install: Decodable { let installed_at: String? }
+                let install: Install?
+            }
+            let parsed = try? JSONDecoder().decode(Wrapped.self, from: data)
+            return parsed?.install?.installed_at ?? ISO8601DateFormatter().string(from: Date())
+        }
+        switch http.statusCode {
+        case 409: throw DrawerScreensError.oauthRequired
+        case 404: throw DrawerScreensError.unknownAgent
+        default: throw DrawerScreensError.badStatus(http.statusCode)
+        }
     }
 
     func forgetMemoryFact(id: String) async throws {
@@ -420,12 +476,15 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     var memoryUpdateResult: Result<MemoryProfileDTO, Error> =
         .success(MemoryProfileDTO())
     var forgetFactResult: Result<Void, Error> = .success(())
+    var installAgentResult: Result<String, Error> =
+        .success("2026-05-03T00:00:00Z")
 
     private(set) var memoryFetchCount = 0
     private(set) var marketplaceFetchCount = 0
     private(set) var historyFetchCount = 0
     private(set) var memoryUpdateCalls: [MemoryProfilePatchDTO] = []
     private(set) var forgetFactCalls: [String] = []
+    private(set) var installAgentCalls: [String] = []
 
     func fetchMemory() async throws -> MemoryResponseDTO {
         memoryFetchCount += 1
@@ -465,5 +524,33 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
         case .success: return
         case .failure(let e): throw e
         }
+    }
+
+    func installAgent(id: String) async throws -> String {
+        installAgentCalls.append(id)
+        switch installAgentResult {
+        case .success(let r): return r
+        case .failure(let e): throw e
+        }
+    }
+}
+
+// MARK: - DTO helpers
+
+extension MarketplaceAgentDTO {
+    /// Returns a copy of this agent with `install` stamped to
+    /// `installed` at the given ISO timestamp. Used by
+    /// `MarketplaceScreenViewModel` to update the loaded list
+    /// after a successful install without round-tripping the catalog.
+    func markedInstalled(at iso: String) -> MarketplaceAgentDTO {
+        MarketplaceAgentDTO(
+            agent_id: agent_id,
+            display_name: display_name,
+            one_liner: one_liner,
+            domain: domain,
+            intents: intents,
+            install: MarketplaceInstallStateDTO(status: "installed", installed_at: iso),
+            listing: listing
+        )
     }
 }

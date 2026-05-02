@@ -11,12 +11,11 @@ import SwiftUI
 /// `coming_soon` placeholders) are filed deferred as
 /// IOS-MARKETPLACE-RICH-CARDS-1.
 ///
-/// Install uses the existing `POST /api/lumo/mission/install` path
-/// (the same idempotent route the chat install card uses) — wiring
-/// hook is left as a closure on the detail view so the lane doesn't
-/// pull in the install-card payload shape; IOS-MARKETPLACE-INSTALL-1
-/// will close that loop. For now Install is a placeholder that
-/// flips state locally and surfaces a haptic.
+/// Install round-trips `POST /api/lumo/mission/install` — the same
+/// idempotent path the chat install-card uses, minus mission/session
+/// context (standalone catalog install). The 409 oauth_required
+/// path surfaces a "install via web for now" message until the iOS
+/// OAuth flow lands in IOS-MARKETPLACE-RICH-CARDS-1.
 
 struct MarketplaceView: View {
     @StateObject private var viewModel: MarketplaceScreenViewModel
@@ -46,7 +45,7 @@ struct MarketplaceView: View {
                case .loaded(let agents) = viewModel.state,
                let agent = agents.first(where: { $0.agent_id == target })
             {
-                MarketplaceAgentDetailView(agent: agent)
+                MarketplaceAgentDetailView(agent: agent, viewModel: viewModel)
             } else {
                 switch viewModel.state {
                 case .idle, .loading:
@@ -103,7 +102,7 @@ struct MarketplaceView: View {
             LazyVStack(spacing: LumoSpacing.sm) {
                 ForEach(agents) { agent in
                     NavigationLink {
-                        MarketplaceAgentDetailView(agent: agent)
+                        MarketplaceAgentDetailView(agent: agent, viewModel: viewModel)
                     } label: {
                         MarketplaceAgentRow(agent: agent)
                     }
@@ -196,9 +195,31 @@ private struct MarketplaceAgentRow: View {
 }
 
 struct MarketplaceAgentDetailView: View {
-    let agent: MarketplaceAgentDTO
-    @State private var isInstalled: Bool = false
-    @State private var installInFlight: Bool = false
+    /// The agent as it was when the user navigated in. Used as
+    /// the fallback render before the VM publishes its first
+    /// post-install state, and after-install once the VM list is
+    /// the source of truth.
+    let initialAgent: MarketplaceAgentDTO
+    @ObservedObject var viewModel: MarketplaceScreenViewModel
+
+    init(agent: MarketplaceAgentDTO, viewModel: MarketplaceScreenViewModel) {
+        self.initialAgent = agent
+        self.viewModel = viewModel
+    }
+
+    /// Resolves to the freshest copy in the VM's loaded list, or
+    /// falls back to the initial DTO if the catalog has been
+    /// reloaded and the agent is no longer present.
+    private var agent: MarketplaceAgentDTO {
+        if case .loaded(let agents) = viewModel.state,
+           let fresh = agents.first(where: { $0.agent_id == initialAgent.agent_id }) {
+            return fresh
+        }
+        return initialAgent
+    }
+
+    private var isInstalled: Bool { agent.isInstalled }
+    private var installInFlight: Bool { viewModel.installingAgentID == agent.agent_id }
 
     var body: some View {
         ScrollView {
@@ -236,6 +257,13 @@ struct MarketplaceAgentDetailView: View {
                     }
                 }
 
+                if let err = viewModel.installError {
+                    Text(err)
+                        .font(LumoFonts.caption)
+                        .foregroundStyle(LumoColors.warning)
+                        .accessibilityIdentifier("marketplace.detail.installError")
+                }
+
                 Button(action: handleInstallTap) {
                     HStack(spacing: LumoSpacing.xs) {
                         if installInFlight {
@@ -262,23 +290,13 @@ struct MarketplaceAgentDetailView: View {
         .background(LumoColors.background.ignoresSafeArea())
         .navigationTitle(agent.display_name)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            isInstalled = agent.isInstalled
-        }
     }
 
     private func handleInstallTap() {
-        // IOS-MARKETPLACE-INSTALL-1 follow-up wires the real
-        // POST /api/lumo/mission/install round-trip. For now the
-        // tap surfaces success haptic + flips local state so the
-        // capture's two states (Install / Installed) both render
-        // deterministically.
-        installInFlight = true
+        let id = agent.agent_id
         Task {
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            await MainActor.run {
-                isInstalled = true
-                installInFlight = false
+            await viewModel.installAgent(id: id)
+            if viewModel.installError == nil {
                 let h = UINotificationFeedbackGenerator()
                 h.notificationOccurred(.success)
             }

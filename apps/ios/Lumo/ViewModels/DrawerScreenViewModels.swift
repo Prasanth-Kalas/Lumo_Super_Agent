@@ -103,6 +103,12 @@ final class MemoryScreenViewModel: ObservableObject {
             case .badStatus(let code): return "Server returned \(code). Pull to retry."
             case .decode: return "Couldn't read the response. Pull to retry."
             case .transport: return "Network error. Pull to retry."
+            // The two cases below are install-only on the marketplace
+            // path, but the shared formatter must remain exhaustive
+            // — the catalog-load surface should never see them, but
+            // we route them to a generic message rather than crash.
+            case .oauthRequired: return "OAuth is required. Use the web app for this action."
+            case .unknownAgent: return "This item is no longer available. Pull to retry."
             }
         }
         return "Something went wrong. Pull to retry."
@@ -115,6 +121,10 @@ final class MemoryScreenViewModel: ObservableObject {
 final class MarketplaceScreenViewModel: ObservableObject {
     @Published var state: DrawerLoadState<[MarketplaceAgentDTO]> = .idle
     @Published var installingAgentID: String? = nil
+    /// One-shot user-facing message after a failed install attempt.
+    /// Distinct from `state.error` which represents catalog-load
+    /// failure — install failures don't blank the catalog.
+    @Published var installError: String? = nil
 
     private let fetcher: DrawerScreensFetching
 
@@ -130,6 +140,46 @@ final class MarketplaceScreenViewModel: ObservableObject {
             state = .loaded(resp.agents)
         } catch {
             state = .error(MemoryScreenViewModel.message(for: error))
+        }
+    }
+
+    /// IOS-MARKETPLACE-INSTALL-1 — round-trips
+    /// `POST /api/lumo/mission/install` for the given agent and
+    /// updates the loaded list with the installed status on success.
+    /// No-op if the agent is already installed or another install
+    /// is in flight (the button is disabled in those states; this
+    /// is a defensive guard for programmatic callers).
+    func installAgent(id: String) async {
+        guard installingAgentID == nil else { return }
+        guard case .loaded(let agents) = state,
+              let idx = agents.firstIndex(where: { $0.agent_id == id }) else { return }
+        if agents[idx].isInstalled { return }
+        installingAgentID = id
+        installError = nil
+        defer { installingAgentID = nil }
+        do {
+            let installedAt = try await fetcher.installAgent(id: id)
+            // Re-resolve the index — the catalog could have been
+            // refreshed mid-install; if the agent disappeared we
+            // skip the local state update rather than crash.
+            if case .loaded(var fresh) = state,
+               let i = fresh.firstIndex(where: { $0.agent_id == id }) {
+                fresh[i] = fresh[i].markedInstalled(at: installedAt)
+                state = .loaded(fresh)
+            }
+        } catch let e as DrawerScreensError {
+            switch e {
+            case .oauthRequired:
+                installError = "This app requires OAuth. Install it from the web app for now — iOS connect-flow ships in a follow-up."
+            case .unknownAgent:
+                installError = "This agent is no longer in the catalog. Pull to refresh."
+            case .badStatus(let code):
+                installError = "Install failed (\(code)). Please try again."
+            case .decode, .transport:
+                installError = "Network hiccup. Please try again."
+            }
+        } catch {
+            installError = "Install failed. Please try again."
         }
     }
 
