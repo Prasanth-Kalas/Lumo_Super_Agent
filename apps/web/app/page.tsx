@@ -559,6 +559,11 @@ export default function Home() {
             }
           } else if (frame.type === "assistant_compound_dispatch") {
             assistantCompoundDispatch = assistantCompoundDispatchToUI(frame.value);
+          } else if (frame.type === "assistant_compound_step_update") {
+            assistantCompoundDispatch = applyCompoundStepUpdateToUI(
+              assistantCompoundDispatch,
+              frame.value,
+            );
           } else if (frame.type === "leg_status") {
             const v = frame.value as {
               order?: number;
@@ -1271,6 +1276,40 @@ function assistantCompoundDispatchToUI(value: unknown): UICompoundDispatch | nul
     kind: "assistant_compound_dispatch",
     compound_transaction_id: compoundId,
     legs,
+  };
+}
+
+function applyCompoundStepUpdateToUI(
+  compoundDispatch: UICompoundDispatch | null,
+  value: unknown,
+): UICompoundDispatch | null {
+  if (!compoundDispatch) return null;
+  if (!isRecord(value)) return compoundDispatch;
+  const legId = typeof value["leg_id"] === "string" ? value["leg_id"].trim() : "";
+  const status =
+    typeof value["status"] === "string" && isCompoundDispatchStatus(value["status"])
+      ? value["status"]
+      : null;
+  if (!legId || !status) return compoundDispatch;
+  return {
+    ...compoundDispatch,
+    legs: compoundDispatch.legs.map((leg) =>
+      leg.leg_id === legId
+        ? {
+            ...leg,
+            status,
+            timestamp:
+              normalizeCompoundTimestamp(value["timestamp"]) ??
+              leg.timestamp ??
+              null,
+            provider_reference:
+              typeof value["provider_reference"] === "string"
+                ? value["provider_reference"].trim()
+                : leg.provider_reference ?? null,
+            evidence: coerceCompoundEvidence(value["evidence"]) ?? leg.evidence ?? null,
+          }
+        : leg,
+    ),
   };
 }
 

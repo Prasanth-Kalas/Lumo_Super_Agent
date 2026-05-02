@@ -43,6 +43,7 @@ export type EventFrameType =
   | "selection"
   | "assistant_suggestions"
   | "assistant_compound_dispatch"
+  | "assistant_compound_step_update"
   | "summary"
   | "leg_status"
   | "error"

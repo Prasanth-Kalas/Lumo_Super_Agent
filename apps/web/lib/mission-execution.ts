@@ -10,11 +10,22 @@ import {
   type MissionStepInsertRow,
 } from "./mission-execution-core.ts";
 import type { LumoMissionPlan } from "./lumo-mission.ts";
+import type { CompoundMissionPlan } from "./compound/mission-planner.ts";
 
 export interface MissionPersistResult {
   mission_id: string | null;
   step_count: number;
   persisted: boolean;
+}
+
+export interface CompoundMissionPersistResult extends MissionPersistResult {
+  dispatch_id: string | null;
+  graph_hash: string;
+  steps: Array<{
+    id: string;
+    client_step_id: string;
+    step_order: number;
+  }>;
 }
 
 export interface MissionExecutionEventInput {
@@ -74,6 +85,112 @@ export async function persistMission(
     mission_id,
     step_count: rows.steps.length,
     persisted: true,
+  };
+}
+
+export async function persistCompoundMissionPlan(
+  plan: CompoundMissionPlan,
+  user_id: string,
+  session_id: string | null,
+  original_request: string,
+  options: { db?: SupabaseLike | null } = {},
+): Promise<CompoundMissionPersistResult> {
+  const db = options.db ?? getSupabase();
+  if (!db) {
+    return {
+      mission_id: null,
+      dispatch_id: null,
+      graph_hash: plan.graph_hash,
+      step_count: 0,
+      persisted: false,
+      steps: [],
+    };
+  }
+
+  const missionInsert = await insertMission(db, {
+    user_id,
+    session_id,
+    intent_text: original_request,
+    state: "ready",
+    plan: plan as unknown as LumoMissionPlan,
+    compound_graph_hash: plan.graph_hash,
+    compound_domains: Array.from(new Set(plan.legs.map(domainForCompoundLeg))).sort(),
+  } as MissionInsertRow & Record<string, unknown>);
+  if (missionInsert.error) {
+    throw new Error(`compound_mission_insert_failed:${missionInsert.error.message ?? "unknown"}`);
+  }
+  const mission_id = stringOrNull(missionInsert.data?.id);
+  if (!mission_id) throw new Error("compound_mission_insert_missing_id");
+  const dispatch_id = `mission:${mission_id}`;
+  await updateMission(db, mission_id, { compound_dispatch_id: dispatch_id });
+
+  const orderByClientId = new Map<string, number>();
+  plan.legs.forEach((leg, index) => orderByClientId.set(leg.client_step_id, index + 1));
+  const dependenciesByStep = new Map<string, number[]>();
+  for (const edge of plan.dependencies) {
+    const order = orderByClientId.get(edge.dependency_step_id);
+    if (typeof order !== "number") continue;
+    const current = dependenciesByStep.get(edge.dependent_step_id) ?? [];
+    current.push(order);
+    dependenciesByStep.set(edge.dependent_step_id, current);
+  }
+
+  const specialistRows = plan.legs.map((leg, index) => ({
+    mission_id,
+    step_order: index + 1,
+    agent_id: leg.agent_id,
+    tool_name: leg.mission_tool_name,
+    dispatch_tool_name: leg.dispatch_tool_name,
+    client_step_id: leg.client_step_id,
+    dependency_mode: "explicit" as const,
+    depends_on_step_orders: (dependenciesByStep.get(leg.client_step_id) ?? []).sort((a, b) => a - b),
+    reversibility: "reversible" as const,
+    status: "ready" as const,
+    inputs: {
+      client_step_id: leg.client_step_id,
+      dispatch_tool_name: leg.dispatch_tool_name,
+      description: leg.description,
+      line_items_hint: leg.line_items_hint,
+      graph_hash: plan.graph_hash,
+    },
+    outputs: {},
+    confirmation_card_id: null,
+  }));
+  const composeOrder = specialistRows.length + 1;
+  const stepRows = [
+    ...specialistRows,
+    {
+      mission_id,
+      step_order: composeOrder,
+      agent_id: "lumo-super-agent",
+      tool_name: "mission.compose_reply",
+      dispatch_tool_name: null,
+      client_step_id: plan.compose_step.client_step_id,
+      dependency_mode: "explicit" as const,
+      depends_on_step_orders: specialistRows.map((row) => row.step_order),
+      reversibility: "reversible" as const,
+      status: "ready" as const,
+      inputs: {
+        client_step_id: plan.compose_step.client_step_id,
+        depends_on: plan.compose_step.depends_on,
+        graph_hash: plan.graph_hash,
+      },
+      outputs: {},
+      confirmation_card_id: null,
+    },
+  ];
+  const stepInsert = await insertMissionStepsReturningIds(db, stepRows);
+  if (stepInsert.error) {
+    throw new Error(`compound_mission_steps_insert_failed:${stepInsert.error.message ?? "unknown"}`);
+  }
+
+  return {
+    mission_id,
+    dispatch_id,
+    graph_hash: plan.graph_hash,
+    step_count: stepRows.length,
+    persisted: true,
+    steps: stepInsert.rows,
   };
 }
 
@@ -242,9 +359,9 @@ export async function resolveCardOutcome(
 
 async function insertMission(
   db: SupabaseLike,
-  mission: MissionInsertRow,
+  mission: MissionInsertRow | (MissionInsertRow & Record<string, unknown>),
 ): Promise<{ data: { id?: unknown } | null; error: { message?: string } | null }> {
-  const inserted = db.from("missions").insert(mission);
+  const inserted = db.from("missions").insert(mission as Record<string, unknown>);
   const selectable = inserted as {
     select?: (columns: string) => {
       single?: () => Promise<{
@@ -259,6 +376,38 @@ async function insertMission(
   return await result;
 }
 
+async function insertMissionStepsReturningIds(
+  db: SupabaseLike,
+  rows: Array<MissionStepInsertRow & { mission_id: string }>,
+): Promise<{
+  rows: Array<{ id: string; client_step_id: string; step_order: number }>;
+  error: { message?: string } | null;
+}> {
+  const inserted = db.from("mission_steps").insert(rows);
+  const selectable = inserted as {
+    select?: (columns: string) => Promise<{
+      data: unknown[] | null;
+      error: { message?: string } | null;
+    }>;
+  };
+  const result = selectable.select?.("id, client_step_id, step_order");
+  if (!result) return { rows: [], error: { message: "missing_select" } };
+  const { data, error } = await result;
+  return {
+    rows: Array.isArray(data)
+      ? data.map((row) => {
+          const r = row as Record<string, unknown>;
+          return {
+            id: stringOrNull(r.id) ?? "",
+            client_step_id: stringOrNull(r.client_step_id) ?? "",
+            step_order: typeof r.step_order === "number" ? r.step_order : Number(r.step_order),
+          };
+        }).filter((row) => row.id && row.client_step_id && Number.isFinite(row.step_order))
+      : [],
+    error,
+  };
+}
+
 async function insertRows(
   db: SupabaseLike,
   table: string,
@@ -270,6 +419,23 @@ async function insertRows(
   return await Promise.resolve(inserted).then((result) => ({
     error: result.error ?? null,
   }));
+}
+
+async function updateMission(
+  db: SupabaseLike,
+  mission_id: string,
+  update: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await db.from("missions").update(update).eq("id", mission_id);
+  if (error) throw new Error(`mission_update_failed:${error.message ?? "unknown"}`);
+}
+
+function domainForCompoundLeg(leg: CompoundMissionPlan["legs"][number]): string {
+  if (leg.client_step_id.includes("flight")) return "flights";
+  if (leg.client_step_id.includes("hotel")) return "hotels";
+  if (leg.client_step_id.includes("restaurant")) return "restaurants";
+  if (leg.client_step_id.includes("food")) return "food";
+  return leg.client_step_id;
 }
 
 function stringOrNull(input: unknown): string | null {

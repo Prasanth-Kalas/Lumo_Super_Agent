@@ -1,6 +1,5 @@
 import { getSupabase } from "./db.ts";
 import {
-  hashPayload,
   isRetryableDispatchFailure,
   missionCompletionFromStatuses,
   stepFailedPayload,
@@ -9,6 +8,10 @@ import {
   type ClaimedMissionStep,
   type MissionDispatchResult,
 } from "./mission-executor-core.ts";
+import {
+  dispatchMissionStepToTool,
+  summarizeMissionStepOutput,
+} from "./compound/mission-dispatch.ts";
 import type { MissionState, MissionStepStatus } from "./mission-execution-core.ts";
 import { recordExecutionEvent } from "./mission-execution.ts";
 
@@ -175,20 +178,7 @@ export async function readMissionExecutorDiagnostic(
 export async function dispatchMissionStep(
   step: ClaimedMissionStep,
 ): Promise<MissionDispatchResult> {
-  const started = Date.now();
-  if (step.tool_name.startsWith("mission.")) {
-    return {
-      ok: true,
-      latency_ms: Date.now() - started,
-      result: {
-        status: "acknowledged",
-        agent_id: step.agent_id,
-        tool_name: step.tool_name,
-        inputs_hash: hashPayload(step.inputs),
-      },
-    };
-  }
-
+  if (step.tool_name.startsWith("mission.")) return dispatchMissionStepToTool(step);
   const { dispatchToolCall } = await import("./router.ts");
   return dispatchToolCall(step.tool_name, step.inputs, dispatchContextForStep(step));
 }
@@ -223,6 +213,7 @@ async function markStepSucceeded(
     .update({
       status: "succeeded",
       outputs: result && typeof result === "object" ? result : { value: result },
+      output_summary: summarizeMissionStepOutput(step, result),
       error_text: null,
       finished_at: new Date().toISOString(),
     })
