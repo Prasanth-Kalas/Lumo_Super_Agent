@@ -52,7 +52,7 @@ function LoginShell() {
     <main className="min-h-dvh bg-lumo-bg text-lumo-fg">
       <Header />
       <div className="mx-auto max-w-6xl px-6 grid md:grid-cols-2 gap-10 md:gap-16 py-12 md:py-24">
-        <EditorialCopy />
+        <EditorialCopy next="/" />
         <div className="rounded-3xl border border-lumo-hair bg-lumo-surface p-8 shadow-card-lift h-[420px] animate-pulse" />
       </div>
     </main>
@@ -77,21 +77,27 @@ function Header() {
   );
 }
 
-function EditorialCopy() {
+function EditorialCopy({ next }: { next: string }) {
   return (
     <div className="md:pt-6">
-      <div className="text-[10.5px] uppercase tracking-[0.18em] text-lumo-fg-mid font-medium font-mono inline-flex items-center gap-2">
-        <span className="h-[2px] w-6 bg-lumo-accent" aria-hidden />
-        Welcome back
-      </div>
-      <h1 className="mt-6 font-display text-[56px] md:text-[88px] leading-[0.95] tracking-[-0.02em] text-lumo-fg">
-        Pick up
+      <h1 className="font-display text-[56px] md:text-[88px] leading-[0.95] tracking-[-0.02em] text-lumo-fg">
+        One conversation,
         <br />
-        <span className="italic text-lumo-accent">where you left off.</span>
+        <span className="italic text-lumo-accent">any task.</span>
       </h1>
       <p className="mt-7 text-[15px] md:text-[16px] text-lumo-fg-mid leading-[1.65] max-w-md">
-        Your trips, memory, and connected apps are waiting. Sign in to keep
-        the conversation going.
+        Lumo plans flights, hotels, dinners, and the rest of your week —
+        all in one chat. Sign in to keep your trips and memory connected.
+      </p>
+      <p className="mt-3 text-[13.5px] text-lumo-fg-low max-w-md">
+        New here?{" "}
+        <Link
+          href={`/signup${next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`}
+          className="text-lumo-accent hover:underline underline-offset-4"
+        >
+          Create an account
+        </Link>{" "}
+        — Lumo is free while we&apos;re in preview.
       </p>
     </div>
   );
@@ -187,24 +193,14 @@ function LoginForm() {
     <main className="min-h-dvh bg-lumo-bg text-lumo-fg">
       <Header />
       <div className="mx-auto max-w-6xl px-6 grid md:grid-cols-2 gap-10 md:gap-16 py-12 md:py-24">
-        <EditorialCopy />
+        <EditorialCopy next={next} />
 
         <div className="rounded-3xl border border-lumo-hair bg-lumo-surface p-7 md:p-8 shadow-card-lift">
-          <div className="mb-5">
-            <OAuthButtons next={next} disabled={busy} />
-          </div>
+          <OAuthButtons next={next} disabled={busy} />
 
-          <div className="relative my-6 flex items-center">
-            <div className="flex-1 border-t border-lumo-hair" />
-            <span className="px-3 text-[10.5px] uppercase tracking-[0.18em] text-lumo-fg-low font-mono">
-              or with email
-            </span>
-            <div className="flex-1 border-t border-lumo-hair" />
-          </div>
-
-          <form onSubmit={onSubmit} className="space-y-4">
+          <form onSubmit={onSubmit} className="mt-5 space-y-4">
             <label className="block">
-              <span className="text-[11px] uppercase tracking-[0.16em] text-lumo-fg-mid font-mono">
+              <span className="text-[12.5px] font-medium text-lumo-fg-high">
                 Email
               </span>
               <input
@@ -219,7 +215,7 @@ function LoginForm() {
             </label>
 
             <label className="block">
-              <span className="text-[11px] uppercase tracking-[0.16em] text-lumo-fg-mid font-mono">
+              <span className="text-[12.5px] font-medium text-lumo-fg-high">
                 Password
               </span>
               <input
@@ -247,15 +243,6 @@ function LoginForm() {
             </button>
           </form>
 
-          <div className="mt-6 text-[13px] text-lumo-fg-mid text-center">
-            No account?{" "}
-            <Link
-              href={`/signup${next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`}
-              className="text-lumo-accent hover:underline underline-offset-4"
-            >
-              Create one
-            </Link>
-          </div>
         </div>
       </div>
     </main>

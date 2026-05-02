@@ -81,15 +81,11 @@ export default function LandingPage() {
         </div>
       </header>
 
-      {/* Hero — display serif carries the page. Solid cyan rule as the
-          only color move; no gradients. */}
+      {/* Hero — display serif carries the page. No eyebrow / dash-line
+          accents; the headline IS the page. */}
       <section className="max-w-6xl mx-auto px-6 pt-24 pb-20 md:pt-32 md:pb-28">
         <div className="max-w-4xl">
-          <span className="inline-flex items-center gap-2 text-[10.5px] uppercase tracking-[0.18em] text-lumo-fg-mid font-medium font-mono">
-            <span className="h-[2px] w-6 bg-lumo-accent" aria-hidden />
-            Research preview
-          </span>
-          <h1 className="mt-7 font-display text-[68px] md:text-[112px] leading-[0.95] tracking-[-0.022em] text-lumo-fg">
+          <h1 className="font-display text-[68px] md:text-[112px] leading-[0.95] tracking-[-0.022em] text-lumo-fg">
             Plan anything,
             <br />
             <span className="italic text-lumo-accent">in one sentence.</span>
@@ -117,16 +113,10 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Bold solid cyan rule — flat color block, no gradients. Acts as
-          a visual divider and a brand statement. */}
-      <div aria-hidden className="max-w-6xl mx-auto px-6">
-        <div className="h-[6px] bg-lumo-accent rounded-full" />
-      </div>
-
       {/* Product surface preview — honest tiny render of the actual
-          chat turn at `/`. Lifts off the page with shadow-lift now,
+          chat turn at `/`. Lifts off the page with shadow-lift,
           rounded-3xl for App Store-y polish. */}
-      <section className="max-w-6xl mx-auto px-6 pt-16 pb-24">
+      <section className="max-w-6xl mx-auto px-6 pb-24">
         <div className="rounded-3xl border border-lumo-hair bg-lumo-surface overflow-hidden shadow-lift">
           <div className="flex items-center gap-1.5 px-5 h-11 border-b border-lumo-hair bg-lumo-elevated">
             <span className="h-2.5 w-2.5 rounded-full bg-lumo-fg-low" aria-hidden />
@@ -166,10 +156,7 @@ export default function LandingPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 md:divide-x md:divide-lumo-hair">
           {VALUE_PROPS.map((v) => (
             <div key={v.title} className="px-0 md:px-10 py-12 first:pl-0 last:pr-0">
-              <div className="text-[10.5px] uppercase tracking-[0.18em] text-lumo-fg-mid font-medium font-mono">
-                {v.eyebrow}
-              </div>
-              <h3 className="mt-4 font-display text-[30px] md:text-[34px] leading-[1.05] tracking-[-0.01em] text-lumo-fg">
+              <h3 className="font-display text-[30px] md:text-[34px] leading-[1.05] tracking-[-0.01em] text-lumo-fg">
                 {v.title}
                 <br />
                 <span className="italic text-lumo-accent">{v.emphasis}</span>
@@ -177,6 +164,9 @@ export default function LandingPage() {
               <p className="mt-5 text-[14px] text-lumo-fg-mid leading-[1.65]">
                 {v.body}
               </p>
+              <div className="mt-6 text-[12.5px] text-lumo-fg-low">
+                {v.eyebrow}
+              </div>
             </div>
           ))}
         </div>
@@ -188,10 +178,7 @@ export default function LandingPage() {
         id="how-it-works"
         className="max-w-6xl mx-auto px-6 pt-24 pb-12 border-t border-lumo-hair"
       >
-        <div className="text-[10.5px] uppercase tracking-[0.18em] text-lumo-fg-mid font-medium font-mono">
-          Flow
-        </div>
-        <h2 className="mt-3 font-display text-[44px] md:text-[64px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
+        <h2 className="font-display text-[44px] md:text-[64px] leading-[1.0] tracking-[-0.02em] text-lumo-fg">
           How it <span className="italic text-lumo-accent">works.</span>
         </h2>
         <ol className="mt-14 divide-y divide-lumo-hair border-y border-lumo-hair">
