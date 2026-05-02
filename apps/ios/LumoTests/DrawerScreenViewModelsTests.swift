@@ -132,10 +132,7 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         XCTAssertEqual(decoded.agents[0].isInstalled, true)
     }
 
-    func test_historyResponse_decodes_sessionsAndIgnoresTrips() throws {
-        // iOS-v1 only renders sessions; the trips array is part of
-        // the wire contract but not consumed here. Decoder should
-        // happily ignore trips presence.
+    func test_historyResponse_decodes_sessionsAndTrips() throws {
         let json = """
         {
           "sessions": [
@@ -145,16 +142,50 @@ final class DrawerScreenViewModelsTests: XCTestCase {
               "last_activity_at": "2026-04-30T10:08:00Z",
               "user_message_count": 4,
               "preview": "Plan a Vegas trip",
-              "trip_ids": ["t1", "t2"]
+              "trip_ids": ["t1"]
             }
           ],
-          "trips": [{"trip_id": "t1"}]
+          "trips": [
+            {
+              "trip_id": "t1",
+              "session_id": "s1",
+              "status": "committed",
+              "payload": {
+                "trip_title": "Vegas weekend",
+                "total_amount": "1200.00",
+                "currency": "USD",
+                "legs": [
+                  {"order": 1, "agent_id": "lumo.flight", "tool_name": "search_offers"},
+                  {"order": 2, "agent_id": "lumo.hotel"}
+                ]
+              },
+              "created_at": "2026-04-29T10:00:00Z",
+              "updated_at": "2026-04-30T10:08:00Z",
+              "cancel_requested_at": null
+            }
+          ]
         }
         """.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(HistoryResponseDTO.self, from: json)
         XCTAssertEqual(decoded.sessions.count, 1)
-        XCTAssertEqual(decoded.sessions[0].tripCount, 2)
-        XCTAssertEqual(decoded.sessions[0].preview, "Plan a Vegas trip")
+        XCTAssertEqual(decoded.sessions[0].tripCount, 1)
+        XCTAssertEqual(decoded.trips.count, 1)
+        XCTAssertEqual(decoded.trips[0].trip_id, "t1")
+        XCTAssertEqual(decoded.trips[0].payload.trip_title, "Vegas weekend")
+        XCTAssertEqual(decoded.trips[0].payload.total_amount, "1200.00")
+        XCTAssertEqual(decoded.trips[0].payload.legs?.count, 2)
+        XCTAssertEqual(decoded.trips[0].payload.legs?[0].agent_id, "lumo.flight")
+        XCTAssertEqual(decoded.trips[0].payload.legs?[0].tool_name, "search_offers")
+        XCTAssertNil(decoded.trips[0].payload.legs?[1].tool_name)
+    }
+
+    func test_historyResponse_decodes_oldSnapshotWithoutTripsKey() throws {
+        // Backwards-compat: a response missing the trips key must
+        // still decode.
+        let json = #"{"sessions": []}"#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(HistoryResponseDTO.self, from: json)
+        XCTAssertTrue(decoded.sessions.isEmpty)
+        XCTAssertTrue(decoded.trips.isEmpty)
     }
 
     // MARK: - 2. ViewModel state machines
@@ -492,6 +523,70 @@ final class DrawerScreenViewModelsTests: XCTestCase {
             return XCTFail("expected loaded; got \(vm.state)")
         }
         XCTAssertEqual(sessions.count, 1)
+    }
+
+    func test_historyVM_load_populatesTripsAlongsideSessions() async {
+        let fake = FakeDrawerScreensFetcher()
+        let trip = HistoryTripDTO(
+            trip_id: "t1",
+            session_id: "s1",
+            status: "committed",
+            payload: HistoryTripPayloadDTO(
+                trip_title: "Vegas weekend",
+                total_amount: "1200.00",
+                currency: "USD",
+                legs: [HistoryTripLegDTO(order: 1, agent_id: "lumo.flight", tool_name: "search_offers")]
+            ),
+            created_at: "2026-04-29T10:00:00Z",
+            updated_at: "2026-04-30T10:08:00Z",
+            cancel_requested_at: nil
+        )
+        fake.historyResult = .success(HistoryResponseDTO(sessions: [], trips: [trip]))
+        let vm = HistoryScreenViewModel(fetcher: fake)
+        await vm.load()
+        XCTAssertEqual(vm.trips.count, 1)
+        XCTAssertEqual(vm.trips[0].trip_id, "t1")
+    }
+
+    func test_historyVM_toggleTripExpanded_addsAndRemoves() {
+        let vm = HistoryScreenViewModel(fetcher: FakeDrawerScreensFetcher())
+        XCTAssertFalse(vm.expandedTripIDs.contains("t1"))
+        vm.toggleTripExpanded("t1")
+        XCTAssertTrue(vm.expandedTripIDs.contains("t1"))
+        vm.toggleTripExpanded("t1")
+        XCTAssertFalse(vm.expandedTripIDs.contains("t1"))
+    }
+
+    func test_historyTripFormatter_statusStyle_knownAndUnknown() {
+        XCTAssertEqual(HistoryTripFormatter.statusStyle("committed").label, "booked")
+        XCTAssertEqual(HistoryTripFormatter.statusStyle("dispatching").label, "booking…")
+        XCTAssertEqual(HistoryTripFormatter.statusStyle("rolled_back").label, "refunded")
+        XCTAssertEqual(HistoryTripFormatter.statusStyle("rollback_failed").label, "needs attention")
+        // Unknown statuses fall through to the raw string (matches web).
+        XCTAssertEqual(HistoryTripFormatter.statusStyle("processing").label, "processing")
+    }
+
+    func test_historyTripFormatter_legFriendly_mapsAgents() {
+        XCTAssertEqual(HistoryTripFormatter.legFriendly("lumo.flight"), "Flight")
+        XCTAssertEqual(HistoryTripFormatter.legFriendly("hotel-agent"), "Hotel")
+        XCTAssertEqual(HistoryTripFormatter.legFriendly("food-agent"), "Food")
+        XCTAssertEqual(HistoryTripFormatter.legFriendly("custom.agent"), "custom.agent")
+    }
+
+    func test_historyTripFormatter_shortID_truncatesPast12Chars() {
+        XCTAssertEqual(HistoryTripFormatter.shortID("trip_abc"), "trip_abc")
+        XCTAssertEqual(HistoryTripFormatter.shortID("trip_abcdefghijklmnop"), "trip_abcdefg…")
+    }
+
+    func test_historyMoneyFormatter_formatsValidAmount() {
+        let result = HistoryMoneyFormatter.formatMoney("1234.50", currency: "USD")
+        // Locale-sensitive, but a USD format will always include "$" and the digits.
+        XCTAssertTrue(result.contains("$"))
+        XCTAssertTrue(result.contains("1,234.50"))
+    }
+
+    func test_historyMoneyFormatter_invalidAmount_fallsBackToRawConcat() {
+        XCTAssertEqual(HistoryMoneyFormatter.formatMoney("not-a-number", currency: "USD"), "not-a-number USD")
     }
 
     func test_historyVM_load_failure_surfacesError() async {

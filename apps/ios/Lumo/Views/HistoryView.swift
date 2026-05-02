@@ -1,20 +1,22 @@
 import SwiftUI
 
-/// History destination — list of past chat sessions for the current
-/// user, fetched from `GET /api/history?limit_sessions=30`.
+/// History destination — list of past chat sessions and bookings,
+/// fetched from `GET /api/history?limit_sessions=30`.
 ///
-/// IOS-COMPOSER-AND-DRAWER-SCREENS-1 Phase B3 wires the previously-
-/// stub view to real backend data. iOS-v1 scope per brief: sessions
-/// only, sorted by last_activity_at desc, with preview + relative
-/// time + trip-count badge. The merged sessions+trips timeline +
-/// search + grouping that web ships are filed deferred as
-/// IOS-HISTORY-TIMELINE-1 / IOS-HISTORY-SEARCH-1 / IOS-HISTORY-GROUPING-1.
+/// Two sections, both newest-first:
+///   1. Trips — tap to expand → reveals leg list with agent + tool.
+///      Status pill + total amount on the row. (Trip cancel is a
+///      separate lane.)
+///   2. Sessions — preview + relative time + trip-count badge.
+///      Tap-row signals onSelectSession with the session_id.
 ///
-/// Tap-row → opens that session in chat. The actual session-load
-/// hand-off requires `ChatViewModel.loadSession(id:)` which doesn't
-/// exist yet (filed as MOBILE-CHAT-LOAD-SESSION-1); this view stubs
-/// the tap to dismiss-and-flag-the-session-id so the wiring is
-/// ready when the chat-side support lands.
+/// Merged sessions+trips timeline with day grouping + search are
+/// filed deferred as IOS-HISTORY-TIMELINE-1 / IOS-HISTORY-SEARCH-1 /
+/// IOS-HISTORY-GROUPING-1.
+///
+/// Tap-session → calls onSelectSession. The chat-side hand-off
+/// requires `ChatViewModel.loadSession(id:)` which is filed as
+/// MOBILE-CHAT-LOAD-SESSION-1; this view just emits the id.
 
 struct HistoryView: View {
     @StateObject private var viewModel: HistoryScreenViewModel
@@ -33,10 +35,10 @@ struct HistoryView: View {
             switch viewModel.state {
             case .idle, .loading:
                 loadingSkeleton
-            case .loaded(let sessions) where sessions.isEmpty:
+            case .loaded(let sessions) where sessions.isEmpty && viewModel.trips.isEmpty:
                 emptyState
             case .loaded(let sessions):
-                sessionsList(sessions)
+                contentList(sessions: sessions, trips: viewModel.trips)
             case .error(let message):
                 errorState(message)
             }
@@ -83,25 +85,52 @@ struct HistoryView: View {
         .accessibilityIdentifier("history.empty")
     }
 
-    private func sessionsList(_ sessions: [HistorySessionDTO]) -> some View {
+    private func contentList(sessions: [HistorySessionDTO], trips: [HistoryTripDTO]) -> some View {
         ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(sessions) { session in
-                    Button {
-                        onSelectSession(session.session_id)
-                    } label: {
-                        HistorySessionRow(session: session)
+            VStack(alignment: .leading, spacing: LumoSpacing.lg) {
+                if !trips.isEmpty {
+                    sectionHeader("Trips")
+                    VStack(spacing: LumoSpacing.sm) {
+                        ForEach(trips) { trip in
+                            HistoryTripRow(
+                                trip: trip,
+                                isExpanded: viewModel.expandedTripIDs.contains(trip.trip_id),
+                                onToggle: { viewModel.toggleTripExpanded(trip.trip_id) },
+                                onOpenSession: { onSelectSession(trip.session_id) }
+                            )
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("history.row.\(session.session_id)")
-                    Divider()
-                        .background(LumoColors.separator)
+                }
+
+                if !sessions.isEmpty {
+                    sectionHeader("Conversations")
+                    LazyVStack(spacing: 0) {
+                        ForEach(sessions) { session in
+                            Button {
+                                onSelectSession(session.session_id)
+                            } label: {
+                                HistorySessionRow(session: session)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("history.row.\(session.session_id)")
+                            Divider()
+                                .background(LumoColors.separator)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, LumoSpacing.md)
             .padding(.vertical, LumoSpacing.sm)
         }
         .accessibilityIdentifier("history.list")
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(LumoFonts.caption)
+            .tracking(1.2)
+            .foregroundStyle(LumoColors.labelTertiary)
+            .padding(.top, LumoSpacing.xs)
     }
 
     private func errorState(_ message: String) -> some View {
@@ -153,5 +182,253 @@ private struct HistorySessionRow: View {
         }
         .padding(.vertical, LumoSpacing.md - 2)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Trip rendering
+
+private struct HistoryTripRow: View {
+    let trip: HistoryTripDTO
+    let isExpanded: Bool
+    let onToggle: () -> Void
+    let onOpenSession: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onToggle) {
+                HStack(alignment: .top, spacing: LumoSpacing.md) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: LumoSpacing.xs) {
+                            Image(systemName: "arrow.right.circle")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(LumoColors.labelTertiary)
+                            Text("TRIP")
+                                .font(LumoFonts.caption.weight(.semibold))
+                                .tracking(1.4)
+                                .foregroundStyle(LumoColors.labelTertiary)
+                            HistoryTripStatusPill(status: trip.status)
+                        }
+                        Text(trip.payload.trip_title ?? "Untitled trip")
+                            .font(LumoFonts.bodyEmphasized)
+                            .foregroundStyle(LumoColors.label)
+                            .lineLimit(2)
+                        HStack(spacing: LumoSpacing.xs) {
+                            Text(HistoryTimeFormatter.formatTimeSince(trip.updated_at))
+                            if let count = trip.payload.legs?.count, count > 0 {
+                                Text("·")
+                                    .foregroundStyle(LumoColors.labelTertiary)
+                                Text("\(count) leg\(count == 1 ? "" : "s")")
+                            }
+                        }
+                        .font(LumoFonts.caption)
+                        .foregroundStyle(LumoColors.labelSecondary)
+                    }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: LumoSpacing.xs) {
+                        if let amount = trip.payload.total_amount {
+                            Text(HistoryMoneyFormatter.formatMoney(amount, currency: trip.payload.currency))
+                                .font(LumoFonts.bodyEmphasized)
+                                .foregroundStyle(LumoColors.label)
+                        }
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(LumoColors.labelTertiary)
+                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                            .animation(.easeInOut(duration: 0.15), value: isExpanded)
+                    }
+                }
+                .padding(LumoSpacing.md)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("history.trip.row.\(trip.trip_id)")
+            .accessibilityLabel("Trip: \(trip.payload.trip_title ?? "Untitled trip")")
+            .accessibilityHint(isExpanded ? "Collapse trip details" : "Expand trip details")
+
+            if isExpanded {
+                Divider().background(LumoColors.separator)
+                HistoryTripDetail(trip: trip, onOpenSession: onOpenSession)
+                    .padding(LumoSpacing.md)
+                    .accessibilityIdentifier("history.trip.detail.\(trip.trip_id)")
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: LumoRadius.md).fill(LumoColors.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: LumoRadius.md)
+                .stroke(LumoColors.separator, lineWidth: 1)
+        )
+    }
+}
+
+private struct HistoryTripDetail: View {
+    let trip: HistoryTripDTO
+    let onOpenSession: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LumoSpacing.sm) {
+            Text("Trip \(HistoryTripFormatter.shortID(trip.trip_id)) · started \(HistoryTimeFormatter.formatTimeSince(trip.created_at))")
+                .font(LumoFonts.caption)
+                .foregroundStyle(LumoColors.labelTertiary)
+
+            if let legs = trip.payload.legs, !legs.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(legs) { leg in
+                        HStack(alignment: .top, spacing: LumoSpacing.md) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Leg \(leg.order) · \(HistoryTripFormatter.legFriendly(leg.agent_id))")
+                                    .font(LumoFonts.caption.weight(.medium))
+                                    .foregroundStyle(LumoColors.label)
+                                if let tool = leg.tool_name, !tool.isEmpty {
+                                    Text(tool)
+                                        .font(LumoFonts.caption)
+                                        .foregroundStyle(LumoColors.labelTertiary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, LumoSpacing.sm)
+                        if leg.id != legs.last?.id {
+                            Divider().background(LumoColors.separator)
+                        }
+                    }
+                }
+                .padding(.horizontal, LumoSpacing.sm)
+                .background(
+                    RoundedRectangle(cornerRadius: LumoRadius.sm).fill(LumoColors.background)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: LumoRadius.sm)
+                        .stroke(LumoColors.separator, lineWidth: 1)
+                )
+            }
+
+            Button(action: onOpenSession) {
+                HStack(spacing: LumoSpacing.xs) {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Open conversation")
+                        .font(LumoFonts.caption.weight(.medium))
+                }
+                .padding(.horizontal, LumoSpacing.sm)
+                .padding(.vertical, LumoSpacing.xs)
+                .foregroundStyle(LumoColors.labelSecondary)
+                .background(
+                    RoundedRectangle(cornerRadius: LumoRadius.sm)
+                        .stroke(LumoColors.separator, lineWidth: 1)
+                )
+            }
+            .accessibilityIdentifier("history.trip.openConversation.\(trip.trip_id)")
+        }
+    }
+}
+
+private struct HistoryTripStatusPill: View {
+    let status: String
+
+    var body: some View {
+        let style = HistoryTripFormatter.statusStyle(status)
+        Text(style.label.uppercased())
+            .font(LumoFonts.caption.weight(.semibold))
+            .tracking(1.4)
+            .foregroundStyle(style.foreground)
+            .padding(.horizontal, LumoSpacing.xs + 2)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(style.background))
+            .overlay(Capsule().stroke(style.border, lineWidth: 1))
+    }
+}
+
+// MARK: - Trip helpers (mirror of apps/web/app/history/page.tsx)
+
+enum HistoryTripFormatter {
+    struct StatusStyle {
+        let label: String
+        let foreground: Color
+        let background: Color
+        let border: Color
+    }
+
+    static func statusStyle(_ status: String) -> StatusStyle {
+        switch status {
+        case "committed":
+            return StatusStyle(
+                label: "booked",
+                foreground: LumoColors.success,
+                background: LumoColors.success.opacity(0.10),
+                border: LumoColors.success.opacity(0.30)
+            )
+        case "dispatching":
+            return StatusStyle(
+                label: "booking…",
+                foreground: LumoColors.warning,
+                background: LumoColors.warning.opacity(0.10),
+                border: LumoColors.warning.opacity(0.30)
+            )
+        case "confirmed":
+            return StatusStyle(
+                label: "confirmed",
+                foreground: LumoColors.cyan,
+                background: LumoColors.cyan.opacity(0.10),
+                border: LumoColors.cyan.opacity(0.30)
+            )
+        case "rolled_back":
+            return StatusStyle(
+                label: "refunded",
+                foreground: LumoColors.labelTertiary,
+                background: LumoColors.surfaceElevated,
+                border: LumoColors.separator
+            )
+        case "rollback_failed":
+            return StatusStyle(
+                label: "needs attention",
+                foreground: LumoColors.error,
+                background: LumoColors.error.opacity(0.10),
+                border: LumoColors.error.opacity(0.30)
+            )
+        case "draft":
+            return StatusStyle(
+                label: "draft",
+                foreground: LumoColors.labelTertiary,
+                background: LumoColors.surfaceElevated,
+                border: LumoColors.separator
+            )
+        default:
+            return StatusStyle(
+                label: status,
+                foreground: LumoColors.labelTertiary,
+                background: LumoColors.surfaceElevated,
+                border: LumoColors.separator
+            )
+        }
+    }
+
+    static func legFriendly(_ agentID: String) -> String {
+        switch agentID {
+        case "flight-agent", "lumo.flight": return "Flight"
+        case "hotel-agent", "lumo.hotel": return "Hotel"
+        case "food-agent", "lumo.food": return "Food"
+        case "restaurant-agent", "lumo.restaurant": return "Restaurant"
+        default: return agentID
+        }
+    }
+
+    static func shortID(_ id: String) -> String {
+        id.count > 12 ? String(id.prefix(12)) + "…" : id
+    }
+}
+
+enum HistoryMoneyFormatter {
+    static func formatMoney(_ amount: String, currency: String?) -> String {
+        guard let value = Double(amount) else {
+            return [amount, currency].compactMap { $0 }.joined(separator: " ")
+        }
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencyCode = (currency?.isEmpty == false) ? currency! : "USD"
+        f.maximumFractionDigits = 2
+        return f.string(from: NSNumber(value: value)) ?? "\(amount) \(currency ?? "")"
     }
 }

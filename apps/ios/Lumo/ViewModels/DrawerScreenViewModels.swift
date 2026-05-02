@@ -193,6 +193,12 @@ final class MarketplaceScreenViewModel: ObservableObject {
 @MainActor
 final class HistoryScreenViewModel: ObservableObject {
     @Published var state: DrawerLoadState<[HistorySessionDTO]> = .idle
+    /// IOS-HISTORY-TRIP-DETAIL-1 — trips published alongside the
+    /// sessions state so the existing `state: DrawerLoadState<[HistorySessionDTO]>`
+    /// surface stays binary-compatible.
+    @Published var trips: [HistoryTripDTO] = []
+    /// Per-trip expanded flag for inline leg-list reveal.
+    @Published var expandedTripIDs: Set<String> = []
 
     private let fetcher: DrawerScreensFetching
 
@@ -206,13 +212,26 @@ final class HistoryScreenViewModel: ObservableObject {
         do {
             let resp = try await fetcher.fetchHistory(limitSessions: 30)
             state = .loaded(resp.sessions)
+            trips = resp.trips
         } catch {
             state = .error(MemoryScreenViewModel.message(for: error))
         }
     }
 
+    func toggleTripExpanded(_ id: String) {
+        if expandedTripIDs.contains(id) {
+            expandedTripIDs.remove(id)
+        } else {
+            expandedTripIDs.insert(id)
+        }
+    }
+
     func _seedForTest(state: DrawerLoadState<[HistorySessionDTO]>) {
         self.state = state
+    }
+
+    func _seedForTest(trips: [HistoryTripDTO]) {
+        self.trips = trips
     }
 }
 

@@ -207,8 +207,9 @@ struct MarketplaceResponseDTO: Codable, Equatable {
     let agents: [MarketplaceAgentDTO]
 }
 
-/// History sessions list. iOS-v1 only renders the `sessions` array;
-/// the merged sessions+trips timeline is IOS-HISTORY-TIMELINE-1.
+/// History sessions list. The merged sessions+trips timeline (with
+/// day grouping + search) is IOS-HISTORY-TIMELINE-1; this DTO carries
+/// the raw sessions array.
 struct HistorySessionDTO: Codable, Equatable, Identifiable {
     let session_id: String
     let started_at: String
@@ -222,8 +223,69 @@ struct HistorySessionDTO: Codable, Equatable, Identifiable {
     var tripCount: Int { trip_ids.count }
 }
 
+/// IOS-HISTORY-TRIP-DETAIL-1 — Trips array returned alongside
+/// sessions. Mirrors web's `TripHistoryRow`. iOS-v1 renders title,
+/// status, total amount, and an expandable leg list. Trip cancel is
+/// a separate lane.
+struct HistoryTripDTO: Codable, Equatable, Identifiable {
+    let trip_id: String
+    let session_id: String
+    let status: String
+    let payload: HistoryTripPayloadDTO
+    let created_at: String
+    let updated_at: String
+    let cancel_requested_at: String?
+
+    var id: String { trip_id }
+}
+
+struct HistoryTripPayloadDTO: Codable, Equatable {
+    let trip_title: String?
+    let total_amount: String?
+    let currency: String?
+    let legs: [HistoryTripLegDTO]?
+
+    init(
+        trip_title: String? = nil,
+        total_amount: String? = nil,
+        currency: String? = nil,
+        legs: [HistoryTripLegDTO]? = nil
+    ) {
+        self.trip_title = trip_title
+        self.total_amount = total_amount
+        self.currency = currency
+        self.legs = legs
+    }
+}
+
+/// Leg subset iOS renders. Web's `summary.payload` is unstructured
+/// (`unknown`) and powers a per-leg amount display via best-effort
+/// key lookups; iOS-v1 skips the amount until a typed payload
+/// shape is available.
+struct HistoryTripLegDTO: Codable, Equatable, Identifiable {
+    let order: Int
+    let agent_id: String
+    let tool_name: String?
+
+    var id: Int { order }
+}
+
 struct HistoryResponseDTO: Codable, Equatable {
     let sessions: [HistorySessionDTO]
+    let trips: [HistoryTripDTO]
+
+    init(sessions: [HistorySessionDTO] = [], trips: [HistoryTripDTO] = []) {
+        self.sessions = sessions
+        self.trips = trips
+    }
+
+    private enum CodingKeys: String, CodingKey { case sessions, trips }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.sessions = (try c.decodeIfPresent([HistorySessionDTO].self, forKey: .sessions)) ?? []
+        self.trips = (try c.decodeIfPresent([HistoryTripDTO].self, forKey: .trips)) ?? []
+    }
 }
 
 // MARK: - Errors
