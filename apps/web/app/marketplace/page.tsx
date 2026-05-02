@@ -159,6 +159,18 @@ export default function MarketplacePage() {
     [filtered],
   );
 
+  // Featured hero — prefers an installed agent so returning users see
+  // their own space first; falls back to the first available card.
+  // Mirrors `MarketplaceUI.featured(from:)` on iOS.
+  const featuredAgent = useMemo<MarketplaceAgent | null>(() => {
+    if (availableAgents.length === 0) return null;
+    return (
+      availableAgents.find(
+        (a) => a.install?.status === "installed" || a.connection?.status === "active",
+      ) ?? availableAgents[0] ?? null
+    );
+  }, [availableAgents]);
+
   const startConnect = useCallback(
     async (agent: MarketplaceAgent) => {
       if (connecting) return;
@@ -371,7 +383,16 @@ export default function MarketplacePage() {
             </button>
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-10">
+            {availableAgents.length >= 3 && featuredAgent ? (
+              <FeaturedHero
+                agent={featuredAgent}
+                onOpen={() => {
+                  router.push(`/marketplace/${featuredAgent.agent_id}`);
+                }}
+              />
+            ) : null}
+
             {availableAgents.length > 0 ? (
               <section>
                 <SectionHeading
@@ -517,6 +538,125 @@ function MarketplaceStat({ label, value }: { label: string; value: number }) {
   );
 }
 
+/**
+ * App Store-style hero for the top of the catalog. Renders larger
+ * than a normal AgentCard with a tinted gradient background and a
+ * prominent CTA. Tapping anywhere navigates to the agent detail.
+ */
+function FeaturedHero({
+  agent,
+  onOpen,
+}: {
+  agent: MarketplaceAgent;
+  onOpen: () => void;
+}) {
+  const tone = featuredTone(agent.agent_id);
+  const initial = agent.display_name.trim().charAt(0).toUpperCase();
+  const installed =
+    agent.install?.status === "installed" ||
+    agent.connection?.status === "active";
+  return (
+    <section>
+      <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-lumo-fg-low">
+        Featured
+      </h2>
+      <button
+        type="button"
+        onClick={onOpen}
+        className="group block w-full overflow-hidden rounded-3xl border border-lumo-hair bg-lumo-surface p-6 text-left transition-all hover:border-lumo-edge hover:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.3)] focus:outline-none focus:ring-2 focus:ring-lumo-accent sm:p-8"
+        style={{
+          backgroundImage: `linear-gradient(135deg, ${tone.bgFrom} 0%, ${tone.bgTo} 100%)`,
+        }}
+      >
+        <div className="flex items-start gap-5 sm:gap-6">
+          {agent.listing?.logo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={agent.listing.logo_url}
+              alt={agent.display_name}
+              className="h-24 w-24 shrink-0 rounded-3xl border border-white/30 bg-white/10 object-cover shadow-lg"
+            />
+          ) : (
+            <div
+              className="flex h-24 w-24 shrink-0 items-center justify-center rounded-3xl text-[44px] font-semibold text-white shadow-lg"
+              style={{
+                backgroundImage: `linear-gradient(135deg, ${tone.iconFrom} 0%, ${tone.iconTo} 100%)`,
+              }}
+              aria-hidden
+            >
+              {initial}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="text-[10.5px] font-semibold uppercase tracking-[0.16em] text-lumo-fg-mid">
+              {agent.listing?.category ?? "Featured"}
+            </div>
+            <div className="mt-1 text-[28px] font-semibold leading-tight tracking-[-0.02em] text-lumo-fg sm:text-[32px]">
+              {agent.display_name}
+            </div>
+            <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-lumo-fg-mid">
+              {agent.one_liner}
+            </p>
+            <div className="mt-4 inline-flex items-center gap-2">
+              <span
+                className={
+                  "inline-flex h-9 items-center rounded-full px-5 text-[13px] font-semibold tracking-[0.02em] transition-colors " +
+                  (installed
+                    ? "bg-lumo-elevated text-lumo-accent group-hover:bg-lumo-elevated/80"
+                    : "bg-lumo-fg text-lumo-bg group-hover:bg-lumo-accent group-hover:text-lumo-accent-ink")
+                }
+              >
+                {installed ? "OPEN" : "VIEW"}
+              </span>
+            </div>
+          </div>
+        </div>
+      </button>
+    </section>
+  );
+}
+
+function featuredTone(agentID: string): {
+  bgFrom: string;
+  bgTo: string;
+  iconFrom: string;
+  iconTo: string;
+} {
+  // Subtle, brand-aligned gradient palette — hashed off agent_id so
+  // the same agent always lands on the same hero tint across renders.
+  const palette = [
+    {
+      bgFrom: "rgba(56, 189, 248, 0.12)",
+      bgTo: "rgba(99, 102, 241, 0.06)",
+      iconFrom: "rgb(56, 189, 248)",
+      iconTo: "rgb(99, 102, 241)",
+    },
+    {
+      bgFrom: "rgba(167, 139, 250, 0.12)",
+      bgTo: "rgba(236, 72, 153, 0.06)",
+      iconFrom: "rgb(167, 139, 250)",
+      iconTo: "rgb(236, 72, 153)",
+    },
+    {
+      bgFrom: "rgba(52, 211, 153, 0.12)",
+      bgTo: "rgba(20, 184, 166, 0.06)",
+      iconFrom: "rgb(52, 211, 153)",
+      iconTo: "rgb(20, 184, 166)",
+    },
+    {
+      bgFrom: "rgba(251, 191, 36, 0.12)",
+      bgTo: "rgba(249, 115, 22, 0.06)",
+      iconFrom: "rgb(251, 191, 36)",
+      iconTo: "rgb(249, 115, 22)",
+    },
+  ];
+  let h = 0;
+  for (let i = 0; i < agentID.length; i++) {
+    h = (h * 31 + agentID.charCodeAt(i)) | 0;
+  }
+  return palette[Math.abs(h) % palette.length] ?? palette[0]!;
+}
+
 function SectionHeading({ title, count }: { title: string; count: number }) {
   return (
     <div className="mb-3 flex items-center gap-2">
@@ -570,7 +710,6 @@ function AgentGrid({
           source={a.source}
           coming_soon_label={a.coming_soon?.eta_label}
           coming_soon_rationale={a.coming_soon?.rationale}
-          risk_badge={a.risk_badge}
           onConnect={
             a.source === "coming_soon"
               ? undefined
