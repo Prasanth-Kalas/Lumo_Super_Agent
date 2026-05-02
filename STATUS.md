@@ -2,6 +2,8 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-food-menu-time-slots-parse-1 | 2026-05-02 | IOS-FOOD-MENU-TIME-SLOTS-PARSE-1 (Lane 5 of 7) replace the `.unsupported(kind:)` stubs in ChatService.parseFrame for `food_menu` and `time_slots` selection frames with typed `FoodMenuPayload` / `TimeSlotsPayload` models matched to web's selection-frame schema; introduces new `.malformed(kind:reason:)` enum case to distinguish "bad payload for known kind" from "unknown kind we'll learn later"; parser-only — SwiftUI cards land when web's IOS-SELECT-CLICKABLE-FOOD/RESTAURANT-1 lanes ship |
+
 ## Closed lanes
 
 | Lane | Worktree | Branch | Started | Closed | Sprint |
