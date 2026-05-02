@@ -19,6 +19,11 @@ struct LumoApp: App {
     /// DEBUG fixture seam in RootView swaps the same wire-shape with
     /// `FakeDrawerScreensFetcher` for screenshot capture.
     private let drawerScreensFetcher: DrawerScreensFetching
+    /// DEEPGRAM-IOS-IMPL-1 Phase 1 — short-lived token cache shared
+    /// by the Deepgram STT (`SpeechRecognitionService`) and TTS
+    /// (`TextToSpeechService`) clients. Memory-only per the privacy
+    /// contract; never persisted.
+    private let deepgramTokenService: DeepgramTokenService
 
     @MainActor
     init() {
@@ -27,6 +32,11 @@ struct LumoApp: App {
         self.chatService = ChatService(baseURL: config.apiBaseURL)
         let auth = AuthService(config: config)
         self.authService = auth
+        // Deepgram token cache — created early so both STT
+        // (SpeechRecognitionService) and TTS (TextToSpeechService)
+        // can share the same cached short-lived token. Memory-only.
+        let dgToken = DeepgramTokenService(baseURL: config.apiBaseURL)
+        self.deepgramTokenService = dgToken
         self.tts = TextToSpeechService(config: config)
         // PaymentService reads the current user id from AuthService each
         // call (closure capture so the value reflects sign-in/sign-out
@@ -108,7 +118,8 @@ struct LumoApp: App {
             appConfig: appConfig,
             proactiveCache: proactiveCache,
             proactiveClient: proactiveClient,
-            drawerScreensFetcher: drawerScreensFetcher
+            drawerScreensFetcher: drawerScreensFetcher,
+            deepgramTokenService: deepgramTokenService
         )
         .onAppear {
             // The delegate is constructed by UIKit before our init's

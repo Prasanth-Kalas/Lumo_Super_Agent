@@ -15,6 +15,7 @@ struct AppRootView: View {
     private let proactiveCache: ProactiveMomentsCache
     private let proactiveClient: ProactiveMomentsFetching
     private let drawerScreensFetcher: DrawerScreensFetching
+    private let deepgramTokenService: DeepgramTokenServicing
 
     init(
         authService: AuthServicing,
@@ -25,7 +26,8 @@ struct AppRootView: View {
         appConfig: AppConfig,
         proactiveCache: ProactiveMomentsCache,
         proactiveClient: ProactiveMomentsFetching,
-        drawerScreensFetcher: DrawerScreensFetching
+        drawerScreensFetcher: DrawerScreensFetching,
+        deepgramTokenService: DeepgramTokenServicing
     ) {
         self.authService = authService
         self.chatService = chatService
@@ -36,6 +38,7 @@ struct AppRootView: View {
         self.proactiveCache = proactiveCache
         self.proactiveClient = proactiveClient
         self.drawerScreensFetcher = drawerScreensFetcher
+        self.deepgramTokenService = deepgramTokenService
         _authViewModel = StateObject(wrappedValue: AuthViewModel(auth: authService))
     }
 
@@ -52,6 +55,7 @@ struct AppRootView: View {
                     proactiveCache: proactiveCache,
                     proactiveClient: proactiveClient,
                     drawerScreensFetcher: drawerScreensFetcher,
+                    deepgramTokenService: deepgramTokenService,
                     onSignOut: handleSignOut
                 )
                     .environment(\.signedInUser, user)

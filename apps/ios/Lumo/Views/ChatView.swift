@@ -19,16 +19,11 @@ struct ChatView: View {
     @FocusState private var inputFocused: Bool
     @State private var showPermissionAlert = false
 
-    init(service: ChatService, tts: TextToSpeechServicing? = nil) {
-        _viewModel = StateObject(wrappedValue: ChatViewModel(service: service, tts: tts))
-        _voiceComposer = StateObject(wrappedValue: VoiceComposerViewModel(speech: SpeechRecognitionService()))
-    }
-
     /// Hoisted-state initialiser — `RootView` owns the chat + voice
     /// view-models so the drawer's "New Chat" can call `reset()` and
     /// notification deep-links can mutate `input` without re-creating
     /// the view tree. Also used by unit tests to drive both pipelines
-    /// without spinning up a real `SFSpeechRecognizer`.
+    /// without spinning up a real Deepgram WebSocket.
     init(viewModel: ChatViewModel, voiceComposer: VoiceComposerViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
         _voiceComposer = StateObject(wrappedValue: voiceComposer)

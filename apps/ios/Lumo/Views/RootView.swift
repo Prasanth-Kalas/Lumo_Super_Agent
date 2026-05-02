@@ -76,6 +76,7 @@ struct RootView: View {
         proactiveCache: ProactiveMomentsCache,
         proactiveClient: ProactiveMomentsFetching,
         drawerScreensFetcher: DrawerScreensFetching,
+        deepgramTokenService: DeepgramTokenServicing,
         onSignOut: @escaping () -> Void
     ) {
         self.chatService = chatService
@@ -95,7 +96,9 @@ struct RootView: View {
             )
         )
         _voiceComposer = StateObject(
-            wrappedValue: VoiceComposerViewModel(speech: SpeechRecognitionService())
+            wrappedValue: VoiceComposerViewModel(
+                speech: SpeechRecognitionService(tokenService: deepgramTokenService)
+            )
         )
         _proactiveViewModel = StateObject(
             wrappedValue: ProactiveMomentsViewModel(
