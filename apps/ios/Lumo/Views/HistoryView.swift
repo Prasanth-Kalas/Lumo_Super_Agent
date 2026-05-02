@@ -10,10 +10,10 @@ import SwiftUI
 ///   2. Sessions — preview + relative time + trip-count badge.
 ///      Tap-row signals onSelectSession with the session_id.
 ///
-/// IOS-HISTORY-SEARCH-1 added the filter chips + search field
-/// shipped here. The merged sessions+trips timeline with day
-/// grouping is still deferred as IOS-HISTORY-TIMELINE-1 /
-/// IOS-HISTORY-GROUPING-1.
+/// IOS-HISTORY-SEARCH-1 added filter chips + search.
+/// IOS-HISTORY-GROUPING-1 + IOS-HISTORY-TIMELINE-1 added the
+/// merged sessions+trips chronological list grouped by day
+/// (Today / Yesterday / Earlier this week / month-name for older).
 ///
 /// Tap-session → calls onSelectSession. The chat-side hand-off
 /// requires `ChatViewModel.loadSession(id:)` which is filed as
@@ -47,10 +47,14 @@ struct HistoryView: View {
                 let filteredTrips = HistoryFilters.matching(
                     trips: viewModel.trips, query: query, filter: filter
                 )
-                if filteredSessions.isEmpty && filteredTrips.isEmpty {
+                let merged = HistoryDayGrouper.merge(
+                    sessions: filteredSessions, trips: filteredTrips
+                )
+                if merged.isEmpty {
                     noMatchesState
                 } else {
-                    contentList(sessions: filteredSessions, trips: filteredTrips)
+                    let groups = HistoryDayGrouper.group(merged)
+                    timelineList(groups: groups)
                 }
             case .error(let message):
                 errorState(message)
@@ -139,37 +143,21 @@ struct HistoryView: View {
         .accessibilityIdentifier("history.empty")
     }
 
-    private func contentList(sessions: [HistorySessionDTO], trips: [HistoryTripDTO]) -> some View {
+    private func timelineList(groups: [HistoryDayGroup]) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: LumoSpacing.lg) {
-                if !trips.isEmpty {
-                    sectionHeader("Trips")
-                    VStack(spacing: LumoSpacing.sm) {
-                        ForEach(trips) { trip in
-                            HistoryTripRow(
-                                trip: trip,
-                                isExpanded: viewModel.expandedTripIDs.contains(trip.trip_id),
-                                onToggle: { viewModel.toggleTripExpanded(trip.trip_id) },
-                                onOpenSession: { onSelectSession(trip.session_id) },
-                                viewModel: viewModel
-                            )
-                        }
-                    }
-                }
-
-                if !sessions.isEmpty {
-                    sectionHeader("Conversations")
-                    LazyVStack(spacing: 0) {
-                        ForEach(sessions) { session in
-                            Button {
-                                onSelectSession(session.session_id)
-                            } label: {
-                                HistorySessionRow(session: session)
+            LazyVStack(alignment: .leading, spacing: LumoSpacing.lg) {
+                ForEach(groups, id: \.label) { group in
+                    sectionHeader(group.label)
+                    VStack(spacing: 0) {
+                        ForEach(Array(group.items.enumerated()), id: \.element.id) { index, item in
+                            timelineRow(item)
+                            if index < group.items.count - 1 {
+                                if case .session = item, case .session = group.items[index + 1] {
+                                    Divider().background(LumoColors.separator)
+                                } else {
+                                    Spacer().frame(height: LumoSpacing.sm)
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("history.row.\(session.session_id)")
-                            Divider()
-                                .background(LumoColors.separator)
                         }
                     }
                 }
@@ -178,6 +166,28 @@ struct HistoryView: View {
             .padding(.vertical, LumoSpacing.sm)
         }
         .accessibilityIdentifier("history.list")
+    }
+
+    @ViewBuilder
+    private func timelineRow(_ item: HistoryTimelineItem) -> some View {
+        switch item {
+        case .trip(let trip):
+            HistoryTripRow(
+                trip: trip,
+                isExpanded: viewModel.expandedTripIDs.contains(trip.trip_id),
+                onToggle: { viewModel.toggleTripExpanded(trip.trip_id) },
+                onOpenSession: { onSelectSession(trip.session_id) },
+                viewModel: viewModel
+            )
+        case .session(let session):
+            Button {
+                onSelectSession(session.session_id)
+            } label: {
+                HistorySessionRow(session: session)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("history.row.\(session.session_id)")
+        }
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -597,6 +607,107 @@ enum HistoryFilters {
             let status = trip.status.lowercased()
             return title.contains(q) || status.contains(q)
         }
+    }
+}
+
+// MARK: - IOS-HISTORY-GROUPING-1 / IOS-HISTORY-TIMELINE-1
+
+/// A single item on the merged history timeline. Sessions and trips
+/// flow through the same chronological list so the user sees a
+/// continuous "what I did when" view rather than two parallel
+/// streams. Mirrors web's `TimelineItem` discriminated union.
+enum HistoryTimelineItem: Identifiable, Equatable {
+    case session(HistorySessionDTO)
+    case trip(HistoryTripDTO)
+
+    var id: String {
+        switch self {
+        case .session(let s): return "s:\(s.session_id)"
+        case .trip(let t): return "t:\(t.trip_id)"
+        }
+    }
+
+    /// Date the row sorts/groups by. Sessions use last_activity_at
+    /// (the "last time we touched this conversation"), trips use
+    /// updated_at (mirrors web; the row already shows it as the
+    /// relative time stamp).
+    var displayDateISO: String {
+        switch self {
+        case .session(let s): return s.last_activity_at
+        case .trip(let t): return t.updated_at
+        }
+    }
+}
+
+struct HistoryDayGroup: Equatable {
+    let label: String
+    let items: [HistoryTimelineItem]
+}
+
+enum HistoryDayGrouper {
+    /// Merge sessions + trips into a single newest-first timeline.
+    static func merge(
+        sessions: [HistorySessionDTO],
+        trips: [HistoryTripDTO]
+    ) -> [HistoryTimelineItem] {
+        var items: [HistoryTimelineItem] = []
+        items.reserveCapacity(sessions.count + trips.count)
+        items.append(contentsOf: sessions.map(HistoryTimelineItem.session))
+        items.append(contentsOf: trips.map(HistoryTimelineItem.trip))
+        items.sort { lhs, rhs in
+            // Newest first. Falls back to id stability when dates
+            // don't parse — keeps the order deterministic in tests.
+            let lDate = HistoryTimeFormatter.parseISO(lhs.displayDateISO) ?? .distantPast
+            let rDate = HistoryTimeFormatter.parseISO(rhs.displayDateISO) ?? .distantPast
+            if lDate != rDate { return lDate > rDate }
+            return lhs.id > rhs.id
+        }
+        return items
+    }
+
+    /// Bucket items by Today / Yesterday / Earlier this week / month-name.
+    /// Mirrors web's `groupByDay` in apps/web/app/history/page.tsx
+    /// — `now` is injected for tests.
+    static func group(
+        _ items: [HistoryTimelineItem],
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [HistoryDayGroup] {
+        let today = calendar.startOfDay(for: now)
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
+              let weekStart = calendar.date(byAdding: .day, value: -6, to: today)
+        else { return [HistoryDayGroup(label: "All", items: items)] }
+
+        var groups: [HistoryDayGroup] = []
+        var byLabel: [String: Int] = [:]
+
+        for item in items {
+            let date = HistoryTimeFormatter.parseISO(item.displayDateISO) ?? .distantPast
+            let label = labelFor(date: date, today: today, yesterday: yesterday, weekStart: weekStart, calendar: calendar)
+            if let i = byLabel[label] {
+                groups[i] = HistoryDayGroup(label: label, items: groups[i].items + [item])
+            } else {
+                byLabel[label] = groups.count
+                groups.append(HistoryDayGroup(label: label, items: [item]))
+            }
+        }
+        return groups
+    }
+
+    static func labelFor(
+        date: Date,
+        today: Date,
+        yesterday: Date,
+        weekStart: Date,
+        calendar: Calendar = .current
+    ) -> String {
+        if calendar.isDate(date, inSameDayAs: today) { return "Today" }
+        if calendar.isDate(date, inSameDayAs: yesterday) { return "Yesterday" }
+        if date >= weekStart { return "Earlier this week" }
+        let f = DateFormatter()
+        f.dateFormat = "LLLL yyyy"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: date)
     }
 }
 

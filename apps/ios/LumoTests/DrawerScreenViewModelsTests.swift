@@ -981,6 +981,111 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         XCTAssertEqual(r.map(\.id), ["s1"])
     }
 
+    // MARK: - IOS-HISTORY-GROUPING-1 / IOS-HISTORY-TIMELINE-1
+
+    func test_historyDayGrouper_merge_interleavesNewestFirst() {
+        let sessions = [
+            Self.makeSession(id: "old"),
+            Self.makeSession(id: "newer"),
+        ]
+        // Override last_activity_at on "newer" so it actually is newer.
+        let newSession = HistorySessionDTO(
+            session_id: "newer",
+            started_at: "2026-05-02T10:00:00Z",
+            last_activity_at: "2026-05-02T18:00:00Z",
+            user_message_count: 1,
+            preview: "x",
+            trip_ids: []
+        )
+        let oldSession = HistorySessionDTO(
+            session_id: "old",
+            started_at: "2026-04-01T10:00:00Z",
+            last_activity_at: "2026-04-01T10:00:00Z",
+            user_message_count: 1,
+            preview: "x",
+            trip_ids: []
+        )
+        let trip = HistoryTripDTO(
+            trip_id: "t1",
+            session_id: "newer",
+            status: "committed",
+            payload: HistoryTripPayloadDTO(),
+            created_at: "2026-05-02T11:00:00Z",
+            updated_at: "2026-05-02T15:00:00Z",
+            cancel_requested_at: nil
+        )
+        let merged = HistoryDayGrouper.merge(sessions: [newSession, oldSession], trips: [trip])
+        XCTAssertEqual(merged.count, 3)
+        XCTAssertEqual(merged[0].id, "s:newer", "newest session-update first")
+        XCTAssertEqual(merged[1].id, "t:t1", "trip second (older than session)")
+        XCTAssertEqual(merged[2].id, "s:old", "oldest session last")
+        _ = sessions
+    }
+
+    func test_historyDayGrouper_labels_todayYesterdayThisWeek() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = ISO8601DateFormatter().date(from: "2026-05-03T10:00:00Z")!
+        let today = calendar.startOfDay(for: now)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today)!
+        let weekStart = calendar.date(byAdding: .day, value: -6, to: today)!
+
+        let todayDate = ISO8601DateFormatter().date(from: "2026-05-03T08:00:00Z")!
+        let yDate = ISO8601DateFormatter().date(from: "2026-05-02T08:00:00Z")!
+        let weekDate = ISO8601DateFormatter().date(from: "2026-04-29T08:00:00Z")!
+        let oldDate = ISO8601DateFormatter().date(from: "2026-03-15T08:00:00Z")!
+
+        XCTAssertEqual(
+            HistoryDayGrouper.labelFor(date: todayDate, today: today, yesterday: yesterday, weekStart: weekStart, calendar: calendar),
+            "Today"
+        )
+        XCTAssertEqual(
+            HistoryDayGrouper.labelFor(date: yDate, today: today, yesterday: yesterday, weekStart: weekStart, calendar: calendar),
+            "Yesterday"
+        )
+        XCTAssertEqual(
+            HistoryDayGrouper.labelFor(date: weekDate, today: today, yesterday: yesterday, weekStart: weekStart, calendar: calendar),
+            "Earlier this week"
+        )
+        // Older falls through to "<Month> <Year>"
+        let monthLabel = HistoryDayGrouper.labelFor(date: oldDate, today: today, yesterday: yesterday, weekStart: weekStart, calendar: calendar)
+        XCTAssertTrue(monthLabel.contains("March") || monthLabel.contains("2026"),
+                      "older dates fall through to month + year format; got \(monthLabel)")
+    }
+
+    func test_historyDayGrouper_group_preservesNewestFirstOrderAcrossBuckets() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = ISO8601DateFormatter().date(from: "2026-05-03T10:00:00Z")!
+
+        let todayItem: HistoryTimelineItem = .session(HistorySessionDTO(
+            session_id: "today", started_at: "2026-05-03T08:00:00Z",
+            last_activity_at: "2026-05-03T09:30:00Z",
+            user_message_count: 1, preview: "x", trip_ids: []
+        ))
+        let yItem: HistoryTimelineItem = .session(HistorySessionDTO(
+            session_id: "yesterday", started_at: "2026-05-02T08:00:00Z",
+            last_activity_at: "2026-05-02T09:00:00Z",
+            user_message_count: 1, preview: "x", trip_ids: []
+        ))
+        let weekItem: HistoryTimelineItem = .session(HistorySessionDTO(
+            session_id: "thisWeek", started_at: "2026-04-29T08:00:00Z",
+            last_activity_at: "2026-04-29T09:00:00Z",
+            user_message_count: 1, preview: "x", trip_ids: []
+        ))
+
+        let groups = HistoryDayGrouper.group([todayItem, yItem, weekItem], now: now, calendar: calendar)
+        XCTAssertEqual(groups.count, 3)
+        XCTAssertEqual(groups[0].label, "Today")
+        XCTAssertEqual(groups[1].label, "Yesterday")
+        XCTAssertEqual(groups[2].label, "Earlier this week")
+        XCTAssertEqual(groups[0].items.first?.id, "s:today")
+    }
+
+    func test_historyDayGrouper_group_emptyInput_returnsEmptyGroups() {
+        XCTAssertTrue(HistoryDayGrouper.group([]).isEmpty)
+    }
+
     func test_historyTripFormatter_statusStyle_knownAndUnknown() {
         XCTAssertEqual(HistoryTripFormatter.statusStyle("committed").label, "booked")
         XCTAssertEqual(HistoryTripFormatter.statusStyle("dispatching").label, "booking…")
