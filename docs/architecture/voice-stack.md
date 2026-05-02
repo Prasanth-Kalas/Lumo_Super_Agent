@@ -1,183 +1,175 @@
 # Voice stack
 
-How Lumo hears you, speaks back, knows when to stop, and optionally wakes up on command. Single-file user-facing guide is at [users/voice-mode.md](../users/voice-mode.md); this is the "what's behind the button" version.
+How Lumo hears you, speaks back, knows when to stop, and (when wake-word ships) optionally activates on command. User-facing guide is at [users/voice-mode.md](../users/voice-mode.md); this is the "what's behind the button" version.
 
-## The pipeline
+> **History note:** Lumo previously used ElevenLabs for TTS and the browser's native `SpeechRecognition` for STT. As of May 2026, both paths migrated to Deepgram (Aura-2 for TTS, Nova-3 for STT). ElevenLabs code paths remain as a 7-day fallback gated behind `LUMO_TTS_PROVIDER=elevenlabs`; cleanup lane `DEEPGRAM-CLEANUP-1` removes them after the rollback window closes. The ElevenLabs-era doc lives in git history at the commit prior to `DEEPGRAM-MIGRATION-1`.
+
+## The pipeline (Deepgram era)
 
 ```
 User speaks
    │
    ▼
-[Browser SpeechRecognition]
-   │   final transcript
+[Deepgram Nova-3 STT (web: WSS streaming) ]
+[Deepgram Nova-3 STT (iOS: WSS streaming) ]
+   │   final transcript (with interim updates)
    ▼
-[VoiceMode.tsx onUserUtterance]
-   │   → shell dispatches as a user message
+[VoiceMode.tsx state machine on web]
+[VoiceComposerViewModel state machine on iOS]
+   │   user_message → orchestrator
    ▼
 [POST /api/chat]   (orchestrator, same path as typed input)
    │   streaming SSE response text
    ▼
-[VoiceMode accumulates spokenText]
-   │   sentence boundary
-   ▼
-[playPremiumTts] ── 503 / non-2xx ──► [speechSynthesis fallback]
+[Sentence-boundary chunker accumulates spokenText]
    │
    ▼
-[POST /api/tts → ElevenLabs → MP3 stream]
-   │
+[POST /api/tts] (web)             [WSS /v1/speak] (iOS)
+   │   ↓
+   │   Deepgram Aura-2 streaming MP3 (web) / PCM (iOS)
    ▼
-[MSE MediaSource + audio element]
-   │
+[Continuous MediaSource SourceBuffer (web)]
+[Persistent AVAudioPlayerNode (iOS)]
+   │   one playback session across N sentence chunks
    ▼
 Audio in user's ears
    │
    ▼
-[Barge-in monitor: second mic pipeline]
-   │   RMS above threshold?
+[STT-gating state machine prevents barge-in during AGENT_SPEAKING + 300ms tail guard]
+   │
    ▼
-If yes: stop audio, switch to listening
-If no : onEnd → hands-free restart listening
+After tail guard: state → LISTENING
 ```
 
 ## Components and files
 
-- **`components/VoiceMode.tsx`** — The state machine. Owns the mic, the TTS trigger, the hands-free loop, barge-in orchestration.
-- **`lib/streaming-audio.ts`** — MSE-based streaming audio player with blob fallback. Exposes `playAudioStream(response, { onStart, onEnd })`.
-- **`lib/barge-in.ts`** — The second mic pipeline that runs while Lumo is speaking. Uses `getUserMedia` + `AudioContext` + an AnalyserNode to compute RMS. Hysteresis keeps it from firing on brief sounds.
-- **`lib/wake-word.ts`** — Scaffold for Picovoice Porcupine-based wake detection. Reads `LUMO_PICOVOICE_KEY`; if absent, the handle no-ops.
-- **`lib/voice-catalog.ts`** — Static catalog of available voices (Rachel, Sarah, Charlotte, Domi, Antoni, Adam) with display metadata. Voice IDs are ElevenLabs voice IDs.
-- **`lib/voice-format.ts`** — Pre-TTS text formatter. Strips markdown, removes emojis, collapses whitespace — the model's output is markdown-flavored, but TTS wants flat prose.
-- **`app/api/tts/route.ts`** — The server proxy to ElevenLabs. Keeps the API key server-side and streams the MP3 response body straight through.
+### Web (`apps/web/`)
+
+- **`components/VoiceMode.tsx`** — State machine. Owns mic, TTS trigger, STT-gating phase transitions.
+- **`lib/voice-mode-stt-gating.ts`** — Pure helper for phase gating (LISTENING / AGENT_THINKING / AGENT_SPEAKING / POST_SPEAKING_GUARD) and tail-guard parsing. Tested independently of UI.
+- **`lib/streaming-audio.ts`** — Continuous multi-chunk MediaSource player. Each `/api/tts` response appends to a single `SourceBuffer`; `endOfStream()` deferred until last-chunk flag.
+- **`lib/deepgram-tts-retry.ts`** — Server-side retry wrapper for Deepgram REST Speak. 3 attempts, fresh `AbortController` per attempt, 200ms backoff. Returns structured `tts_upstream_unavailable` 503 only after all attempts fail.
+- **`lib/deepgram.ts`** — Shared Deepgram config: voice catalog, speed parameter (`LUMO_DEEPGRAM_TTS_SPEED`, default 0.9, range 0.7-1.5).
+- **`lib/voice-catalog.ts`** — Aura-2 voice catalog (Thalia, Orpheus). Mirrored verbatim by iOS to keep the contract consistent across surfaces.
+- **`app/api/tts/route.ts`** — Server proxy to Deepgram REST Speak streaming MP3. Server-side `LUMO_DEEPGRAM_API_KEY`. Speed appended as `?speed=N` query param.
+- **`app/api/audio/deepgram-token/route.ts`** — iOS-facing token mint endpoint. Auth-gated, rate-limited (30 req/min/user). Calls Deepgram's `POST /v1/auth/grant` for a 60s `usage:write` JWT. Returns `{ token, expires_at }`. Long-lived API key never leaves the server.
+
+### iOS (`apps/ios/Lumo/`)
+
+- **`Services/DeepgramTokenService.swift`** — In-memory token cache with idle-gated refresh (`markStreamActive(_:)`). 7 typed error cases. Refresh-ahead at 50s elapsed, retry-once on 401 expiry.
+- **`Services/SpeechRecognitionService.swift`** — Deepgram Nova-3 streaming via `URLSessionWebSocketTask`. SFSpeechRecognizer fully removed. Frame parser emits two messages per `speech_final` (interim + final).
+- **`Services/TextToSpeechService.swift`** — Deepgram Aura-2 streaming via WSS `/v1/speak`. `DeepgramTTSSession` keeps one `AVAudioEngine` + `AVAudioPlayerNode` alive across multi-sentence replies (iOS analog of web's continuous-MediaSource pattern).
+- **`Services/SpeechModeGating.swift`** — Pure phase-gating module mirroring web's `voice-mode-stt-gating.ts`. `VoiceModeMachinePhase` raw values byte-identical to web's string union for cross-platform telemetry parity.
+- **`Components/ChatComposerTrailingButton.swift`** — Mic ↔ Send ↔ Stop swap. `Mode.from(input:isListening:phase:)` — phase has highest precedence. Stop affordance during `AGENT_SPEAKING` + `POST_SPEAKING_GUARD` provides explicit barge-in tap target.
+- **`ViewModels/VoiceComposerViewModel.swift`** — State machine. `requestBargeIn()` calls `tts.cancel()` → state clears to `.listening`.
+- **Build-time config:** `LumoVoiceTTSTailGuardMs` Info.plist key (default 300, clamp [0, 2000]).
 
 ## Speech-to-text (STT)
 
-We use the browser's built-in `SpeechRecognition` (a.k.a. `webkitSpeechRecognition` on Chromium/Safari). The reasoning:
+Both web and iOS use **Deepgram Nova-3 streaming** via WebSocket. Reasons for the migration off browser SpeechRecognition (web) and SFSpeechRecognizer (iOS):
 
-- **Zero additional cloud cost** — STT is free on the device.
-- **Low latency** — partial transcripts arrive in real time; the final transcript is ready the instant the user stops speaking.
-- **Privacy** — audio does not leave the browser unless the browser vendor's default cloud STT does so (Chrome does route to Google for recognition; Safari uses on-device; Edge uses MSFT). The user is in control via their browser's mic permission.
+- **Cross-platform parity** — same engine, same accuracy, same language coverage. No more "works on Chrome, fails on Firefox."
+- **Better accuracy on accented English and noisy environments** vs the browser API's vendor-specific model.
+- **Built-in speaker diarization** available (not yet activated; see `SPEAKER-DIARIZATION-PYTHON-1` follow-up).
+- **Tone analysis hook** for future emotion detection (see `TONE-ANALYSIS-PYTHON-1`).
 
-Firefox doesn't support the API. On Firefox, `VoiceMode` detects the absence and renders "Voice not supported — use text" without crashing.
+### WSS parameters
+
+```
+sample_rate=16000
+encoding=linear16
+smart_format=true
+interim_results=true
+endpointing=300
+```
+
+### Token plumbing (iOS)
+
+Web speaks to Deepgram from server (`/api/tts` proxies). iOS can't (App Store would reject embedding a long-lived API key in the bundle). The token endpoint at `/api/audio/deepgram-token` mints 60s JWTs scoped to `usage:write` only. iOS refreshes at 50s elapsed; long-lived key stays server-side.
 
 ## Streaming TTS
 
-`POST /api/tts` with `{ text, voice_id }` returns an MP3 stream (`audio/mpeg`, `transfer-encoding: chunked`). We use ElevenLabs `/v1/text-to-speech/{voice_id}/stream?output_format=mp3_44100_128`.
+### Web: REST Speak streaming MP3
 
-### Model choice
+`POST /api/tts` with `{ text, voice_id, emotion }` returns `audio/mpeg` chunked. Reasoning: browser MSE handles MP3 cleanly via `addSourceBuffer("audio/mpeg")`. WSS Speak streams PCM which would require manual decoding — not worth the complexity gain for browser playback.
 
-Currently `eleven_turbo_v2_5`. We trialled `eleven_v3` briefly — richer prosody on paper, but real-world streaming produced rushed delivery and mid-stream artifacts, so we reverted. Turbo v2.5's ~275 ms first-chunk latency is proven and its prosody is steady. `eleven_flash_v2_5` (75 ms) is the one-liner alternative if latency ever matters more than expressiveness — the flatter delivery is the tradeoff.
+### iOS: WSS Speak streaming PCM
 
-Switching models is a one-line change in `app/api/tts/route.ts`:
+iOS uses WSS `/v1/speak` because `AVAudioEngine` handles continuous PCM natively without decoding overhead. The `DeepgramTTSSession` keeps one player node alive across all sentence chunks for a multi-sentence reply, avoiding the per-chunk audio-element teardown that caused early truncation bugs on web.
 
-```ts
-const MODEL_ID = "eleven_turbo_v2_5";
-// or "eleven_flash_v2_5" / "eleven_v3"
-```
+### Default voice
 
-### Voice settings
+`aura-2-thalia-en` (warm female). Second option `aura-2-orpheus-en` (calm male). Voice catalog mirrored verbatim across web + iOS.
 
-We pass a settings payload tuned for "friend-like" warmth on Turbo v2.5:
+### Speed
 
-```json
-{
-  "stability": 0.42,
-  "similarity_boost": 0.8,
-  "style": 0.55,
-  "use_speaker_boost": true
-}
-```
+`LUMO_DEEPGRAM_TTS_SPEED` env var (default `0.9`, range `0.7–1.5` per Deepgram docs). 0.9 is the comfortable listening pace; 1.0 is Deepgram default; 0.85 was tested but felt slightly underpaced for chat replies.
 
-- **Stability 0.42** — dropped from ElevenLabs' 0.5 default. The lower value lets cadence breathe so lines don't sound like a narrator reading a script; any lower and the model starts slurring plosives. 0.42–0.45 is the sweet spot on Turbo v2.5 where prosody opens up without losing pace.
-- **Similarity 0.8** — bumped from the 0.75 default to hold voice identity (Rachel) even as stability drops. Without this pairing, the voice drifts character across long responses.
-- **Style 0.55** — real emotional inference. The model leans into punctuation cues — em-dashes, ellipses, question marks. Above 0.7 it starts over-acting; 0.55 is the "warm but honest" point we want for the concierge persona.
-- **Speaker boost on** — keeps clarity on phone + laptop speakers where mids get muddy.
+### Multi-chunk pipeline (the bug we hunted)
 
-The tuning history, roughly:
-- v3 trial used aggressive settings (stability 0.35, style 0.45) because v3's expressive range absorbed the extra play. Reverted.
-- Post-revert conservative pass used defaults (stability 0.5, style 0.3) — safe but read as polite-concierge; users wanted conversational.
-- Current settings land in the middle — enough variation to feel human, enough stability for Turbo v2.5 to not crack.
+The TTSChunker splits a streaming chat response on sentence boundaries and emits each chunk to `/api/tts` as a separate request. Early implementations called `endOfStream()` on the SourceBuffer after chunk 1 finished playing, sealing the buffer before chunk N+1 could append. Fix: defer `endOfStream()` until the last-chunk flag is set AND the queue is empty. Same principle on iOS (don't tear down the player node between chunks).
 
-If we ever re-trial v3, expect another round of tuning; these values don't translate across models.
+Regression tests in `apps/web/tests/deepgram-web-audio-hotfix.test.mjs` lock this behavior — five sequential mock blobs must all `appendBuffer` before `endOfStream()` is called.
 
-### Streaming mechanics
+## STT-gating (the second bug we hunted)
 
-Upstream emits MP3 frames as they render. We pipe `upstream.body` straight to the client without buffering:
+Pre-fix behavior: while the agent was speaking, STT was still listening passively. The agent's own TTS audio (or ambient noise) tripped a "user is speaking" event, the state machine cancelled remaining TTS to listen, and sentence N+1 was never sent to TTS. User experience: replies cut off mid-thought.
 
-```ts
-return new Response(upstream.body, {
-  status: 200,
-  headers: {
-    "content-type": "audio/mpeg",
-    "cache-control": "no-store",
-    "transfer-encoding": "chunked",
-  },
-});
-```
+Fix: state machine gates STT input feed during `AGENT_SPEAKING` + `POST_SPEAKING_GUARD`. Mic input audio frames are NOT fed to Deepgram STT WSS during these phases. Resume after a 300ms tail guard (configurable via `LUMO_VOICE_TTS_TAIL_GUARD_MS`). User can still explicit-barge-in via the Stop button.
 
-The client-side `playAudioStream` then feeds bytes into a `MediaSource` `SourceBuffer` with mime `audio/mpeg`. First audio plays after ~one MP3 frame is buffered — typically under 300 ms end-to-end for Turbo; variable but median ~200 ms for v3 in our testing.
+iOS mirrors the same pattern: `SpeechModeGating.isMicPaused(phase:)` returns true during gated phases; the underlying `SpeechRecognitionService` never starts during these phases.
 
-## MSE with blob fallback
+## Server-side retry
 
-MediaSource Extensions for MP3 work on Chrome, Edge, Firefox, and desktop Safari. Some mobile Safari builds lie about `isTypeSupported("audio/mpeg")` — they return true but throw on `addSourceBuffer`. When that happens, we catch the throw, tear down MSE, and fall back to buffering the full response as a Blob then playing via `URL.createObjectURL`. Same user-visible behavior, no streaming benefit.
-
-## Barge-in
-
-While Lumo is speaking, a second `getUserMedia` stream runs. The analyser samples RMS at 50 Hz. If RMS stays above the threshold (`0.05` default) for more than 96 ms, we consider it real speech and:
-
-1. `stop()` the in-flight `StreamingAudioHandle` (kills both MSE and blob paths).
-2. Emit `onStateChange("listening")`.
-3. Hand off to the main `SpeechRecognition` which grabs the user's transcript.
-
-There's a 1.5s cool-off after Lumo finishes speaking before barge-in re-arms, so echo of Lumo's own speech (through open-ear AirPods, for instance) doesn't self-trigger.
-
-## The premium-TTS cooldown (post-incident)
-
-A subtle bug shipped in an earlier build: if `/api/tts` ever returned non-2xx during a session, `premiumStatusRef.current = "unavailable"` was set permanently — the rest of the session used browser TTS even after upstream recovered.
-
-Today's implementation treats "unavailable" as a **timed cooldown** (`PREMIUM_TTS_COOLDOWN_MS = 60_000`). When the cooldown expires, the next chunk re-probes `/api/tts`. If upstream healed, we're back on premium. No reload required.
-
-This matters for a real-world failure shape: ElevenLabs returning 402 Payment Required while a subscription renewed. With the old behavior, every active Lumo tab stayed on browser TTS until refresh. With the cooldown, premium resumes within a minute of billing clearing.
-
-## Wake word (optional)
-
-`lib/wake-word.ts` wraps Picovoice Porcupine. It's imported via a computed string (`require([\"\"picovoice-web\"].join()")`) so TypeScript doesn't resolve the package statically — the module is only loaded at runtime when `LUMO_PICOVOICE_KEY` is present.
-
-When enabled, wake-word detection runs continuously in the browser (never sends audio to any server) and flips voice mode on when it hears "Hey Lumo". The detection is tunable via `WAKE_WORD_SENSITIVITY` — too-low values miss wakes, too-high values false-fire on similar phrases.
-
-Without `LUMO_PICOVOICE_KEY`, the handle returned from `startWakeWord()` has `active=false` and the UI hides the wake-word toggle. Deployments without wake-word support work identically minus that one button.
-
-## Voice selection
-
-`lib/voice-catalog.ts` exports a fixed catalog of voice options. Each entry has:
-
-```ts
-{
-  id: "21m00Tcm4TlvDq8ikWAM",    // ElevenLabs voice id
-  name: "Rachel",
-  character: "warm-female",
-  description: "Calm and professional. Late-20s American female...",
-}
-```
-
-The `/memory` VoicePicker component reads the catalog, lets the user Preview each voice, and stores the selected ID in `localStorage["lumo.selectedVoiceId"]`. `VoiceMode` reads that selection before every TTS call.
+Deepgram occasionally returns transient 5xx (cold-start tail latency, network blip). The route handler retries 3 times with fresh `AbortController` per attempt + 200ms backoff before bubbling a structured `503 tts_upstream_unavailable` to the client. Client-side: 503 surfaces a transient toast "Voice unavailable — chat continues" rather than failing the turn.
 
 ## Telemetry
 
-- Each `/api/tts` call logs duration + content-length + upstream status in Vercel logs (no text content logged).
-- Voice mode doesn't write to `ops_cron_runs` or any DB table — it's stateless server-side apart from the ElevenLabs call.
+Every `/api/tts` call logs structured Vercel function logs:
+
+```json
+{
+  "event": "tts_deepgram_attempt",
+  "attempt_number": 1 | 2 | 3,
+  "status": <deepgram_response_status>,
+  "deepgram_request_id": "<dg-request-id header>",
+  "deepgram_response_body_preview": "<first 300 chars on non-2xx>",
+  "elapsed_ms": <ms>,
+  "text_length": <n>,
+  "voice_id": "aura-2-thalia-en",
+  "emotion": "warm"
+}
+```
+
+Plus shadow telemetry to migration-058's `voice_provider_compare` table (provider, direction, latency_first_token_ms, total_audio_ms, audio_bytes, error). Used for cutover decisions when ElevenLabs cleanup lane fires.
+
+Headers on `/api/tts` responses:
+- `x-lumo-tts-provider: deepgram`
+- `x-lumo-tts-emotion: warm`
+- `x-vercel-id: <region>::<region>::<id>` (for log lookup)
+
+## Wake word (in design)
+
+`docs/designs/voice-mode-wake-word.md` (lane `VOICE-MODE-WAKE-WORD-1`) covers the architecture. Recommendation: Picovoice Porcupine for v1/demo (paid SDK, fast on-device detection), OpenWakeWord as open fallback. Deepgram STT only activates AFTER wake-word fires — never as the idle wake gate. Implementation lane fires after the immediate STT-gating + chunked-player + speed fixes are stable in production.
 
 ## Failure modes
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Silent voice, no MP3 in network tab | `ELEVENLABS_API_KEY` not set, or key invalid | Set the env var; redeploy. |
-| Silent voice, /api/tts returns 402 | ElevenLabs subscription lapsed or out of credits | Top up / renew subscription. Cooldown will re-probe within 60s. |
-| Voice keeps restarting and cutting itself off | Barge-in over-triggering, usually because laptop speakers make Lumo hear itself | Keep `NEXT_PUBLIC_LUMO_BARGE_IN_ENABLED` unset/false. Only enable it for headphone testing until echo handling is stronger. |
-| No mic icon in composer | Firefox (no SpeechRecognition) or OS mic permission denied | Switch browser; grant mic permission. |
-| Voice works but is the "cheap robot" | TTS cooldown currently in effect after a transient upstream error | Wait 60s or reload the tab. |
+| Silent voice, `/api/tts` returns 5xx repeatedly | Deepgram outage or invalid `LUMO_DEEPGRAM_API_KEY` | Check Vercel env vars; confirm key is valid via Deepgram console |
+| Voice cuts off mid-sentence on multi-sentence replies | STT-gating regression (state machine doesn't gate during AGENT_SPEAKING) | Should be fixed; if recurs, check `voice-mode-stt-gating.ts` test suite |
+| Last sentence of reply is silent | Chunker's `[DONE]` signal arrives before chunker emits trailing sentence | Should be fixed; if recurs, check chunker drain-on-done logic |
+| Speech feels too fast | `LUMO_DEEPGRAM_TTS_SPEED` not set or set above 0.9 | Set to `0.9` on Vercel; redeploy not strictly required (read at request time) |
+| iOS bundle rejected by App Store with "embedded API key" warning | `LUMO_DEEPGRAM_API_KEY` accidentally added to xcconfig | Use `/api/audio/deepgram-token` endpoint; key MUST stay server-side |
+| Barge-in button disappears during agent speech | Trailing button conditional render doesn't cover `AGENT_SPEAKING` phase | Should be fixed; if recurs, check `ChatComposerTrailingButton.Mode.from(input:isListening:phase:)` |
 
 ## Related
 
-- [users/voice-mode.md](../users/voice-mode.md) — user-facing guide.
-- [orchestration.md](orchestration.md) — voice input/output uses the same orchestrator as typed messages.
-- [operators/env-vars.md](../operators/env-vars.md) — `ELEVENLABS_API_KEY`, `LUMO_PICOVOICE_KEY`.
+- [users/voice-mode.md](../users/voice-mode.md) — user-facing guide (needs update for Aura-2 voice names).
+- [orchestration.md](orchestration.md) — voice input/output goes through the same orchestrator as typed messages.
+- [operators/env-vars.md](../operators/env-vars.md) — `LUMO_DEEPGRAM_API_KEY`, `LUMO_TTS_PROVIDER`, `LUMO_DEEPGRAM_TTS_SPEED`, `LUMO_VOICE_TTS_TAIL_GUARD_MS`.
+- [docs/designs/voice-mode-wake-word.md](../designs/voice-mode-wake-word.md) — wake-word implementation design.
+- [docs/contracts/deepgram-token.md](../contracts/deepgram-token.md) — iOS token mint contract.
+- [docs/contracts/ios-deepgram-integration.md](../contracts/ios-deepgram-integration.md) — full iOS Deepgram integration spec.
+- [docs/doctrines/mic-vs-send-button.md](../doctrines/mic-vs-send-button.md) — composer button mode-pick rule.
+- [docs/doctrines/selection-card-confirmation.md](../doctrines/selection-card-confirmation.md) — 280ms confirmation pattern.

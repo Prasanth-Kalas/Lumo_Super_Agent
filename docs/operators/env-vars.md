@@ -147,13 +147,46 @@ Setup: [oauth-apps/microsoft.md](oauth-apps/microsoft.md).
 
 Setup: [oauth-apps/spotify.md](oauth-apps/spotify.md). Note the Premium requirement.
 
-## Optional — voice
+## Voice (Deepgram, May 2026)
 
-### `ELEVENLABS_API_KEY`
+> Lumo migrated TTS + STT from ElevenLabs/SFSpeech to Deepgram in May 2026 (lane `DEEPGRAM-MIGRATION-1`). The vars below are required for voice mode to work. ElevenLabs vars at the bottom of this section remain as a 7-day fallback gated by `LUMO_TTS_PROVIDER=elevenlabs`; cleanup lane `DEEPGRAM-CLEANUP-1` removes them after the rollback window.
+
+### `LUMO_DEEPGRAM_API_KEY`
+
+**Type:** Sensitive (server-only)
+**Required:** Yes for voice mode
+**Purpose:** Long-lived Deepgram project API key. Used by `app/api/tts/route.ts` (web TTS proxy) and `app/api/audio/deepgram-token/route.ts` (mints short-lived JWTs for iOS via Deepgram's `POST /v1/auth/grant`). MUST stay server-side; never expose to client bundles.
+**Source:** [console.deepgram.com](https://console.deepgram.com) → Projects → API Keys → Create with `usage:write` and `tokens:write` scopes.
+**Rotation:** Any time; existing short-lived JWTs minted from the old key remain valid for their 60s lifetime.
+
+### `LUMO_TTS_PROVIDER`
+
+**Type:** Not sensitive
+**Required:** Yes (recommended `deepgram`)
+**Purpose:** Provider router for `/api/tts`. `deepgram` (default) routes to Aura-2; `elevenlabs` falls back to ElevenLabs (kept for 7-day rollback window).
+**Default:** `deepgram`
+**Rotation:** Flip-flop safe; reads at request time, not build time.
+
+### `LUMO_DEEPGRAM_TTS_SPEED`
+
+**Type:** Not sensitive
+**Required:** No
+**Purpose:** Aura-2 speech speed parameter, appended as `?speed=N` on the Deepgram REST Speak call. Range `0.7–1.5` per Deepgram docs (the route validates).
+**Default:** `0.9` (comfortable conversational pace; 1.0 is Deepgram default but felt rushed for chat replies)
+
+### `LUMO_VOICE_TTS_TAIL_GUARD_MS`
+
+**Type:** Not sensitive
+**Required:** No
+**Purpose:** Milliseconds the voice-mode state machine stays in `POST_SPEAKING_GUARD` after TTS playback ends, before resuming STT input feed. Prevents the agent's own TTS reverb from being misinterpreted as user speech.
+**Default:** `300`
+**Range:** Clamped to `[0, 2000]`
+
+### `ELEVENLABS_API_KEY` (legacy, fallback only)
 
 **Type:** Sensitive
-**Required:** No (omit and voice tries OpenAI TTS, then browser TTS)
-**Purpose:** Streaming TTS via ElevenLabs. Read by `app/api/tts/route.ts`.
+**Required:** No (only when `LUMO_TTS_PROVIDER=elevenlabs`)
+**Purpose:** Pre-Deepgram TTS path. Kept for 7-day rollback window post `DEEPGRAM-MIGRATION-1`. Will be removed by `DEEPGRAM-CLEANUP-1`.
 **Source:** [elevenlabs.io](https://elevenlabs.io) → Profile → API keys.
 **Rotation:** Any time; old keys invalidate on next use.
 
@@ -179,12 +212,59 @@ Setup: [oauth-apps/spotify.md](oauth-apps/spotify.md). Note the Premium requirem
 **Default:** `cedar`
 **Purpose:** OpenAI voice used by the fallback path when the user-selected ElevenLabs voice ID is not an OpenAI voice.
 
-### `LUMO_PICOVOICE_KEY` *(if wake word enabled)*
+### `LUMO_PICOVOICE_KEY` *(wake-word, in design)*
 
 **Type:** Sensitive
-**Required:** No
-**Purpose:** Porcupine wake-word SDK key for "Hey Lumo" detection. Read by `lib/wake-word.ts`.
+**Required:** No (wake-word implementation lane `VOICE-MODE-WAKE-WORD-1` is in design phase as of May 2026; design doc at `docs/designs/voice-mode-wake-word.md`)
+**Purpose:** Porcupine wake-word SDK key for "Hey Lumo" detection.
 **Source:** [console.picovoice.ai](https://console.picovoice.ai) → Access keys.
+
+## Python ML service (Modal)
+
+These variables live on the Modal Secret `lumo-ml-service`, not Vercel. Set via `modal secret create` or the Modal dashboard.
+
+### `LUMO_HONEYCOMB_API_KEY`
+
+**Type:** Sensitive
+**Required:** Yes for the ML service (drives the OpenTelemetry observability platform)
+**Purpose:** Honeycomb OTLP HTTP exporter API key. Every `@traced` function in `apps/ml-service/lumo_ml/` writes spans to Honeycomb keyed on this key. Free tier: 20M events/month.
+**Source:** [ui.honeycomb.io](https://ui.honeycomb.io) → Account → API keys.
+
+### `LUMO_OTEL_ENDPOINT`
+
+**Type:** Not sensitive
+**Required:** No
+**Default:** Honeycomb US (`https://api.honeycomb.io`)
+**Purpose:** OTLP HTTP exporter endpoint. Swap to a self-hosted collector or alternate vendor (Grafana Tempo, Datadog) without code changes — OTLP is vendor-neutral.
+
+### `HF_TOKEN`
+
+**Type:** Sensitive
+**Required:** Yes when downloading gated HuggingFace models on Modal cold-start (BGE, Whisper, etc.)
+**Purpose:** HuggingFace authentication for model artifact downloads.
+**Source:** [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens).
+
+### `LUMO_DEEPGRAM_API_KEY` (mirrored on Modal)
+
+Same value as the Vercel-side var. Modal-side use: any future server-side STT batch processing (e.g. transcript ingestion). Currently only used if `WAKE-WORD-MODEL-PYTHON-1` or `SPEAKER-DIARIZATION-PYTHON-1` lanes activate it.
+
+## iOS build (local Mac, not Vercel)
+
+These are read by `apps/ios/scripts/build-and-deploy-iphone.sh` and `apps/ios/scripts/ios-write-xcconfig.sh`. They live in `~/.config/lumo/.env` on the developer's Mac, NOT in Vercel or Modal.
+
+### `LUMO_APPLE_TEAM_ID`
+
+**Type:** Sensitive (treat like an org identifier)
+**Required:** Yes for device builds
+**Purpose:** Apple Developer Team ID (10-character alphanumeric). Used by the build script's `xcodebuild -allowProvisioningUpdates DEVELOPMENT_TEAM=...` flag so Xcode auto-registers test devices under your team.
+**Source:** [developer.apple.com/account](https://developer.apple.com/account) → Membership Details → Team ID.
+
+### `LUMO_IPHONE_UDID`
+
+**Type:** Not sensitive
+**Required:** No (default in script is the team's primary test iPhone)
+**Purpose:** Target physical device UDID for `xcrun devicectl device install`.
+**Format:** `00008120-XXXXXXXXXXXXXX01E` (Apple's UDID format).
 
 ### `NEXT_PUBLIC_LUMO_BARGE_IN_ENABLED`
 

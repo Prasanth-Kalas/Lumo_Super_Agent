@@ -264,6 +264,128 @@ The `/ops` dashboard reads from this table to render the cron-health cards and h
 
 ---
 
+## Voice + telemetry (May 2026)
+
+### `voice_provider_compare` (migration 056)
+
+Shadow telemetry for the Deepgram migration. Logs every TTS/STT call with provider, latency, audio bytes, and error so the cleanup lane (`DEEPGRAM-CLEANUP-1`) can verify Deepgram is consistently better than ElevenLabs before code-removal.
+
+```
+id                       bigserial PK
+created_at               timestamptz not null default now()
+session_id               uuid
+user_id                  uuid references auth.users on delete set null
+provider                 text not null check (provider in ('deepgram','elevenlabs'))
+direction                text not null check (direction in ('stt','tts'))
+latency_first_token_ms   int
+total_audio_ms           int
+audio_bytes              bigint
+error                    text
+```
+
+### `agent_plan_compare` (migrations 054, 057, 058)
+
+Parallel-write telemetry for the TS→Python migration of `/api/tools/plan` outputs. One row per chat turn carries both implementations' outputs side-by-side; cutover decisions per surface gate on aggregated metrics.
+
+```
+id                              bigserial PK
+created_at                      timestamptz not null default now()
+request_id                      uuid not null
+user_id                         uuid references auth.users on delete set null
+intent_bucket_python            text
+intent_bucket_ts                text
+intent_bucket_agreement         boolean
+
+-- migration 057
+suggestions_python              text[] not null default '{}'
+suggestions_ts                  text[] not null default '{}'
+suggestions_jaccard             real
+
+-- migration 058
+system_prompt_python            text
+system_prompt_ts                text
+system_prompt_levenshtein_ratio real
+```
+
+Cutover thresholds: intent ≥ 95% agreement, suggestions Jaccard ≥ 0.99 mean, system prompt Levenshtein ≥ 0.99 over 7 consecutive days.
+
+### `agent_cost_records` (migration 059)
+
+Per-call cost telemetry from the Python ML service. Every `record_cost(...)` emission lands one row.
+
+```
+id                    bigserial PK
+created_at            timestamptz not null default now()
+request_id            uuid (= W3C trace_id)
+span_id               text
+operation             text       -- e.g. 'classify' | 'embed' | 'system_prompt.build'
+tokens_in             int
+tokens_out            int
+embedding_ops         int
+gpu_seconds           real
+dollars_estimated     numeric(12,6)   -- six decimals — overflow at $999,999 with (10,4) was real
+metadata              jsonb           -- arbitrary span tags incl. status="failed" on retry path
+user_id               uuid references auth.users on delete set null
+```
+
+Per-user cost dashboards (`COST-DASHBOARD-1`) deferred until baseline data accumulates.
+
+## Approval flow (May 2026)
+
+### `connect_first_party_session_app_approval` RPC (migration 060)
+
+`APPROVAL-CONNECTION-RPC-STRICT-1` rewrote this RPC with fully-qualified column references. The prior version had ambiguous `user_id` references between the input table-returns spec and `public.session_app_approvals.user_id`. PL/pgSQL aborted the approval write while application code still emitted "Approved! Let's go." text — silent-failure for 33 hits over 7 days. See migration 053 for original definition; 060 for the qualified rewrite.
+
+## Compound mission dispatch (May 2026)
+
+### `missions` + `mission_steps` extensions (migration 061)
+
+Existing missions/mission_steps tables (from earlier sprints) gained DAG metadata for the compound-dispatch wire. Preserves legacy sequential semantics for older rows.
+
+```
+-- missions additions
+compound_dispatch_id  text       -- 'mission:<mission_id>' surfaced to chat UI
+compound_graph_hash   text       -- SHA-256 of normalized DAG; deterministic replay diagnostics
+compound_domains      text[] not null default '{}'   -- e.g. {flights, hotels, restaurants}
+
+-- mission_steps additions
+client_step_id          text                              -- planner-stable id, e.g. 'flight_search'
+dependency_mode         text not null default 'step_order'  -- 'step_order' | 'explicit'
+depends_on_step_orders  integer[] not null default '{}'   -- for explicit-DAG missions
+dispatch_tool_name      text                              -- e.g. 'duffel_search_flights'
+output_summary          text                              -- short user-safe summary for chat updates
+```
+
+### `next_mission_step_for_execution(int)` RPC (migration 061)
+
+Atomic claim semantics for the mission executor. Queries runnable steps (DAG dependencies satisfied) under `for update of s skip locked` so multiple workers can drain concurrent missions without claim races. Replaced the migration-026 version with explicit-DAG dependency support.
+
+### `assistant_compound_step_update` event type (migration 061)
+
+Additional `events.frame_type` enum value. Streams progressive disclosure to chat UI: `mission.flight_search` transitions queued → running → succeeded with `output_summary` available at completion.
+
+## Vector store (May 2026)
+
+### `lumo_vectors` (migration TBD — pending `PYTHON-VECTOR-STORE-1` implementation push)
+
+pgvector-backed embedding store for memory, retrieval, recommendations. Separate from `unified_embeddings` because of different ownership/lifecycle/deletion semantics, even though shapes are similar.
+
+```
+id             uuid PK default gen_random_uuid()
+collection     text not null         -- e.g. 'user_memory', 'trip_history'
+vector         vector(1024) not null
+model_version  text not null         -- e.g. 'bge-large-en-v1.5'
+source_id      text not null
+source_type    text not null         -- e.g. 'memory_fact', 'past_trip'
+user_id        uuid references auth.users on delete cascade
+created_at     timestamptz not null default now()
+metadata       jsonb
+```
+
+HNSW index `m=16/ef_construction=64` mirroring ADR-011 §4. User-scoped RLS via `auth.uid() = user_id`.
+
+---
+
 ## Entity-relationship shape
 
 ```

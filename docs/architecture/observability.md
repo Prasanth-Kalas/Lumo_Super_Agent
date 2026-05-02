@@ -124,8 +124,108 @@ If you're setting up alerts against the ops data, the ones that have mattered in
 - **Autonomous action failure rate > 10%** (from `autonomous_actions.outcome='failed'`) → either an agent is misbehaving or a provider is having issues. Cross-reference with agent health.
 - **Notification write rate spike (> 10× baseline)** → a standing-intent trigger is misbehaving platform-wide, or a platform rule is firing too liberally.
 
+## Python ML service observability platform (May 2026)
+
+Lane `PYTHON-OBSERVABILITY-1` shipped a parallel observability layer specifically for the Modal-hosted Python ML service (`apps/ml-service/lumo_ml/`). The Vercel/TS side still uses the boring Postgres-backed approach above; the Python side uses OpenTelemetry → Honeycomb because Modal's serverless function model + GPU work needs distributed tracing in a way the cron-counter approach can't deliver.
+
+### Architecture
+
+```
+[Vercel /api/chat or /api/tools/plan]
+   │   traceparent header
+   ▼
+[Modal Python /api/tools/plan]
+   │   FastAPIInstrumentor extracts traceparent → child spans
+   ▼
+[plan.api → plan.classifier.classify → plan.suggestions.build → plan.system_prompt.build]
+   │   each function @traced; record_cost() emits span events
+   ▼
+[OTLP HTTP exporter → Honeycomb US]
+   │
+   ▼
+[Honeycomb dashboards: trace tree, cost breakdown, error rate]
+```
+
+### The discipline rule
+
+Every public function in `lumo_ml/` (excluding tracing-infra files) must carry the `@traced` decorator. Enforced by CI lint at `apps/ml-service/scripts/lint-traced-coverage.py`. Bare `# noqa: TRC001` is rejected; opt-out requires an inline reason. See `apps/ml-service/CONTRIBUTING.md §1`.
+
+### Three primitives
+
+```python
+from lumo_ml.core.observability import traced, record_cost
+from lumo_ml.core.pii_redaction import Secret
+
+class PlanRequest(BaseModel):
+    user_message: Annotated[str, Secret]   # redacted in logs/traces
+    user_id: str                           # opt-out, queryable
+
+@traced("plan.classifier.classify")
+async def classify(request: PlanRequest) -> IntentBucket:
+    ...
+    record_cost(
+        operation="classify",
+        tokens_in=len(text),
+        embedding_ops=1,
+        dollars_estimated=0.000117 * len(text) / 1000,
+    )
+    return bucket
+```
+
+- **`@traced(name)`** — sync + async support; child of active context; exceptions recorded; SDK errors swallowed (tracing must never break business logic).
+- **`record_cost(...)`** — span-attached event for LLM tokens, embedding ops, GPU seconds, dollars. Codex's plan-client logger reads these events and writes rows to migration 059's `agent_cost_records` table.
+- **`Secret` marker** — Pydantic `Annotated[T, Secret]` + `model_dump_for_logs(model)`. Plus a stdlib logger filter (Layer B) running between log capture and OTLP export — unfakeable from any code path.
+
+### PII redaction
+
+Two layers, both ship together:
+
+- **Layer A (explicit):** Pydantic field-level `Annotated[T, Secret]`. Fast, opt-in at schema-definition time. `ChatTurn.content`, `UserProfile.display_name`, `UserFact.fact`, `PlanRequest.user_first_name` are Secret-by-default per `Q11.4`. Opt-out (regular `str`) for opaque IDs (`user_id`, `session_id`), bucketed enums (`mode`, `intent_bucket`), and queryable lists (dietary flags).
+- **Layer B (defensive):** Stdlib `logging.Filter` running on every log record. Six PII regex classes — email, phone-with-separators, Luhn-validated CC, Amex, API tokens, JWTs — replace matches with `"***REDACTED***"` before OTLP export.
+
+**Known gap (filed):** OTel's `record_exception` captures raw exception messages verbatim. Layer B doesn't currently scrub those. Test `test_secret_marked_value_does_not_leak_into_span_via_exception` asserts the gap; closes with lane `OBSERVABILITY-SPAN-EXCEPTION-SCRUB-1`.
+
+### Cost telemetry
+
+Migration 059 added `agent_cost_records`:
+
+```
+id              bigserial PK
+created_at      timestamptz not null default now()
+request_id      uuid (= trace_id)
+span_id         text
+operation       text       'classify' | 'suggestions.build' | 'system_prompt.build' | 'embed' | ...
+tokens_in       int
+tokens_out      int
+embedding_ops   int
+gpu_seconds     real
+dollars_estimated  numeric(12,6)
+metadata        jsonb      arbitrary span tags
+user_id         uuid references auth.users on delete set null
+```
+
+Every `record_cost()` call lands one row here via codex's plan-client logger. Per-user cost dashboards (`COST-DASHBOARD-1`) are deferred until baseline data accumulates.
+
+### Trace propagation across surfaces
+
+W3C `traceparent` headers stitch a single trace across Vercel + Modal. `FastAPIInstrumentor` on the Modal side auto-extracts inbound `traceparent`; codex's plan-client (`apps/web/lib/lumo-ml/plan-client.ts`) injects on outbound calls (when `TS-OTEL-PROPAGATION-1` follow-up lands). Same `trace_id` joins every span across the stack — one Honeycomb query reveals end-to-end latency per chat turn.
+
+### Sampling
+
+100% sampling for the first 30 days post-launch (`PYTHON-OBSERVABILITY-1` Q11.5) to maximize visibility while we learn the system's normal behavior. Switches to errors + tail-latency + 10% baseline via `OBSERVABILITY-SAMPLING-CUTOVER-1` after the watch window. Honeycomb free-tier ceiling at 20M events/month is monitored weekly via `OBSERVABILITY-VOLUME-WATCH-1`.
+
+### Files of interest
+
+- `apps/ml-service/lumo_ml/core/observability.py` — `@traced`, `record_cost`, OTLP setup
+- `apps/ml-service/lumo_ml/core/pii_redaction.py` — Layer B logger filter, Secret marker
+- `apps/ml-service/lumo_ml/core/otel_setup.py` — TracerProvider + exporter wiring
+- `apps/ml-service/scripts/lint-traced-coverage.py` — CI discipline enforcement
+- `apps/ml-service/CONTRIBUTING.md` — written rule + opt-out semantics
+- `db/migrations/059_agent_cost_records.sql` — cost storage schema
+
 ## Related
 
 - [data-model.md](data-model.md#ops_cron_runs-migration-008) — table schema.
 - [proactive-engine.md](proactive-engine.md) — the crons being observed.
 - [operators/incident-runbook.md](../operators/incident-runbook.md) — what to do when these signals go bad.
+- [docs/designs/observability-platform.md](../designs/observability-platform.md) — full design doc for the Python platform.
