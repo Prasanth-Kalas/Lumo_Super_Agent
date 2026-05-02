@@ -2,6 +2,7 @@
 
 | Lane | Worktree | Branch | Started | Sprint |
 |---|---|---|---|---|
+| Claude Code | Lumo_Super_Agent_claude_code | claude-code/ios-doctrine-docs-1 | 2026-05-02 | IOS-DOCTRINE-DOCS-1 (Lane 7 of 7, final lane in queue) write the 2 remaining filed-deferred design doctrines as docs/doctrines/ entries — selection-card-confirmation (280ms window + 40% sibling dim + state-cascade pattern) and debug-fixture-launch-args (in-app applyDebugLaunchArgs vs full-screen FixtureRoot distinction + -LumoSeedX naming convention + fixture inventory); mic-vs-send-button.md already shipped in Lane 3 |
 
 ## Closed lanes
 
