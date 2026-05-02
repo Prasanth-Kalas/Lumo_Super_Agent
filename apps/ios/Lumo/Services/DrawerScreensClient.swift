@@ -380,6 +380,25 @@ struct ConnectionsResponseDTO: Codable, Equatable {
     let connections: [ConnectionMetaDTO]
 }
 
+/// MOBILE-CHAT-LOAD-SESSION-1 — replayed messages from a specific
+/// session, returned by `GET /api/history/sessions/{id}/messages`.
+/// Mirrors web's ReplayedChatMessage shape (apps/web/lib/history-replay.ts).
+/// iOS-v1 only consumes id / role / content / created_at; the rich
+/// frames (summary / selections / suggestions / compoundDispatch /
+/// mission) are passed through as-is for forward compat but the UI
+/// re-renders them lazily as plain text for now.
+struct ReplayedMessageDTO: Codable, Equatable {
+    let id: String
+    let role: String
+    let content: String
+    let created_at: String
+}
+
+struct SessionMessagesResponseDTO: Codable, Equatable {
+    let session_id: String
+    let messages: [ReplayedMessageDTO]
+}
+
 struct HistoryResponseDTO: Codable, Equatable {
     let sessions: [HistorySessionDTO]
     let trips: [HistoryTripDTO]
@@ -453,6 +472,10 @@ protocol DrawerScreensFetching: AnyObject {
     /// IOS-MCP-CONNECT-1 — paste-bearer connect for MCP servers.
     /// Mirrors web's POST /api/mcp/connections {server_id, access_token}.
     func connectMcpServer(serverID: String, accessToken: String) async throws
+    /// MOBILE-CHAT-LOAD-SESSION-1 — replay the messages for an
+    /// existing chat session so the user can pick the conversation
+    /// up where they left off.
+    func fetchSessionMessages(sessionID: String) async throws -> SessionMessagesResponseDTO
 }
 
 /// PATCH body for `/api/memory/profile`. Only fields the iOS-v1 edit
@@ -526,6 +549,16 @@ final class DrawerScreensClient: DrawerScreensFetching {
 
     func fetchHistory(limitSessions: Int = 30) async throws -> HistoryResponseDTO {
         try await get(path: "api/history?limit_sessions=\(limitSessions)", as: HistoryResponseDTO.self)
+    }
+
+    func fetchSessionMessages(sessionID: String) async throws -> SessionMessagesResponseDTO {
+        guard !sessionID.isEmpty else {
+            throw DrawerScreensError.transport("missing session id")
+        }
+        return try await get(
+            path: "api/history/sessions/\(sessionID)/messages",
+            as: SessionMessagesResponseDTO.self
+        )
     }
 
     func connectMcpServer(serverID: String, accessToken: String) async throws {
@@ -828,6 +861,8 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     var disconnectResult: Result<Void, Error> = .success(())
     var markOnboardedResult: Result<Void, Error> = .success(())
     var connectMcpResult: Result<Void, Error> = .success(())
+    var sessionMessagesResult: Result<SessionMessagesResponseDTO, Error> =
+        .success(SessionMessagesResponseDTO(session_id: "", messages: []))
 
     private(set) var memoryFetchCount = 0
     private(set) var marketplaceFetchCount = 0
@@ -840,6 +875,7 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
     private(set) var disconnectCalls: [String] = []
     private(set) var markOnboardedCalls: [String] = []
     private(set) var connectMcpCalls: [(serverID: String, accessToken: String)] = []
+    private(set) var sessionMessagesCalls: [String] = []
 
     func fetchMemory() async throws -> MemoryResponseDTO {
         memoryFetchCount += 1
@@ -925,6 +961,14 @@ final class FakeDrawerScreensFetcher: DrawerScreensFetching {
         connectMcpCalls.append((serverID, accessToken))
         switch connectMcpResult {
         case .success: return
+        case .failure(let e): throw e
+        }
+    }
+
+    func fetchSessionMessages(sessionID: String) async throws -> SessionMessagesResponseDTO {
+        sessionMessagesCalls.append(sessionID)
+        switch sessionMessagesResult {
+        case .success(let r): return r
         case .failure(let e): throw e
         }
     }

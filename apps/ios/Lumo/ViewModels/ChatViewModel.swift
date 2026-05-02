@@ -108,7 +108,10 @@ final class ChatViewModel: ObservableObject {
     private var compoundStreamTasks: [String: Task<Void, Never>] = [:]
 
     private let service: ChatService
-    private let sessionID: String
+    /// Mutable so MOBILE-CHAT-LOAD-SESSION-1's `loadSession(id:)`
+    /// can swap to an older conversation. Otherwise functions like
+    /// a `let` since `send()` and friends never reassign it.
+    private var sessionID: String
     private let tts: TextToSpeechServicing?
     private var streamingTask: Task<Void, Never>?
     private var lastUserPrompt: String?
@@ -121,13 +124,20 @@ final class ChatViewModel: ObservableObject {
         service: ChatService,
         sessionID: String = UUID().uuidString,
         tts: TextToSpeechServicing? = nil,
-        compoundStreamService: CompoundStreamService? = nil
+        compoundStreamService: CompoundStreamService? = nil,
+        historyFetcher: DrawerScreensFetching? = nil
     ) {
         self.service = service
         self.sessionID = sessionID
         self.tts = tts
         self.compoundStreamService = compoundStreamService
+        self.historyFetcher = historyFetcher
     }
+
+    /// Optional injection used by MOBILE-CHAT-LOAD-SESSION-1 to
+    /// replay an older session's messages. When nil, `loadSession`
+    /// is a no-op.
+    private let historyFetcher: DrawerScreensFetching?
 
     func send(mode: VoiceMode = .text) {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -203,6 +213,65 @@ final class ChatViewModel: ObservableObject {
         compoundLegStatusOverrides = [:]
         compoundLegMetadata = [:]
         compoundLegDetailExpandedFor = []
+    }
+
+    /// MOBILE-CHAT-LOAD-SESSION-1 — replace the current thread with
+    /// the messages from `id`. Cancels any in-flight stream, fetches
+    /// the replay via the injected history fetcher, and rehydrates
+    /// the message list. Subsequent `send()` calls then post against
+    /// the loaded session (the orchestrator continues the same
+    /// conversation server-side).
+    ///
+    /// On network failure the prior thread is left intact and an
+    /// error is surfaced — better than silently wiping context.
+    func loadSession(id: String) async {
+        guard let fetcher = historyFetcher else { return }
+        let trimmed = id.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        cancelStream()
+        cancelAllCompoundStreams()
+        do {
+            let resp = try await fetcher.fetchSessionMessages(sessionID: trimmed)
+            sessionID = trimmed
+            messages = resp.messages.map { Self.makeChatMessage(from: $0) }
+            input = ""
+            error = nil
+            isStreaming = false
+            lastFirstTokenLatency = nil
+            suggestionsByTurn = [:]
+            selectionsByMessage = [:]
+            summariesByMessage = [:]
+            compoundDispatchByMessage = [:]
+            compoundLegStatusOverrides = [:]
+            compoundLegMetadata = [:]
+            compoundLegDetailExpandedFor = []
+        } catch {
+            self.error = "Couldn't open that conversation."
+        }
+    }
+
+    /// Test seam — appends a message without the streaming machinery.
+    /// Used by MOBILE-CHAT-LOAD-SESSION-1 tests to seed prior state
+    /// before exercising loadSession's preserve-on-failure path.
+    func appendUserMessageForTesting(text: String) {
+        messages.append(ChatMessage(role: .user, text: text, status: .sent))
+    }
+
+    /// Maps a server-side replayed message into the iOS ChatMessage
+    /// shape. Roles outside `{user, assistant}` fall back to
+    /// `.assistant` (matches the orchestrator's strict-role contract;
+    /// any drift is treated as system noise rather than crashing).
+    static func makeChatMessage(from replayed: ReplayedMessageDTO) -> ChatMessage {
+        let role: Message.Role = (replayed.role == "user") ? .user : .assistant
+        let createdAt = HistoryTimeFormatter.parseISO(replayed.created_at) ?? Date()
+        let status: MessageStatus = (role == .user) ? .sent : .delivered
+        return ChatMessage(
+            id: UUID(),
+            role: role,
+            text: replayed.content,
+            createdAt: createdAt,
+            status: status
+        )
     }
 
     private func cancelAllCompoundStreams() {

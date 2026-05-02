@@ -817,6 +817,104 @@ final class DrawerScreenViewModelsTests: XCTestCase {
         XCTAssertNil(vm.mcpConnectSuccessAgentID)
     }
 
+    // MARK: - MOBILE-CHAT-LOAD-SESSION-1
+
+    func test_sessionMessagesResponse_decodes_userAndAssistantRoles() throws {
+        let json = """
+        {
+          "session_id": "abc-123",
+          "messages": [
+            {"id": "m1", "role": "user", "content": "Plan a Vegas trip", "created_at": "2026-05-01T10:00:00Z"},
+            {"id": "m2", "role": "assistant", "content": "Sure — when?", "created_at": "2026-05-01T10:00:05Z"}
+          ]
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(SessionMessagesResponseDTO.self, from: json)
+        XCTAssertEqual(decoded.session_id, "abc-123")
+        XCTAssertEqual(decoded.messages.count, 2)
+        XCTAssertEqual(decoded.messages[0].role, "user")
+        XCTAssertEqual(decoded.messages[0].content, "Plan a Vegas trip")
+    }
+
+    func test_chatVM_makeChatMessage_userRoleMapsToSent() {
+        let dto = ReplayedMessageDTO(
+            id: "m1", role: "user", content: "Hi",
+            created_at: "2026-05-01T10:00:00Z"
+        )
+        let msg = ChatViewModel.makeChatMessage(from: dto)
+        XCTAssertEqual(msg.role, .user)
+        XCTAssertEqual(msg.text, "Hi")
+        XCTAssertEqual(msg.status, .sent)
+    }
+
+    func test_chatVM_makeChatMessage_assistantRoleMapsToDelivered() {
+        let dto = ReplayedMessageDTO(
+            id: "m2", role: "assistant", content: "Hello",
+            created_at: "2026-05-01T10:00:05Z"
+        )
+        let msg = ChatViewModel.makeChatMessage(from: dto)
+        XCTAssertEqual(msg.role, .assistant)
+        XCTAssertEqual(msg.status, .delivered)
+    }
+
+    func test_chatVM_makeChatMessage_unknownRoleFallsBackToAssistant() {
+        let dto = ReplayedMessageDTO(
+            id: "m3", role: "system", content: "drift",
+            created_at: "2026-05-01T10:00:00Z"
+        )
+        let msg = ChatViewModel.makeChatMessage(from: dto)
+        XCTAssertEqual(msg.role, .assistant,
+                       "unknown roles must NOT crash; the strict-role contract treats drift as assistant noise")
+    }
+
+    func test_chatVM_loadSession_success_replacesMessages() async {
+        let svc = ChatService(baseURL: URL(string: "http://localhost:0")!)
+        let fake = FakeDrawerScreensFetcher()
+        fake.sessionMessagesResult = .success(SessionMessagesResponseDTO(
+            session_id: "s1",
+            messages: [
+                ReplayedMessageDTO(id: "m1", role: "user", content: "Hi", created_at: "2026-05-01T10:00:00Z"),
+                ReplayedMessageDTO(id: "m2", role: "assistant", content: "Hey", created_at: "2026-05-01T10:00:05Z"),
+            ]
+        ))
+        let vm = ChatViewModel(service: svc, historyFetcher: fake)
+        await vm.loadSession(id: "s1")
+        XCTAssertEqual(vm.messages.count, 2)
+        XCTAssertEqual(vm.messages[0].role, .user)
+        XCTAssertEqual(vm.messages[1].role, .assistant)
+        XCTAssertEqual(fake.sessionMessagesCalls, ["s1"])
+        XCTAssertNil(vm.error)
+    }
+
+    func test_chatVM_loadSession_failure_preservesPriorMessages() async {
+        let svc = ChatService(baseURL: URL(string: "http://localhost:0")!)
+        let fake = FakeDrawerScreensFetcher()
+        fake.sessionMessagesResult = .failure(DrawerScreensError.transport("offline"))
+        let vm = ChatViewModel(service: svc, historyFetcher: fake)
+        // Seed a prior message so we can verify it survives.
+        vm.appendUserMessageForTesting(text: "kept")
+
+        await vm.loadSession(id: "s1")
+
+        XCTAssertEqual(vm.messages.count, 1, "failed load must NOT wipe context")
+        XCTAssertNotNil(vm.error)
+    }
+
+    func test_chatVM_loadSession_emptyID_isNoOp() async {
+        let svc = ChatService(baseURL: URL(string: "http://localhost:0")!)
+        let fake = FakeDrawerScreensFetcher()
+        let vm = ChatViewModel(service: svc, historyFetcher: fake)
+        await vm.loadSession(id: "  ")
+        XCTAssertEqual(fake.sessionMessagesCalls.count, 0)
+    }
+
+    func test_chatVM_loadSession_withoutFetcher_isNoOp() async {
+        let svc = ChatService(baseURL: URL(string: "http://localhost:0")!)
+        let vm = ChatViewModel(service: svc) // no historyFetcher
+        // Should not throw, should not crash, simply does nothing.
+        await vm.loadSession(id: "s1")
+    }
+
     func test_marketplaceVM_load_emptyAgents_loadsEmptyArray() async {
         // Empty array distinct from .loading — the view's empty-state
         // branch keys off `loaded([])`, not `loaded(_) where isEmpty`.

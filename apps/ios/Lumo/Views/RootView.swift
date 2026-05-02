@@ -93,7 +93,8 @@ struct RootView: View {
             wrappedValue: ChatViewModel(
                 service: chatService,
                 tts: tts,
-                compoundStreamService: CompoundStreamService.makeFromBundle()
+                compoundStreamService: CompoundStreamService.makeFromBundle(),
+                historyFetcher: drawerScreensFetcher
             )
         )
         _voiceComposer = StateObject(
@@ -200,10 +201,8 @@ struct RootView: View {
         case .trips:
             TripsView(
                 viewModel: historyViewModel,
-                onSelectSession: { _ in
-                    // Same hand-off as the History tab — pop back to
-                    // chat once MOBILE-CHAT-LOAD-SESSION-1 wires
-                    // ChatViewModel.loadSession(id:).
+                onSelectSession: { sessionID in
+                    Task { await chatViewModel.loadSession(id: sessionID) }
                     path.removeLast(path.count)
                     drawerOpen = false
                 }
@@ -215,11 +214,8 @@ struct RootView: View {
         case .history:
             HistoryView(
                 viewModel: historyViewModel,
-                onSelectSession: { _ in
-                    // MOBILE-CHAT-LOAD-SESSION-1 follow-up wires the
-                    // ChatViewModel.loadSession(id:) round-trip;
-                    // for now tap dismisses the drawer destination
-                    // and pops back to chat.
+                onSelectSession: { sessionID in
+                    Task { await chatViewModel.loadSession(id: sessionID) }
                     path.removeLast(path.count)
                     drawerOpen = false
                 }
