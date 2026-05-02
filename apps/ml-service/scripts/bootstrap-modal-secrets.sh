@@ -10,6 +10,14 @@
 #                                modal_clip model weights.
 #   ANTHROPIC_API_KEY          — optional. Reserved for future LLM-backed
 #                                tools; current tools don't use it.
+#   LUMO_OTEL_ENDPOINT         — optional. OTLP HTTP endpoint for distributed
+#                                tracing (PYTHON-OBSERVABILITY-1). Honeycomb
+#                                default: https://api.honeycomb.io
+#   LUMO_OTEL_HEADERS          — optional. Auth header pairs, comma-separated.
+#                                Honeycomb format:
+#                                  x-honeycomb-team=<api-key>
+#                                When unset, OTel SDK no-ops and traces are
+#                                created in-process but not exported.
 #
 # To rotate the JWT secret, re-run with a new LUMO_ML_SERVICE_JWT_SECRET and
 # update the Vercel env in lockstep — otherwise the orchestrator's signed
@@ -30,6 +38,12 @@ if [[ -n "${LUMO_DEEPGRAM_API_KEY:-}" ]]; then
 fi
 if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
   ARGS+=("ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
+fi
+if [[ -n "${LUMO_OTEL_ENDPOINT:-}" ]]; then
+  ARGS+=("LUMO_OTEL_ENDPOINT=${LUMO_OTEL_ENDPOINT}")
+fi
+if [[ -n "${LUMO_OTEL_HEADERS:-}" ]]; then
+  ARGS+=("LUMO_OTEL_HEADERS=${LUMO_OTEL_HEADERS}")
 fi
 
 # `--force` so re-running replaces the existing secret (rotation friendly).
