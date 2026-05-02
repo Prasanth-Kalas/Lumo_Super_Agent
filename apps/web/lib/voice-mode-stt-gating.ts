@@ -7,6 +7,29 @@ export type VoiceModeMachinePhase =
   | "POST_SPEAKING_GUARD"
   | "LISTENING";
 
+export type VoiceModeControlState =
+  | "off"
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "speaking"
+  | "post_speaking_guard"
+  | "unsupported"
+  | "error";
+
+export type VoiceModeActionKind =
+  | "tap_to_talk"
+  | "stop_listening"
+  | "cancel_turn"
+  | "stop_speaking"
+  | "disabled";
+
+export interface VoiceModeActionDescriptor {
+  kind: VoiceModeActionKind;
+  label: string;
+  disabled: boolean;
+}
+
 export function normalizeVoiceTtsTailGuardMs(value: unknown): number {
   if (typeof value !== "string" || value.trim() === "") {
     return DEFAULT_VOICE_TTS_TAIL_GUARD_MS;
@@ -55,4 +78,25 @@ export function expectedTtsResumeSequence(
         "LISTENING",
       ]
     : ["AGENT_THINKING", "AGENT_SPEAKING", "POST_SPEAKING_GUARD"];
+}
+
+export function voiceModeActionForState(
+  state: VoiceModeControlState,
+): VoiceModeActionDescriptor {
+  switch (state) {
+    case "idle":
+    case "error":
+      return { kind: "tap_to_talk", label: "Tap to talk", disabled: false };
+    case "listening":
+      return { kind: "stop_listening", label: "Stop", disabled: false };
+    case "thinking":
+      return { kind: "cancel_turn", label: "Cancel", disabled: false };
+    case "speaking":
+    case "post_speaking_guard":
+      return { kind: "stop_speaking", label: "Stop", disabled: false };
+    case "unsupported":
+      return { kind: "disabled", label: "Unavailable", disabled: true };
+    case "off":
+      return { kind: "disabled", label: "Voice off", disabled: true };
+  }
 }

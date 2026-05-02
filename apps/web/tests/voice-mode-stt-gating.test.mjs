@@ -12,6 +12,7 @@ import {
   expectedTtsResumeSequence,
   isMicPausedForVoicePhase,
   normalizeVoiceTtsTailGuardMs,
+  voiceModeActionForState,
 } from "../lib/voice-mode-stt-gating.ts";
 
 let pass = 0;
@@ -71,6 +72,34 @@ await t("hands-free resume is blocked while the TTS mic gate is active", () => {
   );
 });
 
+await t("voice action button has a visible action for every interactive state", () => {
+  assert.deepEqual(voiceModeActionForState("idle"), {
+    kind: "tap_to_talk",
+    label: "Tap to talk",
+    disabled: false,
+  });
+  assert.deepEqual(voiceModeActionForState("listening"), {
+    kind: "stop_listening",
+    label: "Stop",
+    disabled: false,
+  });
+  assert.deepEqual(voiceModeActionForState("thinking"), {
+    kind: "cancel_turn",
+    label: "Cancel",
+    disabled: false,
+  });
+  assert.deepEqual(voiceModeActionForState("speaking"), {
+    kind: "stop_speaking",
+    label: "Stop",
+    disabled: false,
+  });
+  assert.deepEqual(voiceModeActionForState("post_speaking_guard"), {
+    kind: "stop_speaking",
+    label: "Stop",
+    disabled: false,
+  });
+});
+
 await t("tail guard env parsing defaults to 300ms and clamps bad values", () => {
   assert.equal(
     normalizeVoiceTtsTailGuardMs(undefined),
@@ -101,6 +130,16 @@ await t("VoiceMode logs every state transition through one wrapper", () => {
   assert.match(source, /ts: new Date\(\)\.toISOString\(\)/);
   assert.doesNotMatch(source, /\n\s+setState\("[a-z_]+"/);
   assert.doesNotMatch(source, /\n\s+setState\(\(prev\)/);
+});
+
+await t("VoiceMode renders one stable action button and wires cancel to chat abort", () => {
+  const source = readFileSync("components/VoiceMode.tsx", "utf8");
+  const pageSource = readFileSync("app/page.tsx", "utf8");
+  assert.match(source, /const voiceAction = voiceModeActionForState\(state\)/);
+  assert.match(source, /case "cancel_turn":\s*cancelThinkingTurn\(\)/);
+  assert.match(source, />\s*\{voiceAction\.label\}\s*<\/button>/);
+  assert.match(pageSource, /chatAbortControllerRef\.current\?\.abort\(\)/);
+  assert.match(pageSource, /onCancelTurn=\{cancelActiveChatTurn\}/);
 });
 
 await t("five speakable sentences stay eligible for five TTS appends", () => {

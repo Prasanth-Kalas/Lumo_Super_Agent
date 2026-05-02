@@ -268,6 +268,7 @@ export default function Home() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busyRef = useRef<boolean>(false);
+  const chatAbortControllerRef = useRef<AbortController | null>(null);
   // Session identity for this tab.
   //
   // On first paint we read ?session=<uuid> from the URL and adopt it
@@ -465,9 +466,12 @@ export default function Home() {
       // the user decided.
       await captureCoordsOnce();
 
+      const controller = new AbortController();
+      chatAbortControllerRef.current = controller;
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           session_id: sessionIdRef.current,
           device_kind: "web",
@@ -629,6 +633,9 @@ export default function Home() {
         }
       }
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       setMessages((m) => [
         ...m,
         {
@@ -639,6 +646,7 @@ export default function Home() {
       ]);
       console.error(err);
     } finally {
+      chatAbortControllerRef.current = null;
       busyRef.current = false;
       setBusy(false);
       // Memory may have been mutated this turn (memory_save /
@@ -652,6 +660,14 @@ export default function Home() {
     const text = input.trim();
     if (!text) return;
     void sendText(text);
+  }
+
+  function cancelActiveChatTurn() {
+    chatAbortControllerRef.current?.abort();
+    chatAbortControllerRef.current = null;
+    busyRef.current = false;
+    setBusy(false);
+    setSpokenStreamText("");
   }
 
   function friendlyChatError(err: unknown): string {
@@ -1079,6 +1095,7 @@ export default function Home() {
                 }}
                 spokenText={spokenStreamText}
                 busy={busy}
+                onCancelTurn={cancelActiveChatTurn}
                 onStateChange={setVoiceState}
               />
             </div>
