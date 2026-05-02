@@ -57,6 +57,12 @@ import {
   inferVoiceEmotion,
   type VoiceEmotion,
 } from "@/lib/voice-emotion";
+import {
+  canResumeListeningAfterTts,
+  isMicPausedForVoicePhase,
+  normalizeVoiceTtsTailGuardMs,
+  type VoiceModeMachinePhase,
+} from "@/lib/voice-mode-stt-gating";
 
 // How long to honor a "premium TTS unavailable" verdict before
 // re-probing. Tuned for transient upstream issues (quota, brief 5xx,
@@ -68,6 +74,10 @@ const PREMIUM_TTS_TIMEOUT_MS = 10_000;
 const BROWSER_TTS_START_TIMEOUT_MS = 2_500;
 const BROWSER_TTS_DONE_TIMEOUT_MS = 45_000;
 const RECORDED_STT_MAX_MS = 30_000;
+const TTS_TAIL_GUARD_MS = normalizeVoiceTtsTailGuardMs(
+  process.env.NEXT_PUBLIC_LUMO_VOICE_TTS_TAIL_GUARD_MS ??
+    process.env.LUMO_VOICE_TTS_TAIL_GUARD_MS,
+);
 const RECORDED_STT_MIME_TYPES = [
   "audio/webm;codecs=opus",
   "audio/webm",
@@ -118,6 +128,7 @@ export type VoiceState =
   | "listening"   // STT is active
   | "thinking"   // user's message is in flight to /api/chat
   | "speaking"   // TTS is playing an assistant reply
+  | "post_speaking_guard" // TTS tail decay; mic remains muted briefly
   | "unsupported"// browser doesn't expose Web Speech
   | "error";     // transient error; auto-recovers on next action
 
@@ -296,6 +307,7 @@ export default function VoiceMode(props: VoiceModeProps) {
   // player keeps a single MediaSource alive and appends every chunk
   // before ending the stream. Mute / cancel / barge-in call .stop().
   const activeStreamRef = useRef<ChunkedAudioPlayer | null>(null);
+  const ttsAbortControllerRef = useRef<AbortController | null>(null);
   // Keep the current browser-native utterance strongly referenced.
   // Some WebKit/Chromium builds can garbage-collect a local-only
   // SpeechSynthesisUtterance before it speaks, which presents as
@@ -341,6 +353,13 @@ export default function VoiceMode(props: VoiceModeProps) {
   const wantHandsFreeRef = useRef<boolean>(handsFree);
   const enabledRef = useRef<boolean>(enabled);
   const autoListenUnlockedRef = useRef<boolean>(false);
+  const finalBufferRef = useRef<string>("");
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ttsTailGuardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const voicePhaseRef = useRef<VoiceModeMachinePhase>("LISTENING");
+  const ttsMicPausedRef = useRef<boolean>(false);
   useEffect(() => {
     wantHandsFreeRef.current = handsFree;
   }, [handsFree]);
@@ -356,6 +375,69 @@ export default function VoiceMode(props: VoiceModeProps) {
   // J5 — wake word: optional Porcupine scaffold. active=false when no
   // access key is present, so this is a no-op in most environments.
   const wakeWordRef = useRef<WakeWordHandle | null>(null);
+
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }, []);
+
+  const setVoiceMachinePhase = useCallback((phase: VoiceModeMachinePhase) => {
+    voicePhaseRef.current = phase;
+    ttsMicPausedRef.current = isMicPausedForVoicePhase(phase);
+  }, []);
+
+  const clearTtsTailGuard = useCallback(() => {
+    if (ttsTailGuardTimerRef.current) {
+      clearTimeout(ttsTailGuardTimerRef.current);
+      ttsTailGuardTimerRef.current = null;
+    }
+  }, []);
+
+  const pauseActiveMicFeedForTts = useCallback(() => {
+    clearSilenceTimer();
+    finalBufferRef.current = "";
+    setInterim("");
+
+    const rec = recognitionRef.current;
+    if (rec) {
+      recognitionRef.current = null;
+      try {
+        rec.abort();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const recorder = recorderRef.current;
+    if (recorder) {
+      recorderSubmitRef.current = false;
+      recorderRef.current = null;
+      try {
+        if (recorder.state === "recording") recorder.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    const stream = recorderStreamRef.current;
+    recorderStreamRef.current = null;
+    if (stream) {
+      for (const track of stream.getTracks()) {
+        try {
+          track.stop();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }, [clearSilenceTimer]);
+
+  const beginTtsMicGate = useCallback(() => {
+    clearTtsTailGuard();
+    setVoiceMachinePhase("AGENT_SPEAKING");
+    pauseActiveMicFeedForTts();
+  }, [clearTtsTailGuard, pauseActiveMicFeedForTts, setVoiceMachinePhase]);
 
   // ─── Capability detection ────────────────────────────────────
   const supportedRef = useRef<boolean>(false);
@@ -409,6 +491,7 @@ export default function VoiceMode(props: VoiceModeProps) {
 
       let res: Response;
       const controller = new AbortController();
+      ttsAbortControllerRef.current = controller;
       const timeout = window.setTimeout(() => controller.abort(), PREMIUM_TTS_TIMEOUT_MS);
       try {
         res = await fetch("/api/tts", {
@@ -428,6 +511,9 @@ export default function VoiceMode(props: VoiceModeProps) {
         return "unavailable";
       } finally {
         window.clearTimeout(timeout);
+        if (ttsAbortControllerRef.current === controller) {
+          ttsAbortControllerRef.current = null;
+        }
       }
 
       if (!res.ok || !res.body) {
@@ -681,6 +767,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         // pulled the entry. Check once more before spawning audio.
         if (myTurn !== ttsTurnIdRef.current) break;
 
+        beginTtsMicGate();
         await playOneChunk(next.text, Boolean(next.final), () => {
           // Guard the speaking state-set against a turn that was
           // cancelled mid-fetch. Without this, a cancelled chunk
@@ -708,7 +795,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     } finally {
       ttsWorkerRunningRef.current = false;
     }
-  }, [playOneChunk]);
+  }, [beginTtsMicGate, playOneChunk]);
 
   const enqueueTts = useCallback(
     (text: string, onEnd?: () => void, final = false) => {
@@ -726,6 +813,14 @@ export default function VoiceMode(props: VoiceModeProps) {
   const cancelTts = useCallback(() => {
     ttsTurnIdRef.current += 1;
     ttsQueueRef.current.length = 0;
+    clearTtsTailGuard();
+    setVoiceMachinePhase("LISTENING");
+    try {
+      ttsAbortControllerRef.current?.abort();
+    } catch {
+      /* ignore */
+    }
+    ttsAbortControllerRef.current = null;
     stopPremiumAudio();
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
@@ -735,7 +830,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       }
     }
     activeUtteranceRef.current = null;
-  }, [stopPremiumAudio]);
+  }, [clearTtsTailGuard, setVoiceMachinePhase, stopPremiumAudio]);
 
   // ─── STT lifecycle ───────────────────────────────────────────
   //
@@ -766,16 +861,6 @@ export default function VoiceMode(props: VoiceModeProps) {
   // dispatch an empty turn.
   // Silence windows live in lib/voice-chunking.ts so they're unit-
   // testable. See DEFAULT_SILENCE for the current tuning.
-  const finalBufferRef = useRef<string>("");
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearSilenceTimer = useCallback(() => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-  }, []);
-
   const clearRecorderStopTimer = useCallback(() => {
     if (recorderStopTimerRef.current) {
       clearTimeout(recorderStopTimerRef.current);
@@ -903,7 +988,7 @@ export default function VoiceMode(props: VoiceModeProps) {
           if (!recorderSubmitRef.current) {
             recorderSubmitRef.current = true;
             setInterim("");
-            setState("idle");
+            if (!ttsMicPausedRef.current) setState("idle");
             return;
           }
           const blob = new Blob(chunks, {
@@ -972,6 +1057,7 @@ export default function VoiceMode(props: VoiceModeProps) {
   const startListening = useCallback(() => {
     if (!supportedRef.current) return;
     if (typeof window === "undefined") return;
+    if (ttsMicPausedRef.current) return;
     const Ctor =
       window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
     if (!Ctor) {
@@ -1117,6 +1203,7 @@ export default function VoiceMode(props: VoiceModeProps) {
         if (recognitionRef.current === rec) {
           recognitionRef.current = null;
         }
+        if (ttsMicPausedRef.current) return;
         if (buffered) onUserUtterance(buffered);
         setState("idle");
         return;
@@ -1179,17 +1266,26 @@ export default function VoiceMode(props: VoiceModeProps) {
       setState((prev) => (prev === "listening" ? "idle" : prev));
       if (
         !pending &&
-        !userStoppedListeningRef.current &&
-        wantHandsFreeRef.current &&
-        enabledRef.current &&
-        !busyRef.current
+        canResumeListeningAfterTts({
+          autoListenUnlocked: true,
+          handsFree: wantHandsFreeRef.current,
+          userStoppedListening: userStoppedListeningRef.current,
+          enabled: enabledRef.current,
+          busy: busyRef.current,
+          micPausedForTts: ttsMicPausedRef.current,
+        })
       ) {
         window.setTimeout(() => {
+          if (ttsMicPausedRef.current) return;
           if (
-            !userStoppedListeningRef.current &&
-            wantHandsFreeRef.current &&
-            enabledRef.current &&
-            !busyRef.current
+            canResumeListeningAfterTts({
+              autoListenUnlocked: true,
+              handsFree: wantHandsFreeRef.current,
+              userStoppedListening: userStoppedListeningRef.current,
+              enabled: enabledRef.current,
+              busy: busyRef.current,
+              micPausedForTts: ttsMicPausedRef.current,
+            })
           ) {
             startListening();
           }
@@ -1219,20 +1315,48 @@ export default function VoiceMode(props: VoiceModeProps) {
 
   const scheduleHandsFreeListening = useCallback(
     (delayMs = 200) => {
-      if (!autoListenUnlockedRef.current) return;
-      if (!wantHandsFreeRef.current) return;
-      if (userStoppedListeningRef.current) return;
+      if (
+        !canResumeListeningAfterTts({
+          autoListenUnlocked: autoListenUnlockedRef.current,
+          handsFree: wantHandsFreeRef.current,
+          userStoppedListening: userStoppedListeningRef.current,
+          enabled: enabledRef.current,
+          busy: busyRef.current,
+          micPausedForTts: ttsMicPausedRef.current,
+        })
+      ) {
+        return;
+      }
       window.setTimeout(() => {
-        if (!autoListenUnlockedRef.current) return;
-        if (!wantHandsFreeRef.current) return;
-        if (userStoppedListeningRef.current) return;
-        if (!enabledRef.current) return;
-        if (busyRef.current) return;
+        if (
+          !canResumeListeningAfterTts({
+            autoListenUnlocked: autoListenUnlockedRef.current,
+            handsFree: wantHandsFreeRef.current,
+            userStoppedListening: userStoppedListeningRef.current,
+            enabled: enabledRef.current,
+            busy: busyRef.current,
+            micPausedForTts: ttsMicPausedRef.current,
+          })
+        ) {
+          return;
+        }
         startListening();
       }, delayMs);
     },
     [startListening],
   );
+
+  const completeTtsWithTailGuard = useCallback(() => {
+    clearTtsTailGuard();
+    setVoiceMachinePhase("POST_SPEAKING_GUARD");
+    setState("post_speaking_guard");
+    ttsTailGuardTimerRef.current = setTimeout(() => {
+      ttsTailGuardTimerRef.current = null;
+      setVoiceMachinePhase("LISTENING");
+      setState("idle");
+      scheduleHandsFreeListening(0);
+    }, TTS_TAIL_GUARD_MS);
+  }, [clearTtsTailGuard, scheduleHandsFreeListening, setVoiceMachinePhase]);
 
   const stopListening = useCallback(() => {
     if (recorderRef.current) {
@@ -1344,14 +1468,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       // after all previous appends drain.
       enqueueTts(
         "",
-        () => {
-          if (wantHandsFreeRef.current && enabled) {
-            setState("idle");
-            scheduleHandsFreeListening();
-          } else {
-            setState("idle");
-          }
-        },
+        completeTtsWithTailGuard,
         true,
       );
       return;
@@ -1373,14 +1490,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       enqueueTts(
         chunk,
         index === tailChunks.length - 1
-          ? () => {
-              if (wantHandsFreeRef.current && enabled) {
-                setState("idle");
-                scheduleHandsFreeListening();
-              } else {
-                setState("idle");
-              }
-            }
+          ? completeTtsWithTailGuard
           : undefined,
         index === tailChunks.length - 1,
       ),
@@ -1391,6 +1501,7 @@ export default function VoiceMode(props: VoiceModeProps) {
     enabled,
     muted,
     enqueueTts,
+    completeTtsWithTailGuard,
     scheduleHandsFreeListening,
   ]);
 
@@ -1411,12 +1522,22 @@ export default function VoiceMode(props: VoiceModeProps) {
     const noRec = recognitionRef.current === null;
     const noRecorded = recorderRef.current === null;
     if (noQueue && noWorker && noPremiumAudio && noRec && noRecorded) {
+      clearTtsTailGuard();
+      setVoiceMachinePhase("LISTENING");
       setState("idle");
       if (wantHandsFreeRef.current) {
         scheduleHandsFreeListening();
       }
     }
-  }, [busy, state, enabled, scheduleHandsFreeListening, spokenText]);
+  }, [
+    busy,
+    state,
+    enabled,
+    clearTtsTailGuard,
+    scheduleHandsFreeListening,
+    setVoiceMachinePhase,
+    spokenText,
+  ]);
 
   // While the network is busy, reflect "thinking" if we're not mid-TTS.
   useEffect(() => {
@@ -1432,14 +1553,14 @@ export default function VoiceMode(props: VoiceModeProps) {
   }, [busy, enabled]);
 
   // ─── J5 — barge-in lifecycle ─────────────────────────────────
-  // Open a dedicated mic pipeline while Lumo is speaking. If the user
-  // starts talking, cancel TTS and swap to STT. Mic is closed the
-  // moment we leave the speaking state so we're never holding a live
-  // stream we don't need.
+  // Legacy barge-in scaffold. Voice-mode STT is explicitly muted while TTS
+  // is active, so this monitor must stay off under the TTS mic gate; manual
+  // Stop still cancels TTS and hands control back to the user.
   useEffect(() => {
     if (!BARGE_IN_ENABLED) return;
     if (!enabled) return;
     if (state !== "speaking") return;
+    if (ttsMicPausedRef.current) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -1584,7 +1705,10 @@ export default function VoiceMode(props: VoiceModeProps) {
   void onHandsFreeToggle;
 
   const actionVisible =
-    state !== "listening" && state !== "thinking" && state !== "speaking";
+    state !== "listening" &&
+    state !== "thinking" &&
+    state !== "speaking" &&
+    state !== "post_speaking_guard";
 
   return (
     <div className="flex flex-col gap-2">
@@ -1675,7 +1799,7 @@ export default function VoiceMode(props: VoiceModeProps) {
             }}
             className="ml-auto rounded-full border border-lumo-hair px-4 py-2 text-[13px] text-lumo-fg hover:bg-lumo-elevated transition-colors"
           >
-            Skip
+            Stop
           </button>
         ) : null}
       </div>
@@ -1748,6 +1872,8 @@ function stateLabel(s: VoiceState, emotion: VoiceEmotion): string {
       return "thinking";
     case "speaking":
       return emotionLabel(emotion);
+    case "post_speaking_guard":
+      return "speaking";
     case "unsupported":
       return "not supported";
     case "error":
@@ -1777,6 +1903,7 @@ function stateToneClass(s: VoiceState): string {
     case "thinking":
       return "text-lumo-fg-low";
     case "speaking":
+    case "post_speaking_guard":
       return "text-emerald-400";
     case "error":
       return "text-red-400";
@@ -1793,7 +1920,7 @@ function StatusDot({ state }: { state: VoiceState }) {
       ? "bg-lumo-accent animate-pulse"
       : state === "thinking"
       ? "bg-amber-400 animate-pulse"
-      : state === "speaking"
+      : state === "speaking" || state === "post_speaking_guard"
       ? "bg-emerald-400 animate-pulse"
       : state === "error"
       ? "bg-red-400"
