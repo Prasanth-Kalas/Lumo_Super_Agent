@@ -188,7 +188,9 @@ private struct HistorySessionRow: View {
 
 // MARK: - Trip rendering
 
-private struct HistoryTripRow: View {
+// MARK: - Reusable trip row (consumed by TripsView)
+
+struct HistoryTripRow: View {
     let trip: HistoryTripDTO
     let isExpanded: Bool
     let onToggle: () -> Void
@@ -264,7 +266,7 @@ private struct HistoryTripRow: View {
     }
 }
 
-private struct HistoryTripDetail: View {
+struct HistoryTripDetail: View {
     let trip: HistoryTripDTO
     let onOpenSession: () -> Void
     @ObservedObject var viewModel: HistoryScreenViewModel
@@ -397,7 +399,7 @@ private struct HistoryTripDetail: View {
     }
 }
 
-private struct HistoryTripStatusPill: View {
+struct HistoryTripStatusPill: View {
     let status: String
 
     var body: some View {

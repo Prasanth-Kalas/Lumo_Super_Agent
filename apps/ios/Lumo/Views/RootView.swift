@@ -194,7 +194,16 @@ struct RootView: View {
         case .workspace:
             WorkspaceView()
         case .trips:
-            TripsView()
+            TripsView(
+                viewModel: historyViewModel,
+                onSelectSession: { _ in
+                    // Same hand-off as the History tab — pop back to
+                    // chat once MOBILE-CHAT-LOAD-SESSION-1 wires
+                    // ChatViewModel.loadSession(id:).
+                    path.removeLast(path.count)
+                    drawerOpen = false
+                }
+            )
         case .receipts:
             ReceiptHistoryView(store: receiptStore)
         case .receiptDetail(let receiptID):
