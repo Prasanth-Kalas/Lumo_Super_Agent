@@ -20,7 +20,7 @@
 
 import { requireServerUser } from "@/lib/auth";
 import { getSupabase } from "@/lib/db";
-import { isPublisher } from "@/lib/publisher/access";
+import { getUserRole, isPublisher } from "@/lib/publisher/access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +28,9 @@ export const dynamic = "force-dynamic";
 export async function GET(): Promise<Response> {
   const user = await requireServerUser();
   const email = (user.email ?? "").toLowerCase();
-  if (!email) return json({ developer: null });
+  if (!email) return json({ developer: null, role: "user" as const });
+
+  const role = await getUserRole(email);
 
   if (isPublisher(email)) {
     return json({
@@ -38,26 +40,32 @@ export async function GET(): Promise<Response> {
         company: null,
         reason: null,
         tier: "approved" as const,
+        // Env-allowlist publishers are Lumo-team / hand-onboarded,
+        // so they implicitly get the highest capability tier — they
+        // shipped first-party agents that wouldn't pass tier_1's
+        // free/low-only gate.
+        capability_tier: "tier_3" as const,
         source: "env_allowlist" as const,
         reviewer_note: null,
         created_at: null,
       },
+      role,
     });
   }
 
   const sb = getSupabase();
-  if (!sb) return json({ developer: null });
+  if (!sb) return json({ developer: null, role });
 
   const { data, error } = await sb
     .from("partner_developers")
     .select(
-      "email, display_name, company, reason, tier, reviewer_note, created_at",
+      "email, display_name, company, reason, tier, capability_tier, reviewer_note, created_at",
     )
     .eq("email", email)
     .maybeSingle();
   if (error) return json({ error: error.message }, 500);
-  if (!data) return json({ developer: null });
-  return json({ developer: { ...data, source: "db" as const } });
+  if (!data) return json({ developer: null, role });
+  return json({ developer: { ...data, source: "db" as const }, role });
 }
 
 function json(body: unknown, status = 200): Response {

@@ -55,10 +55,20 @@ interface DeveloperAccount {
   company: string | null;
   reason: string | null;
   tier: "waitlisted" | "approved" | "rejected" | "revoked";
+  capability_tier?: "tier_1" | "tier_2" | "tier_3";
   source?: "env_allowlist" | "db";
   reviewer_note?: string | null;
   created_at?: string | null;
 }
+
+const CAPABILITY_TIER_DESCRIPTION: Record<
+  "tier_1" | "tier_2" | "tier_3",
+  string
+> = {
+  tier_1: "Free + low-cost reads only",
+  tier_2: "+ metered writes (state-changing tools)",
+  tier_3: "+ money tools (payments, bookings)",
+};
 
 interface CertificationReport {
   checked_at: string;
@@ -277,6 +287,8 @@ export default function PublisherPage() {
                 can connect them.
               </p>
             </div>
+
+            <CapabilityTierCard developer={developer} />
 
         <DeveloperLaunchpad
           steps={launchSteps}
@@ -808,6 +820,43 @@ function GateNotice({
       <h2 className="text-[16px] font-semibold text-lumo-fg">{title}</h2>
       <div className="mt-2 text-[13px] text-lumo-fg-mid">{body}</div>
     </div>
+  );
+}
+
+function CapabilityTierCard({
+  developer,
+}: {
+  developer: DeveloperAccount | null;
+}) {
+  // Default to tier_1 when the row exists but the column hasn't
+  // been populated yet (legacy rows pre-migration 066). Env-
+  // allowlist developers come back with tier_3 from the API.
+  const tier = developer?.capability_tier ?? "tier_1";
+  const description = CAPABILITY_TIER_DESCRIPTION[tier];
+  const showUpgradeNote = tier !== "tier_3";
+  return (
+    <section className="mb-6 rounded-xl border border-lumo-hair bg-lumo-surface px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.13em] text-lumo-fg-low">
+            Your capability tier
+          </div>
+          <div className="mt-0.5 text-[15px] font-semibold text-lumo-fg">
+            {tier}
+          </div>
+          <div className="mt-0.5 text-[12.5px] text-lumo-fg-mid">
+            {description}
+          </div>
+        </div>
+        {showUpgradeNote ? (
+          <p className="max-w-[260px] text-[11.5px] text-lumo-fg-low text-right">
+            New developers start at tier_1. Contact the Lumo team to
+            unlock writes (tier_2) or money tools (tier_3) once you've
+            shown clean operation.
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
