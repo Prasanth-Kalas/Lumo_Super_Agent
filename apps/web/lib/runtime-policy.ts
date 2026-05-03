@@ -9,40 +9,15 @@ import { randomUUID } from "node:crypto";
 import type { AgentManifest, ToolRoutingEntry } from "@lumo/agent-sdk";
 import { getSupabase } from "./db.js";
 import { getInstallForUser, touchAgentInstallLastUsed } from "./app-installs.js";
-import { isPublisher } from "./publisher/access.js";
 
 export interface RuntimePolicyDecision {
   ok: boolean;
   code?:
     | "agent_suspended"
     | "app_not_installed"
-    | "rate_limited"
-    | "capability_tier_required";
+    | "rate_limited";
   message?: string;
   detail?: Record<string, unknown>;
-}
-
-export type CapabilityTier = "tier_1" | "tier_2" | "tier_3";
-
-/**
- * Cost tiers a partner is allowed to expose at each capability tier.
- * The mapping is monotonic — every higher tier is a superset.
- */
-const COST_TIERS_BY_CAPABILITY: Record<
-  CapabilityTier,
-  ReadonlySet<ToolRoutingEntry["cost_tier"]>
-> = {
-  tier_1: new Set(["free", "low"]),
-  tier_2: new Set(["free", "low", "metered"]),
-  tier_3: new Set(["free", "low", "metered", "money"]),
-};
-
-/** Pure: is this cost_tier in the allowed set for this capability tier? */
-export function isCostTierAllowed(
-  capability: CapabilityTier,
-  cost: ToolRoutingEntry["cost_tier"],
-): boolean {
-  return COST_TIERS_BY_CAPABILITY[capability].has(cost);
 }
 
 export interface RuntimePolicyInput {
@@ -104,34 +79,6 @@ export async function evaluateRuntimePolicy(
     };
   }
 
-  // Capability tier gate. System agents (Lumo's own first-party
-  // agents from config/agents.registry.json) bypass — they're
-  // trusted by definition and don't go through the partner pipeline.
-  // Partner agents are gated on the publishing developer's tier:
-  //   tier_1: free + low only         (read-only-ish, default for new
-  //                                    partners)
-  //   tier_2: + metered               (write/state-changing tools)
-  //   tier_3: + money                 (payment / booking tools)
-  // The lookup fails closed (tier_1) on missing rows or DB errors
-  // so a misconfigured partner can't accidentally inherit money
-  // permissions.
-  if (!input.system_agent) {
-    const tier = await getCapabilityTierForAgent(input.agent_id);
-    if (!isCostTierAllowed(tier, input.cost_tier)) {
-      return {
-        ok: false,
-        code: "capability_tier_required",
-        message: `${input.display_name} hasn't been approved for this kind of tool yet.`,
-        detail: {
-          agent_id: input.agent_id,
-          tool_name: input.tool_name,
-          cost_tier: input.cost_tier,
-          current_capability_tier: tier,
-        },
-      };
-    }
-  }
-
   const isAnon = !input.user_id || input.user_id === "anon";
   if (!isAnon && !input.system_agent) {
     const installed = input.has_active_connection
@@ -153,50 +100,6 @@ export async function evaluateRuntimePolicy(
   return { ok: true };
 }
 
-/**
- * Look up the publishing developer's capability tier for the agent
- * currently published under this agent_id. Resolution:
- *
- *   1. Find the published partner_agents row whose parsed_manifest's
- *      agent_id matches. (Indexed by migration 066's functional
- *      index `partner_agents_agent_id_published_idx`.)
- *   2. Read partner_developers.capability_tier for that publisher.
- *   3. If the publisher is on LUMO_PUBLISHER_EMAILS, return tier_3
- *      (Lumo-vetted bootstrap accounts skip the application table).
- *   4. Otherwise default to tier_1 (most restrictive) when any step
- *      fails — never silently grant escalated permissions.
- *
- * The function is intentionally per-call rather than registry-cached
- * because admin tier promotions take effect on the next request, not
- * after a registry rebuild. The cost is one indexed JSONB lookup +
- * one PK lookup; both are O(log n).
- */
-export async function getCapabilityTierForAgent(
-  agent_id: string,
-): Promise<CapabilityTier> {
-  const db = getSupabase();
-  if (!db) return "tier_1";
-  const { data: agentRow, error: agentErr } = await db
-    .from("partner_agents")
-    .select("publisher_email")
-    .eq("is_published", true)
-    .eq("parsed_manifest->>agent_id", agent_id)
-    .limit(1)
-    .maybeSingle();
-  if (agentErr || !agentRow) return "tier_1";
-  const publisher = (agentRow as { publisher_email?: string }).publisher_email;
-  if (!publisher) return "tier_1";
-  if (isPublisher(publisher)) return "tier_3";
-  const { data: devRow, error: devErr } = await db
-    .from("partner_developers")
-    .select("capability_tier")
-    .eq("email", publisher.toLowerCase())
-    .maybeSingle();
-  if (devErr || !devRow) return "tier_1";
-  const t = (devRow as { capability_tier?: string }).capability_tier;
-  if (t === "tier_1" || t === "tier_2" || t === "tier_3") return t;
-  return "tier_1";
-}
 
 export async function recordRuntimeUsage(args: {
   user_id: string;
