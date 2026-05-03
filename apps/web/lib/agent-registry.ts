@@ -299,91 +299,16 @@ async function loadAgent(
 }
 
 /**
- * Load every row in partner_agents that has status = 'approved'.
- *
- * The manifest is already stored (approved rows had their manifest
- * parsed during /api/publisher/submit) so we skip the manifest fetch.
- * The openapi is not stored — fetching it keeps the wire-free and
- * ensures a partner who pushed a bad openapi after approval drops out
- * on the next boot instead of breaking the bridge.
- *
- * The Supabase read is done through a lazy import so this module
- * stays usable in contexts that don't have a DB configured (tests,
- * build-time analysis). A missing client just returns an empty list
- * — the shell then boots with only static + internal agents, which
- * is the correct "no partners configured yet" behaviour.
+ * Stubbed during the developer-portal consolidation (migration 069).
+ * The `partner_agents` table was dropped when /publisher merged into
+ * /developer/* (which uses marketplace_agents instead). The
+ * /developer/* portal owns its own runtime loader; this entry point
+ * stays as a no-op so the call site above keeps compiling without
+ * change. Replace this with a marketplace_agents-backed loader if
+ * partner agents need to feed Claude's bridge again.
  */
 async function loadApprovedPartnerAgents(): Promise<RegistryEntry[]> {
-  let sb: ReturnType<typeof import("./db.js").getSupabase>;
-  try {
-    const mod = await import("./db.js");
-    sb = mod.getSupabase();
-  } catch {
-    return [];
-  }
-  if (!sb) return [];
-
-  let rows: Array<{
-    id: string;
-    manifest_url: string;
-    parsed_manifest: unknown;
-    version: string;
-  }> = [];
-  try {
-    // Mental model: the App Store. Each (manifest_url, version) is
-    // an immutable, separately-reviewable artifact, but only the
-    // single `is_published=true` row per URL is what the
-    // marketplace actually serves to users. Filtering here is the
-    // hard guarantee that Claude's tool list never sees a stale
-    // version even if multiple are sitting in `approved` (e.g., new
-    // version cleared review while the prior one is still live).
-    const { data, error } = await sb
-      .from("partner_agents")
-      .select("id, manifest_url, parsed_manifest, version")
-      .eq("status", "approved")
-      .eq("is_published", true);
-    if (error) {
-      console.warn("[registry] partner_agents read failed:", error.message);
-      return [];
-    }
-    rows = data ?? [];
-  } catch (err) {
-    console.warn("[registry] partner_agents read threw:", err);
-    return [];
-  }
-
-  const out: RegistryEntry[] = [];
-  for (const row of rows) {
-    try {
-      const manifest = parseManifest(row.parsed_manifest);
-      // Derive the agent's base URL from the manifest URL. A well-
-      // formed partner serves the manifest at <base>/.well-known/
-      // agent.json, so the origin is the base.
-      const origin = new URL(row.manifest_url).origin;
-      const openapiUrl = manifest.openapi_url.startsWith("http")
-        ? manifest.openapi_url
-        : new URL(manifest.openapi_url, origin).toString();
-      const openapiRes = await fetchWithTimeout(openapiUrl, 5_000);
-      const openapi = (await openapiRes.json()) as OpenApiDocument;
-      out.push({
-        // Namespace partner keys so they don't collide with static
-        // config keys if a partner picks a name we use internally.
-        key: `partner:${row.id}`,
-        base_url: origin,
-        manifest,
-        openapi,
-        last_health: null,
-        health_score: 1.0,
-        manifest_loaded_at: Date.now(),
-      });
-    } catch (err) {
-      console.error(
-        `[registry] partner agent "${row.manifest_url}" failed to load — dropping:`,
-        err,
-      );
-    }
-  }
-  return out;
+  return [];
 }
 
 /**
