@@ -351,6 +351,12 @@ export default function VoiceMode(props: VoiceModeProps) {
   const spokenSoFarRef = useRef<number>(0); // index into spokenText already sent to TTS
   const lastSpokenTextRef = useRef<string>(spokenText);
   const userStoppedListeningRef = useRef<boolean>(false); // user intent to be off
+  // User-initiated Stop while Lumo is mid-speech sets this true.
+  // The TTS feeder effects skip enqueuing while it's true so the
+  // assistant's still-streaming response doesn't keep producing
+  // audio in the background. Resets when a new agent turn starts
+  // (spokenText shrinks) or when the user explicitly taps to talk.
+  const userStoppedTtsRef = useRef<boolean>(false);
   const wantHandsFreeRef = useRef<boolean>(handsFree);
   const enabledRef = useRef<boolean>(enabled);
   const autoListenUnlockedRef = useRef<boolean>(false);
@@ -1083,6 +1089,9 @@ export default function VoiceMode(props: VoiceModeProps) {
     }
 
     userStoppedListeningRef.current = false;
+    // Re-arm TTS for the next assistant turn — user explicitly
+    // tapped to talk, so they want the response to be audible.
+    userStoppedTtsRef.current = false;
 
     // Stop any current TTS first — user wants to speak now. This
     // also empties the queue and bumps the turn id so any in-flight
@@ -1367,18 +1376,28 @@ export default function VoiceMode(props: VoiceModeProps) {
 
   // User-initiated Stop while Lumo is speaking. Halts TTS and goes
   // straight to idle — does NOT auto-restart listening even when
-  // hands-free is on. The button labeled "Stop" must mean stop;
-  // resuming the conversation requires another tap-to-talk so the
-  // user is in control. userStoppedListeningRef stays true so any
-  // hands-free auto-resume path (rec.onend, scheduleHandsFreeListening)
-  // bails out.
+  // hands-free is on. The button labeled "Stop" must mean stop.
+  //
+  // userStoppedListeningRef = true blocks the rec.onend /
+  // scheduleHandsFreeListening auto-resume.
+  // userStoppedTtsRef    = true blocks the spokenText-driven TTS
+  // feeder from re-enqueuing audio for the rest of this assistant
+  // turn (the LLM keeps streaming text after the user clicks Stop;
+  // without this gate, new chunks land in the queue ~100ms later
+  // and audio resumes — which is what made the button look broken).
+  // Both flags reset on the next user-initiated tap-to-talk, and
+  // userStoppedTtsRef also resets when a new agent turn starts.
   const stopSpeakingAndReturnToListening = useCallback(() => {
     cancelTts();
     clearTtsTailGuard();
     setVoiceMachinePhase("LISTENING");
     setState("idle");
     userStoppedListeningRef.current = true;
-  }, [cancelTts, clearTtsTailGuard, setVoiceMachinePhase]);
+    userStoppedTtsRef.current = true;
+    // Move spoken-so-far cursor to the end of whatever has been
+    // streamed so the tail-flush effect can't re-feed the gap.
+    spokenSoFarRef.current = spokenText.length;
+  }, [cancelTts, clearTtsTailGuard, setVoiceMachinePhase, spokenText]);
 
   const stopListening = useCallback(() => {
     if (recorderRef.current) {
@@ -1437,12 +1456,20 @@ export default function VoiceMode(props: VoiceModeProps) {
     // Agent turn just started (spokenText reset to something
     // shorter than what we'd seen). Clear speak-index AND cancel
     // any leftover audio/queue from the previous turn — otherwise
-    // the tail of turn N-1 plays over the head of turn N.
+    // the tail of turn N-1 plays over the head of turn N. Also
+    // re-arm TTS for this fresh turn (clears the user-stopped gate
+    // from a previous Stop click).
     if (spokenText.length < lastSpokenTextRef.current.length) {
       spokenSoFarRef.current = 0;
+      userStoppedTtsRef.current = false;
       cancelTts();
     }
     lastSpokenTextRef.current = spokenText;
+
+    // User clicked Stop on this turn. Don't push the still-arriving
+    // tokens into the TTS queue; the chat bubble stays so the user
+    // can read what Lumo wanted to say.
+    if (userStoppedTtsRef.current) return;
 
     const untouched = spokenText.slice(spokenSoFarRef.current);
     const { chunks, rest } = nextSpeakableChunks(untouched);
@@ -1480,6 +1507,9 @@ export default function VoiceMode(props: VoiceModeProps) {
     if (busy) return;
     if (!enabled || typeof window === "undefined") return;
     if (!("speechSynthesis" in window)) return;
+    // User stopped this turn explicitly — don't tail-flush either,
+    // and skip the hands-free auto-resume so Stop fully sticks.
+    if (userStoppedTtsRef.current) return;
 
     const tail = spokenText.slice(spokenSoFarRef.current).trim();
     const tailChunks = finalSpeakableChunks(tail);
