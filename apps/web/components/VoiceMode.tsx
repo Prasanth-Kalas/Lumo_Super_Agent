@@ -1066,34 +1066,19 @@ export default function VoiceMode(props: VoiceModeProps) {
       setState("unsupported");
       return;
     }
+    if (ttsMicPausedRef.current) return;
     if (!Ctor) {
       void startRecordedFallback("browser speech recognition is unavailable");
       return;
     }
 
-    // Self-heal stale state. Two paths used to silently bail here,
-    // which made the "Tap to talk" button feel broken:
-    //   1. ttsMicPausedRef.current true → user tapped during the
-    //      post-TTS guard window. Cancel TTS so the user's intent
-    //      to talk wins over the tail-guard delay.
-    //   2. recognitionRef.current truthy → a previous rec didn't get
-    //      nulled (race between hands-free auto-resume and this
-    //      explicit tap). Tear it down before starting a new one.
-    if (ttsMicPausedRef.current) {
-      cancelTts();
-      clearTtsTailGuard();
-      setVoiceMachinePhase("LISTENING");
-      ttsMicPausedRef.current = false;
-    }
-    if (recognitionRef.current) {
-      const stale = recognitionRef.current;
-      recognitionRef.current = null;
-      try { stale.stop(); } catch { /* ignore */ }
-    }
-    if (recorderRef.current) {
-      // The recorded-audio fallback is harder to short-circuit
-      // safely; skip the start until that path winds down rather
-      // than risk overlapping uploads.
+    // Idempotency guard. The hands-free loop can race — both the
+    // chunk-speak effect AND the tail-flush effect schedule a
+    // setTimeout(() => startListening(), 200) when TTS ends. Without
+    // this guard, two SpeechRecognition instances end up running
+    // simultaneously and each emits the user's utterance → duplicate
+    // turns ("from Chicago" appearing twice in the thread).
+    if (recognitionRef.current || recorderRef.current) {
       return;
     }
 
@@ -1333,14 +1318,7 @@ export default function VoiceMode(props: VoiceModeProps) {
       setState("error");
       console.warn("[voice] start failed:", err);
     }
-  }, [
-    onUserUtterance,
-    cancelTts,
-    clearSilenceTimer,
-    startRecordedFallback,
-    clearTtsTailGuard,
-    setVoiceMachinePhase,
-  ]);
+  }, [onUserUtterance, cancelTts, clearSilenceTimer, startRecordedFallback]);
 
   const scheduleHandsFreeListening = useCallback(
     (delayMs = 200) => {
@@ -1391,29 +1369,25 @@ export default function VoiceMode(props: VoiceModeProps) {
   // straight to idle — does NOT auto-restart listening even when
   // hands-free is on. The button labeled "Stop" must mean stop;
   // resuming the conversation requires another tap-to-talk so the
-  // user is in control.
+  // user is in control. userStoppedListeningRef stays true so any
+  // hands-free auto-resume path (rec.onend, scheduleHandsFreeListening)
+  // bails out.
   const stopSpeakingAndReturnToListening = useCallback(() => {
     cancelTts();
     clearTtsTailGuard();
     setVoiceMachinePhase("LISTENING");
     setState("idle");
-    // userStoppedListeningRef stays true until the next user tap so
-    // the hands-free auto-resume loop in scheduleHandsFreeListening
-    // / rec.onend bails out.
     userStoppedListeningRef.current = true;
   }, [cancelTts, clearTtsTailGuard, setVoiceMachinePhase]);
 
   const stopListening = useCallback(() => {
-    // Mark the user-initiated stop FIRST so any racing onend /
-    // hands-free schedule that fires before we finish tearing down
-    // sees the flag and bails out.
-    userStoppedListeningRef.current = true;
     if (recorderRef.current) {
       stopRecordedFallback(true);
-      setState("idle");
       return;
     }
     const rec = recognitionRef.current;
+    if (!rec) return;
+    userStoppedListeningRef.current = true;
     // Flush anything we've heard so far — otherwise the user's
     // mid-sentence Stop click loses the transcript silently.
     clearSilenceTimer();
@@ -1431,12 +1405,10 @@ export default function VoiceMode(props: VoiceModeProps) {
         /* ignore */
       }
     }
-    if (rec) {
-      try {
-        rec.stop();
-      } catch {
-        // ignore
-      }
+    try {
+      rec.stop();
+    } catch {
+      // ignore
     }
     setState("idle");
   }, [clearSilenceTimer, onUserUtterance, stopRecordedFallback]);
@@ -1806,9 +1778,9 @@ export default function VoiceMode(props: VoiceModeProps) {
         </button>
 
         {/* Hands-free — when on, Lumo auto-resumes listening after
-            speaking. When off, every turn is a tap-to-talk. The toggle
-            was previously hidden which left the system stuck on
-            continuous mode with no way to opt out. */}
+            speaking. When off, every turn is a tap-to-talk. The
+            toggle was previously hidden which left the system stuck
+            on continuous mode with no way to opt out. */}
         <button
           type="button"
           aria-pressed={handsFree}
